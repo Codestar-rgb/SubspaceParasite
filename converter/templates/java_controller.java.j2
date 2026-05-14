@@ -1,0 +1,62 @@
+{#-
+  GeckoLib Animation Controller Template (Class B - State Machine)
+  ==================================================================
+  Produces Java code for a GeckoLib AnimationController with state-based
+  animation transitions. Different entity states trigger different animation
+  sets with configurable transition blending.
+
+  Expected variables:
+    - package_name: str               Java package
+    - class_name: str                 Model class name
+    - entity_class: str               Entity class name
+    - controller_name: str            Controller name (e.g. "kirinController")
+    - transition_length: float        Default transition length in ticks
+    - states: list                    List of animation state dicts
+
+  Each state dict has:
+    - name: str                       State name (e.g. "idle", "walk", "attack")
+    - animation_name: str             GeckoLib animation name (e.g. "animation.model.idle")
+    - condition: str                  Java boolean expression for triggering this state
+    - priority: int                   Priority (higher = checked first)
+    - transition_length: float        Transition duration in ticks (optional, uses default)
+    - is_looping: bool                Whether the animation loops
+
+  The condition expressions should reference entity state fields like:
+    - animatable.isMoving()
+    - animatable.isAttacking()
+    - animatable.getState() == State.IDLE
+    - animatable.getHealth() > 0
+-#}
+// Auto-generated AnimationController for {{ entity_class }}
+// Class B: State Machine Animation
+// Place this in your {{ class_name }} or entity registration code.
+
+AnimationController<{{ entity_class }}> {{ controller_name }} =
+    new AnimationController<{{ entity_class }}>(this, "{{ controller_name }}", {{ transition_length }}f, event -> {
+        {{ entity_class }} animatable = event.getAnimatable();
+
+{% for state in states | sort(attribute='priority', reverse=True) %}
+        // State: {{ state.name }} (priority {{ state.priority }})
+        if ({{ state.condition }}) {
+{% if state.is_looping %}
+            event.getController().setAnimation(
+                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.LOOP)
+            );
+{% else %}
+            event.getController().setAnimation(
+                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.PLAY_ONCE)
+            );
+{% endif %}
+            return PlayState.CONTINUE;
+        }
+
+{% endfor %}
+        // Default: no animation plays
+        return PlayState.STOP;
+    });
+
+// Register the controller in registerControllers():
+// @Override
+// public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+//     controllers.add({{ controller_name }});
+// }

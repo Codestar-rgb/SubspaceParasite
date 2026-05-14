@@ -1,0 +1,249 @@
+{#-
+  GeckoLib Helper Utility Class Template
+  ========================================
+  Produces a Java utility class with helper methods for animation math,
+  coordinate transformations, and common GeckoLib operations.
+
+  Expected variables:
+    - package_name: str               Java package
+    - class_name: str                 Utility class name (e.g. "AnimationUtils")
+    - mod_id: str                     Mod identifier
+    - entity_class: str               Entity class name
+    - head_tracking: dict|none        Head tracking configuration (optional)
+
+  head_tracking dict:
+    - head_bones: list[str]           Bone names in head chain (e.g. ["upper_neck", "neck", "head"])
+    - max_yaw: float                  Maximum yaw rotation in degrees
+    - max_pitch: float                Maximum pitch rotation in degrees
+    - yaw_divisor: float              Divisor for distributing yaw across chain
+    - pitch_divisor: float            Divisor for distributing pitch across chain
+-#}
+package {{ package_name }};
+
+import net.minecraft.world.entity.LivingEntity;
+import software.bernie.geckolib.cache.object.GeoBone;
+{% if head_tracking %}
+import {{ package_name }}.{{ entity_class }}GeoModel;
+{% endif %}
+
+/**
+ * Utility class for Minecraft 1.12.2 → GeckoLib 1.20.1 animation conversion.
+ *
+ * Provides helper methods for:
+ *   - Coordinate system transformation (M_model = diag(1, -1, -1))
+ *   - Head/neck rotation tracking
+ *   - Common animation math operations
+ *
+ * Coordinate transformation rules:
+ *   Position: (x, -y, -z)     [Y-down → Y-up, RH → LH]
+ *   Rotation: (rx, -ry, -rz)  [single-axis, M_model similarity transform]
+ *   Dimensions: (w, h, d)     [preserved under linear transformation]
+ */
+public class {{ class_name }} {
+
+    // ========================================================================
+    // Coordinate Transformation Constants
+    // ========================================================================
+
+    /** Conversion factor: degrees to radians */
+    public static final float DEG_TO_RAD = (float) (Math.PI / 180.0);
+
+    /** Conversion factor: radians to degrees */
+    public static final float RAD_TO_DEG = (float) (180.0 / Math.PI);
+
+    /** Pi constant for convenience */
+    public static final float PI = (float) Math.PI;
+
+    /** Half pi */
+    public static final float HALF_PI = (float) (Math.PI / 2.0);
+
+{% if head_tracking %}
+    // ========================================================================
+    // Head Tracking Configuration
+    // ========================================================================
+
+    /** Maximum head yaw rotation (degrees) */
+    public static final float MAX_HEAD_YAW = {{ head_tracking.max_yaw }}f;
+
+    /** Maximum head pitch rotation (degrees) */
+    public static final float MAX_HEAD_PITCH = {{ head_tracking.max_pitch }}f;
+
+    /** Number of bones in the head chain for rotation distribution */
+    public static final int HEAD_CHAIN_LENGTH = {{ head_tracking.head_bones | length }};
+
+    /** Head chain bone names (from outermost to innermost) */
+{% for bone_name in head_tracking.head_bones %}
+    public static final String HEAD_BONE_{{ loop.index0 }} = "{{ bone_name }}";
+{% endfor %}
+
+{% endif %}
+    // ========================================================================
+    // Coordinate Transformation Methods
+    // ========================================================================
+
+    /**
+     * Convert rotation from MC 1.12.2 to GeckoLib 1.20.1 coordinate system.
+     * Applies M_model = diag(1, -1, -1) similarity transform for single-axis rotations.
+     *
+     * @param rx X rotation in radians (preserved)
+     * @param ry Y rotation in radians (negated)
+     * @param rz Z rotation in radians (negated)
+     * @return float array [newRx, newRy, newRz]
+     */
+    public static float[] convertModelRotation(float rx, float ry, float rz) {
+        return new float[] { rx, -ry, -rz };
+    }
+
+    /**
+     * Convert position from MC 1.12.2 to GeckoLib 1.20.1 coordinate system.
+     * Applies M_model = diag(1, -1, -1).
+     *
+     * @param x X position (preserved)
+     * @param y Y position (negated: Y-down → Y-up)
+     * @param z Z position (negated: RH → LH)
+     * @return float array [newX, newY, newZ]
+     */
+    public static float[] convertModelPosition(float x, float y, float z) {
+        return new float[] { x, -y, -z };
+    }
+
+    /**
+     * Clamp a rotation value to the range [-max, max].
+     *
+     * @param value The rotation value
+     * @param max Maximum absolute value
+     * @return Clamped value
+     */
+    public static float clampRotation(float value, float max) {
+        return Math.max(-max, Math.min(max, value));
+    }
+
+    /**
+     * Linear interpolation between two values.
+     *
+     * @param a Start value
+     * @param b End value
+     * @param t Interpolation factor (0.0 to 1.0)
+     * @return Interpolated value
+     */
+    public static float lerp(float a, float b, float t) {
+        return a + (b - a) * t;
+    }
+
+    /**
+     * Smooth step interpolation (Hermite).
+     *
+     * @param edge0 Lower edge
+     * @param edge1 Upper edge
+     * @param x Input value
+     * @return Smooth-stepped value
+     */
+    public static float smoothStep(float edge0, float edge1, float x) {
+        float t = Math.max(0.0f, Math.min(1.0f, (x - edge0) / (edge1 - edge0)));
+        return t * t * (3.0f - 2.0f * t);
+    }
+
+{% if head_tracking %}
+    // ========================================================================
+    // Head Tracking Methods
+    // ========================================================================
+
+    /**
+     * Calculate head rotation from entity look direction.
+     * Returns clamped yaw and pitch values suitable for bone rotation.
+     *
+     * @param entityYaw Entity yaw in degrees
+     * @param entityPitch Entity pitch in degrees
+     * @return float array [yawRad, pitchRad] in radians, clamped
+     */
+    public static float[] calculateHeadRotation(float entityYaw, float entityPitch) {
+        float yawRad = clampRotation(entityYaw * DEG_TO_RAD, MAX_HEAD_YAW * DEG_TO_RAD);
+        float pitchRad = clampRotation(entityPitch * DEG_TO_RAD, MAX_HEAD_PITCH * DEG_TO_RAD);
+        return new float[] { yawRad, pitchRad };
+    }
+
+    /**
+     * Apply head rotation to a multi-bone head chain.
+     * Distributes the total rotation evenly across all bones in the chain.
+     *
+     * For a chain of N bones, each bone receives 1/N of the total rotation.
+     * This creates a natural distributed rotation effect, like a serpent neck.
+     *
+     * @param bones Array of GeoBone objects forming the head chain
+     * @param yawRad Total yaw rotation in radians
+     * @param pitchRad Total pitch rotation in radians
+     */
+    public static void applyHeadChainRotation(GeoBone[] bones, float yawRad, float pitchRad) {
+        if (bones == null || bones.length == 0) return;
+        float divisor = (float) bones.length;
+        for (GeoBone bone : bones) {
+            if (bone != null) {
+                // GeckoLib: setRotationY for yaw, setRotationX for pitch
+                // Pitch is negated because MC pitch direction is opposite to GeckoLib X rotation
+                bone.setRotationY(yawRad / divisor);
+                bone.setRotationX(-pitchRad / divisor);
+            }
+        }
+    }
+
+    /**
+     * Apply head rotation to a single head bone with optional partial body yaw.
+     *
+     * @param headBone The head GeoBone
+     * @param yawRad Yaw rotation in radians
+     * @param pitchRad Pitch rotation in radians
+     * @param bodyYawPartial Partial body yaw contribution (0.0 to 1.0)
+     */
+    public static void applyHeadRotation(GeoBone headBone, float yawRad, float pitchRad, float bodyYawPartial) {
+        if (headBone == null) return;
+        float adjustedYaw = yawRad * (1.0f - bodyYawPartial);
+        headBone.setRotationY(adjustedYaw);
+        headBone.setRotationX(-pitchRad);
+    }
+
+{% endif %}
+    // ========================================================================
+    // Animation Math Helpers
+    // ========================================================================
+
+    /**
+     * Calculate swing animation for a limb.
+     * Equivalent to the common MC pattern: Math.cos(limbSwing * frequency) * limbSwingAmount * amplitude
+     *
+     * @param limbSwing Current swing phase
+     * @param limbSwingAmount Current swing intensity
+     * @param frequency Oscillation frequency
+     * @param amplitude Maximum rotation amplitude
+     * @return Swing rotation value in radians
+     */
+    public static float calculateLimbSwing(float limbSwing, float limbSwingAmount,
+                                            float frequency, float amplitude) {
+        return Math.cos(limbSwing * frequency) * limbSwingAmount * amplitude;
+    }
+
+    /**
+     * Calculate idle breathing animation.
+     * Equivalent to: Math.cos(ageInTicks * frequency) * amplitude
+     *
+     * @param ageInTicks Entity age in ticks
+     * @param frequency Oscillation frequency
+     * @param amplitude Maximum rotation amplitude
+     * @return Breathing rotation value in radians
+     */
+    public static float calculateBreathing(float ageInTicks, float frequency, float amplitude) {
+        return Math.cos(ageInTicks * frequency) * amplitude;
+    }
+
+    /**
+     * Wrap an angle to the range [-PI, PI].
+     *
+     * @param angle Angle in radians
+     * @return Wrapped angle
+     */
+    public static float wrapAngle(float angle) {
+        angle = angle % (2.0f * PI);
+        if (angle > PI) angle -= 2.0f * PI;
+        if (angle < -PI) angle += 2.0f * PI;
+        return angle;
+    }
+}
