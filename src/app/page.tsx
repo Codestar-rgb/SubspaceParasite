@@ -297,9 +297,9 @@ export default function ConverterPage() {
         <Card className="mb-6">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Conversion Pipeline</CardTitle>
-            <CardDescription>
-              Three-module engine: CoreMath → ModelConverter → AnimationConverter
-            </CardDescription>
+              <CardDescription>
+                Modular engine: CoreMath (M_model) → ModelConverter → AnimationConverter → Verifier
+              </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap items-center gap-3">
@@ -307,7 +307,7 @@ export default function ConverterPage() {
                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                 <span className="text-sm font-medium">CoreMath</span>
                 <Badge variant="secondary" className="text-[10px]">
-                  RH→LH
+                  M_model
                 </Badge>
               </div>
               <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
@@ -315,21 +315,24 @@ export default function ConverterPage() {
                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                 <span className="text-sm font-medium">ModelConverter</span>
                 <Badge variant="secondary" className="text-[10px]">
-                  .geo.json
+                  Y-flip
                 </Badge>
               </div>
               <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <span className="text-sm font-medium">AnimationConverter</span>
+                <span className="text-sm font-medium">AnimConverter</span>
                 <Badge variant="secondary" className="text-[10px]">
                   Class A-1
                 </Badge>
               </div>
               <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <span className="text-sm font-medium">Complete</span>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
+                <CheckCircle2 className="h-4 w-4 text-amber-600" />
+                <span className="text-sm font-medium">Verifier</span>
+                <Badge variant="secondary" className="text-[10px]">
+                  Vertex
+                </Badge>
               </div>
             </div>
           </CardContent>
@@ -593,7 +596,7 @@ export default function ConverterPage() {
                     </div>
                     <p className="text-xs text-muted-foreground pl-6">
                       Numerical evaluation of rotation expressions with
-                      CoreMath.convert_rot coordinate transform
+                      CoreMath.convert_model_rot (M_model = diag(1,-1,-1)) coordinate transform
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -767,7 +770,7 @@ export default function ConverterPage() {
                     {boneCount} bones, {totalCubes} cubes • minecraft:geometry 包装
                   </p>
                   <p className="text-[10px] text-muted-foreground mb-3">
-                    UV 格式: [u1, v1, u2, v2] • 拖入 Blockbench + GeckoLib 插件即可预览
+                    UV 格式: {"{uv:[], uv_size:[]}"} • 拖入 Blockbench + GeckoLib 插件即可预览
                   </p>
                   <Button
                     size="sm"

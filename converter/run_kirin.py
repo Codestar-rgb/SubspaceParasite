@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-MC1122 to GeckoLib Converter - Main Runner
-============================================
-Processes the Kirin entity from SRParasites mod.
+MinecraftModelMigrator-Pro - Main Runner
+=========================================
+Converts the Kirin entity from SRParasites mod (MC 1.12.2) to GeckoLib 1.20.1 format.
 
 Supports:
-  --blockbench   Also generate Blockbench preview format (kirin_bb.geo.json)
+  --blockbench   Also generate Blockbench preview format
   --mode MODE    Output mode: "game" (default), "blockbench", or "both"
+  --verify       Run vertex verification after conversion
 """
 
 import os
@@ -24,21 +25,25 @@ from animation_converter import KirinAnimationConverter
 
 def main():
     parser = argparse.ArgumentParser(
-        description="MC 1.12.2 → GeckoLib 1.20.1 Converter - Kirin Entity"
+        description="MinecraftModelMigrator-Pro - MC 1.12.2 → GeckoLib 1.20.1 Converter"
     )
     parser.add_argument(
         "--blockbench",
         action="store_true",
-        help="Also generate Blockbench preview format (kirin_bb.geo.json). "
-             "Equivalent to --mode both"
+        help="Also generate Blockbench preview format. Equivalent to --mode both"
     )
     parser.add_argument(
         "--mode",
         choices=["game", "blockbench", "both"],
-        default="game",
-        help="Output mode: 'game' (default, kirin.geo.json only), "
+        default="both",
+        help="Output mode: 'game' (kirin.geo.json only), "
              "'blockbench' (kirin_bb.geo.json only), "
              "'both' (generate both formats)"
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Run vertex verification after conversion"
     )
     args = parser.parse_args()
 
@@ -48,6 +53,7 @@ def main():
         output_mode = "both"
 
     print("=" * 70)
+    print("  MinecraftModelMigrator-Pro")
     print("  MC 1.12.2 → GeckoLib 1.20.1 Converter - Kirin Entity")
     print(f"  Output mode: {output_mode}")
     print("=" * 70)
@@ -56,7 +62,11 @@ def main():
     # ========================================================================
     # Step 1: Read the decompiled Java source
     # ========================================================================
-    model_java_path = "/home/z/my-project/decompiled/com/dhanantry/scapeandrunparasites/client/model/entity/derived/ModelKirin.java"
+    model_java_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "decompiled", "com", "dhanantry", "scapeandrunparasites",
+        "client", "model", "entity", "derived", "ModelKirin.java"
+    )
 
     print(f"[1/7] Reading ModelKirin.java...")
     with open(model_java_path, 'r') as f:
@@ -73,7 +83,10 @@ def main():
     geo_json = result['geo_json']
     bone_mapping = result['bone_mapping']
 
-    print(f"      Bones converted: {len(geo_json['model']['bones'])}")
+    bones = geo_json['model']['bones']
+    total_cubes = sum(len(b.get('cubes', [])) for b in bones)
+    print(f"      Bones converted: {len(bones)}")
+    print(f"      Total cubes: {total_cubes}")
     print(f"      Texture size: {geo_json['model']['texture_width']}x{geo_json['model']['texture_height']}")
     if result['warnings']:
         print(f"      Warnings: {len(result['warnings'])}")
@@ -83,7 +96,7 @@ def main():
     # ========================================================================
     # Step 3: Save game-format .geo.json
     # ========================================================================
-    output_dir = "/home/z/my-project/converter/output"
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
     os.makedirs(output_dir, exist_ok=True)
 
     if output_mode in ("game", "both"):
@@ -92,7 +105,7 @@ def main():
         geo_json_str = json.dumps(geo_json, indent=2, ensure_ascii=False)
         with open(geo_json_path, 'w') as f:
             f.write(geo_json_str)
-        print(f"      File size: {len(geo_json_str)} bytes")
+        print(f"      File size: {len(geo_json_str):,} bytes")
     else:
         print("\n[3/7] Skipping game-format output (mode={output_mode})")
 
@@ -105,7 +118,7 @@ def main():
         bb_geo_str = converter.to_blockbench_geo_json_string(result)
         with open(bb_geo_json_path, 'w') as f:
             f.write(bb_geo_str)
-        print(f"      File size: {len(bb_geo_str)} bytes")
+        print(f"      File size: {len(bb_geo_str):,} bytes")
 
         # Verify: check bone count in BB format
         bb_data = json.loads(bb_geo_str)
@@ -121,12 +134,6 @@ def main():
     print(f"\n[5/7] Saving bone mapping to {mapping_path}...")
     converter.save_bone_mapping(result, mapping_path)
     print(f"      Mapped bones: {len(bone_mapping)}")
-
-    # Print bone mapping for reference
-    print("\n      Bone Mapping Table:")
-    print("      " + "-" * 50)
-    for java_var, bone_name in sorted(bone_mapping.items()):
-        print(f"      {java_var:25s} → {bone_name}")
 
     # ========================================================================
     # Step 6: Convert animations
@@ -162,10 +169,40 @@ def main():
     # Step 7: Copy texture
     # ========================================================================
     print(f"\n[7/7] Copying texture...")
-    src_texture = "/home/z/my-project/jar_extract/assets/srparasites/textures/entity/monster/kirin.png"
+    src_texture = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "jar_extract", "assets", "srparasites",
+        "textures", "entity", "monster", "kirin.png"
+    )
     dst_texture = os.path.join(output_dir, "kirin.png")
     shutil.copy2(src_texture, dst_texture)
     print(f"      Texture copied: {dst_texture}")
+
+    # ========================================================================
+    # Optional: Run verification
+    # ========================================================================
+    if args.verify:
+        print(f"\n[VERIFY] Running vertex verification...")
+        from verifier import ModelVerifier
+        verifier = ModelVerifier(tolerance=0.1)
+        # Build bone data dict for verification
+        bone_data = {'bones': {}}
+        for var_name, bone in converter.bones.items():
+            bone_data['bones'][var_name] = {
+                'pivot_x': bone.pivot_x,
+                'pivot_y': bone.pivot_y,
+                'pivot_z': bone.pivot_z,
+                'rotate_x': bone.rotate_x,
+                'rotate_y': bone.rotate_y,
+                'rotate_z': bone.rotate_z,
+                'boxes': [{'offset_x': b.offset_x, 'offset_y': b.offset_y,
+                           'offset_z': b.offset_z, 'width': b.width,
+                           'height': b.height, 'depth': b.depth} for b in bone.boxes],
+                'parent': bone.parent
+            }
+        report = verifier.verify(bone_data, geo_json)
+        print(f"      Similarity: {report['similarity_score']*100:.2f}%")
+        print(f"      Verified: {'PASS' if report['verified'] else 'FAIL'}")
 
     # ========================================================================
     # Summary
@@ -186,11 +223,7 @@ def main():
         print(f"    📄 {f} ({size:,} bytes){marker}")
 
     print(f"\n  Model Statistics:")
-    print(f"    Total bones: {len(geo_json['model']['bones'])}")
-    total_cubes = sum(
-        len(bone.get('cubes', []))
-        for bone in geo_json['model']['bones']
-    )
+    print(f"    Total bones: {len(bones)}")
     print(f"    Total cubes: {total_cubes}")
     print(f"    Texture: {geo_json['model']['texture_width']}x{geo_json['model']['texture_height']}")
 

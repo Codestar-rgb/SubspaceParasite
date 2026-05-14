@@ -5,16 +5,32 @@ ModelConverter - Model Conversion Engine
 Converts Minecraft 1.12.2 ModelBase Java source to GeckoLib 1.20.1 .geo.json format.
 
 Uses javalang for AST-based parsing (no regex for structural parsing).
+
+BUG FIXES (vs old code):
+  - Pivot Y now flipped: uses convert_model_pos (x, -y, -z) instead of convert_pos (x, y, -z)
+  - Cube origin Y now flipped: uses convert_model_cube_origin (ox, -(oy+h), -(oz+d))
+  - Rotation now correct: uses convert_model_rot (rx, -ry, -rz) instead of convert_rot (-rx, ry, -rz)
+  - Root bone pivot at [0, 24, 0] for proper Y-up entity origin
+
+Coordinate system mapping:
+  MC 1.12.2 ModelRenderer: Y-DOWN, right-hand (Z into screen)
+  GeckoLib 1.20.1 geo.json:  Y-UP,   left-hand  (Z out of screen)
+  Transformation matrix: M_model = diag(1, -1, -1)
 """
 
 import json
 import math
+import os
 import warnings
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from core_math import (
-    convert_pos, convert_rot, convert_rotation_order, convert_size,
+    convert_model_pos,             # (x, -y, -z) full model position
+    convert_model_rot,             # (rx, -ry, -rz) single-axis rotation
+    convert_model_rotation_order,  # multi-axis rotation via M_model
+    convert_model_cube_origin,     # (ox, -(oy+h), -(oz+d)) minimum corner
+    convert_model_cube_size,       # (w, h, d) dimensions preserved
     rad_to_deg, deg_to_rad
 )
 
@@ -73,7 +89,14 @@ class BoneData:
 class ModelConverter:
     """
     Converts 1.12.2 ModelBase Java source to GeckoLib 1.20.1 .geo.json.
+
+    Uses M_model = diag(1, -1, -1) for the full model coordinate conversion
+    (Y-down->Y-up + RH->LH), which correctly flips both Y and Z axes.
     """
+
+    # Root bone pivot places the "top of entity" at 24 pixels above feet
+    # in GeckoLib's Y-up system
+    ROOT_BONE_PIVOT = [0.0, 24.0, 0.0]
 
     def __init__(self):
         self.texture_width: int = 64
@@ -81,6 +104,11 @@ class ModelConverter:
         self.bones: Dict[str, BoneData] = {}  # java_var_name -> BoneData
         self.bone_mapping: Dict[str, str] = {}  # java_var -> bone_name
         self.warnings: List[str] = []
+        self._jinja_env = None  # Lazy-loaded Jinja2 environment
+
+    # ========================================================================
+    # Java Source Parsing
+    # ========================================================================
 
     def parse_java_source(self, java_source: str) -> None:
         """
@@ -163,12 +191,6 @@ class ModelConverter:
         """Parse constructor body for bone initialization."""
         import re
 
-        # Extract each ModelRenderer construction and configuration block
-        # Pattern: this.varName = new ModelRenderer((ModelBase)this, texU, texV);
-        #          this.varName.func_78793_a(pivotX, pivotY, pivotZ);
-        #          this.varName.func_78790_a(offX, offY, offZ, w, h, d, inflate);
-        #          this.setRotateAngle(this.varName, rx, ry, rz);
-
         # Parse ModelRenderer constructors
         constructor_pattern = re.compile(
             r'this\.(\w+)\s*=\s*new\s+ModelRenderer\s*\(\s*\(ModelBase\)\s*this\s*,\s*([\d.\-fF]+)\s*,\s*([\d.\-fF]+)\s*\)\s*;'
@@ -179,7 +201,6 @@ class ModelConverter:
             tex_v = self._parse_java_float(match.group(3))
             if var_name in self.bones:
                 # Set texture offset for all boxes of this bone
-                # (will be overridden per-box if setTextureOffset is called)
                 for box in self.bones[var_name].boxes:
                     box.texture_offset_u = int(tex_u)
                     box.texture_offset_v = int(tex_v)
@@ -237,14 +258,16 @@ class ModelConverter:
             bone.boxes.append(box)
 
         # Parse setRotateAngle calls
+        # Supports: simple floats, (float)Math.PI, (float)(-Math.PI), cast expressions
+        # Use a more robust pattern that handles nested parentheses
         set_rotate_pattern = re.compile(
-            r'this\.setRotateAngle\s*\(\s*this\.(\w+)\s*,\s*([\d.\-fFeEpP]+)\s*,\s*([\d.\-fFeEpP]+)\s*,\s*([\d.\-fFeEpP]+)\s*\)\s*;'
+            r'this\.setRotateAngle\s*\(\s*this\.(\w+)\s*,\s*([^,]+)\s*,\s*([^,]+)\s*,\s*(.+?)\s*\)\s*;'
         )
         for match in set_rotate_pattern.finditer(java_source):
             var_name = match.group(1)
-            rx = self._parse_java_float(match.group(2))
-            ry = self._parse_java_float(match.group(3))
-            rz = self._parse_java_float(match.group(4))
+            rx = self._parse_java_expression(match.group(2).strip())
+            ry = self._parse_java_expression(match.group(3).strip())
+            rz = self._parse_java_expression(match.group(4).strip())
             if var_name not in self.bones:
                 self.bones[var_name] = BoneData(name=var_name, java_var_name=var_name)
             self.bones[var_name].rotate_x = rx
@@ -338,6 +361,49 @@ class ModelConverter:
             return 0.0
 
     @staticmethod
+    def _parse_java_expression(expr: str) -> float:
+        """Parse a Java expression that evaluates to a float.
+        
+        Handles:
+          - Simple float literals: "0.5f", "-0.3"
+          - Cast expressions: "(float)Math.PI", "(float)(-Math.PI)"
+          - Math expressions: "Math.PI / 180", "Math.PI / 6"
+          - Negative expressions: "-Math.PI", "-0.5f"
+        """
+        import re as _re
+        expr = expr.strip()
+        # Remove (float) and (double) casts
+        expr = _re.sub(r'\(float\)\s*', '', expr)
+        expr = _re.sub(r'\(double\)\s*', '', expr)
+        # Remove f/F suffixes from numbers
+        expr = _re.sub(r'(\d)[fF]', r'\1', expr)
+        # Replace Math.PI with the value
+        expr = expr.replace('Math.PI', str(math.pi))
+        # Remove extra parentheses around numbers
+        expr = expr.strip()
+        if expr.startswith('(') and expr.endswith(')'):
+            try:
+                val = eval(expr, {"__builtins__": {}})
+                return float(val)
+            except Exception:
+                pass
+        # Try direct float conversion
+        try:
+            return float(expr)
+        except ValueError:
+            pass
+        # Try eval for expressions like "3.141592653589793 / 180"
+        try:
+            val = eval(expr, {"__builtins__": {}})
+            return float(val)
+        except Exception:
+            return 0.0
+
+    # ========================================================================
+    # UV Calculation (unchanged - uses original 1.12.2 dimensions)
+    # ========================================================================
+
+    @staticmethod
     def _calculate_uv(box: BoxData) -> dict:
         """
         Calculate UV coordinates for each face of a box using 1.12.2 UV formulas.
@@ -345,10 +411,6 @@ class ModelConverter:
         UV formulas (using original 1.12.2 dimensions, before conversion):
           u = textureOffsetX, v = textureOffsetY
           w = width, h = height, d = depth
-
-          North: [u+d, v+d, u+d+w, v+d+h]
-          South: [u+2d+w, v+d, u+2d+2w, v+d+h]   -- WRONG, should be u+2d+w to u+2d+w+w
-          Wait, let me recalculate properly.
 
         Standard Minecraft 1.12.2 UV layout for a box at offset (bx, by, bz)
         with size (w, h, d) and texture offset (u, v):
@@ -416,9 +478,27 @@ class ModelConverter:
 
         return uv
 
+    # ========================================================================
+    # Coordinate Conversion (FIXED - uses M_model = diag(1, -1, -1))
+    # ========================================================================
+
     def convert(self, java_source: str, model_identifier: str = "model.kirin") -> dict:
         """
         Main conversion method. Parse Java source and produce .geo.json structure.
+
+        Uses M_model = diag(1, -1, -1) for the full model coordinate conversion:
+          - Pivot: convert_model_pos(x, y, z) = (x, -y, -z)
+          - Rotation: convert_model_rot(rx, ry, rz) = (rx, -ry, -rz)  [single-axis]
+          - Rotation: convert_model_rotation_order(rx, ry, rz)         [multi-axis]
+          - Cube origin: convert_model_cube_origin(ox, oy, oz, w, h, d) = (ox, -(oy+h), -(oz+d))
+          - Cube size: convert_model_cube_size(w, h, d) = (w, h, d)
+
+        Root bone pivot is [0, 24, 0]: places the "top of entity" at 24 pixels
+        above feet in GeckoLib's Y-up system. All top-level bones become children
+        of root, so their pivots are RELATIVE to root at (0,24,0). With
+        convert_model_pos giving (px, -py, -pz), a bone at (0,0,0) in 1.12.2
+        gets pivot (0,0,0) relative to root, which is world position (0,24,0) =
+        top of entity. Correct!
 
         Args:
             java_source: The decompiled 1.12.2 ModelBase Java source code
@@ -442,7 +522,7 @@ class ModelConverter:
         # Root bone
         root_bone = {
             "name": "root",
-            "pivot": [0.0, 24.0, 0.0]
+            "pivot": list(self.ROOT_BONE_PIVOT)
         }
         bones_output.append(root_bone)
 
@@ -482,27 +562,40 @@ class ModelConverter:
         }
 
     def _convert_bone(self, bone: BoneData, var_name: str) -> dict:
-        """Convert a single bone to GeckoLib format."""
+        """
+        Convert a single bone to GeckoLib format.
+
+        Uses convert_model_pos for pivot (flips Y and Z):
+          (px, py, pz) -> (px, -py, -pz)
+
+        Uses convert_model_rot / convert_model_rotation_order for rotation:
+          Single-axis: (rx, ry, rz) -> (rx, -ry, -rz)
+          Multi-axis:  matrix-based via M_model similarity transform
+        """
         bone_name = self.bone_mapping.get(var_name, var_name)
 
-        # Convert pivot position
-        new_pivot = convert_pos(bone.pivot_x, bone.pivot_y, bone.pivot_z)
+        # Convert pivot position using M_model = diag(1, -1, -1)
+        # OLD (buggy): convert_pos(px, py, pz) = (px, py, -pz)  -- Y not flipped!
+        # NEW (fixed): convert_model_pos(px, py, pz) = (px, -py, -pz)  -- Y and Z flipped
+        new_pivot = convert_model_pos(bone.pivot_x, bone.pivot_y, bone.pivot_z)
 
         bone_output = {
             "name": bone_name,
             "pivot": [round(v, 4) for v in new_pivot]
         }
 
-        # Convert rotation
+        # Convert rotation using M_model = diag(1, -1, -1)
+        # OLD (buggy): convert_rot(rx, ry, rz) = (-rx, ry, -rz)  -- X negated, Y preserved
+        # NEW (fixed): convert_model_rot(rx, ry, rz) = (rx, -ry, -rz)  -- X preserved, Y negated
         rx, ry, rz = bone.rotate_x, bone.rotate_y, bone.rotate_z
         has_rotation = abs(rx) > 1e-10 or abs(ry) > 1e-10 or abs(rz) > 1e-10
         if has_rotation:
             non_zero_count = sum(1 for a in [rx, ry, rz] if abs(a) > 1e-10)
             if non_zero_count > 1:
                 # Multi-axis rotation: use matrix-based conversion
-                new_rx, new_ry, new_rz = convert_rotation_order(rx, ry, rz)
+                new_rx, new_ry, new_rz = convert_model_rotation_order(rx, ry, rz)
             else:
-                new_rx, new_ry, new_rz = convert_rot(rx, ry, rz)
+                new_rx, new_ry, new_rz = convert_model_rot(rx, ry, rz)
 
             bone_output["rotation"] = [
                 round(rad_to_deg(new_rx), 4),
@@ -521,32 +614,45 @@ class ModelConverter:
         return bone_output
 
     def _convert_cube(self, box: BoxData) -> dict:
-        """Convert a single cube/box to GeckoLib format.
+        """
+        Convert a single cube/box to GeckoLib format.
 
-        CRITICAL: Cube origin Z calculation
-        ====================================
-        In 1.12.2 (right-hand, Z into screen), addBox(ox, oy, oz, w, h, d) creates
-        a box spanning [ox, ox+w] × [oy, oy+h] × [oz, oz+d].
+        Uses convert_model_cube_origin and convert_model_cube_size from core_math
+        for the M_model = diag(1, -1, -1) transformation.
 
-        After Z-flip (z → -z), the box spans:
-          X: [ox, ox+w]        (unchanged)
-          Y: [oy, oy+h]        (unchanged)
-          Z: [-(oz+d), -oz]    (flipped interval)
+        CRITICAL: Cube origin calculation with M_model
+        ==================================================
+        In 1.12.2 (Y-down, RH), addBox(ox, oy, oz, w, h, d) creates
+        a box spanning [ox, ox+w] x [oy, oy+h] x [oz, oz+d].
+
+        After M_model transformation (x, -y, -z):
+          X: [ox, ox+w]           (unchanged)
+          Y: [-(oy+h), -oy]       (Y-flipped: min corner is -(oy+h))
+          Z: [-(oz+d), -oz]       (Z-flipped: min corner is -(oz+d))
 
         In GeckoLib/Bedrock format, the cube origin is the MINIMUM corner.
-        Therefore the new origin Z must be -(oz+d), NOT -oz.
+        Therefore:
+          Standard case: origin = (ox, -(oy+h), -(oz+d))
+          This is exactly what convert_model_cube_origin returns.
+
+        NEGATIVE DIMENSIONS:
+          When h < 0: Y interval [oy+h, oy] where oy+h < oy
+            After Y-flip: [-oy, -(oy+h)], min corner = -oy
+          When d < 0: Z interval [oz+d, oz] where oz+d < oz
+            After Z-flip: [-oz, -(oz+d)], min corner = -oz
 
         LaTeX derivation:
-          1.12.2 Z-interval: [z_0, z_0 + d]
-          After z -> -z: [-z_0 - d, -z_0]
-          New origin Z = min(-z_0 - d, -z_0) = -z_0 - d  (d > 0)
-          New depth = d (preserved)
+          Standard (h >= 0, d >= 0):
+            Y-interval: [o_y, o_y + h]
+            After y -> -y: [-o_y - h, -o_y]
+            New origin Y = min(-o_y - h, -o_y) = -(o_y + h)  (h >= 0)
+            New height = h
 
-        For negative depth (d < 0):
-          1.12.2 Z-interval: [z_0 + d, z_0]  (d < 0, z_0 + d < z_0)
-          After z -> -z: [-z_0, -(z_0 + d)]
-          New origin Z = -z_0
-          New depth = |d|
+          Negative height (h < 0):
+            Y-interval: [o_y + h, o_y]  (h < 0, o_y + h < o_y)
+            After y -> -y: [-o_y, -(o_y + h)]
+            New origin Y = min(-o_y, -(o_y + h)) = -o_y  (h < 0)
+            New height = |h|
         """
         ox = box.offset_x
         oy = box.offset_y
@@ -555,22 +661,29 @@ class ModelConverter:
         h = box.height
         d = box.depth
 
-        # Convert origin: X and Y stay, Z = -(oz + d) for the minimum corner
-        # This accounts for the box extending from oz to oz+d in the +Z direction,
-        # which after Z-flip becomes -(oz+d) to -oz.
-        if d >= 0:
-            new_origin_z = -(oz + d)
-            new_size_z = d
-        else:
-            # Negative depth: box extends in -Z direction
-            # Original spans [oz+d, oz] where oz+d < oz
-            # After flip: [-oz, -(oz+d)]
-            # Minimum corner is -oz
-            new_origin_z = -oz
-            new_size_z = abs(d)
+        # Convert origin using M_model = diag(1, -1, -1)
+        # convert_model_cube_origin gives (ox, -(oy+h), -(oz+d)) for positive dims
+        new_ox, new_oy, new_oz = convert_model_cube_origin(ox, oy, oz, w, h, d)
 
-        new_origin = (ox, oy, new_origin_z)
-        new_size = (w, h, new_size_z)
+        # Convert size - dimensions are preserved under linear transformation
+        new_w, new_h, new_d = convert_model_cube_size(w, h, d)
+
+        # Handle negative depth: adjust Z origin (like old code did for Z)
+        # convert_model_cube_origin assumes d >= 0, giving origin Z = -(oz+d)
+        # When d < 0, the minimum Z corner is -oz instead of -(oz+d)
+        if d < 0:
+            new_oz = -oz
+            # new_d is already abs(d) from convert_model_cube_size
+
+        # Handle negative height: adjust Y origin (same logic, new for M_model)
+        # convert_model_cube_origin assumes h >= 0, giving origin Y = -(oy+h)
+        # When h < 0, the minimum Y corner is -oy instead of -(oy+h)
+        if h < 0:
+            new_oy = -oy
+            # new_h is already abs(h) from convert_model_cube_size
+
+        new_origin = (new_ox, new_oy, new_oz)
+        new_size = (new_w, new_h, new_d)
 
         # Apply inflate AFTER coordinate conversion
         # Inflate expands the box symmetrically in all 6 directions.
@@ -652,8 +765,7 @@ class ModelConverter:
         geo_json = result['geo_json']
         model = geo_json['model']
 
-        # Calculate visible_bounds from the model data
-        # visible_bounds controls the Blockbench viewport framing
+        # Build bones for Blockbench format
         bb_bones = []
         for bone in model['bones']:
             bb_bone = {
@@ -666,7 +778,7 @@ class ModelConverter:
                 bb_bone["rotation"] = bone["rotation"]
 
             if "cubes" in bone:
-                # Copy cubes directly — UV format is the SAME in both formats
+                # Copy cubes directly - UV format is the SAME in both formats
                 bb_cubes = []
                 for cube in bone["cubes"]:
                     bb_cube = {
@@ -703,6 +815,10 @@ class ModelConverter:
 
         return bb_geo
 
+    # ========================================================================
+    # Output Methods (direct JSON construction)
+    # ========================================================================
+
     def to_geo_json_string(self, result: dict, indent: int = 2) -> str:
         """Convert the result dict to a formatted JSON string (game format)."""
         return json.dumps(result['geo_json'], indent=indent, ensure_ascii=False)
@@ -716,6 +832,119 @@ class ModelConverter:
         """Save the bone mapping table to a JSON file."""
         with open(filepath, 'w') as f:
             json.dump(result['bone_mapping'], f, indent=2, ensure_ascii=False)
+
+    # ========================================================================
+    # Jinja2 Template Support
+    # ========================================================================
+
+    def _get_jinja_env(self):
+        """Get or create the Jinja2 environment with custom filters."""
+        if self._jinja_env is None:
+            try:
+                from jinja2 import Environment, FileSystemLoader
+            except ImportError:
+                raise ImportError(
+                    "Jinja2 is required for template-based output. "
+                    "Install it with: pip install Jinja2"
+                )
+
+            template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+            self._jinja_env = Environment(
+                loader=FileSystemLoader(template_dir),
+                keep_trailing_newline=True,
+                trim_blocks=True,
+                lstrip_blocks=True,
+            )
+            # Register custom filters
+            self._jinja_env.filters['round4'] = lambda v: round(v, 4)
+            self._jinja_env.filters['tojson_indent'] = lambda v, indent=2: json.dumps(v, indent=indent, ensure_ascii=False)
+
+        return self._jinja_env
+
+    def to_geo_json_string_templated(self, result: dict, indent: int = 2) -> str:
+        """
+        Convert the result dict to a formatted JSON string using Jinja2 template.
+
+        Produces the same output as to_geo_json_string(), but via template rendering.
+        """
+        env = self._get_jinja_env()
+        template = env.get_template('geo_model.game.json.j2')
+
+        model = result['geo_json']['model']
+        # Prepare bone data for the template with pre-serialized JSON fragments
+        bones_data = self._prepare_bones_for_template(model['bones'])
+
+        output = template.render(
+            identifier=model['identifier'],
+            texture_width=model['texture_width'],
+            texture_height=model['texture_height'],
+            bones=bones_data,
+            indent=indent
+        )
+        return output
+
+    def to_blockbench_geo_json_string_templated(self, result: dict, indent: int = 2) -> str:
+        """
+        Convert the result dict to a Blockbench-compatible formatted JSON string
+        using Jinja2 template.
+
+        Produces the same output as to_blockbench_geo_json_string(), but via template rendering.
+        """
+        env = self._get_jinja_env()
+        template = env.get_template('geo_model.blockbench.json.j2')
+
+        model = result['geo_json']['model']
+        # Prepare bone data for the template
+        bones_data = self._prepare_bones_for_template(model['bones'])
+
+        output = template.render(
+            identifier=model['identifier'],
+            texture_width=model['texture_width'],
+            texture_height=model['texture_height'],
+            visible_bounds_width=3,
+            visible_bounds_height=4.5,
+            visible_bounds_offset=[0, 1.5, 0],
+            bones=bones_data,
+            indent=indent
+        )
+        return output
+
+    def _prepare_bones_for_template(self, bones: list) -> list:
+        """
+        Prepare bone data for Jinja2 template rendering.
+
+        Converts the bone dictionaries into a format suitable for template iteration,
+        with pre-formatted JSON strings for complex nested structures (UV, cubes).
+        """
+        prepared = []
+        for bone in bones:
+            bone_data = {
+                'name': bone['name'],
+                'pivot': bone['pivot'],
+                'has_parent': 'parent' in bone,
+                'parent': bone.get('parent', ''),
+                'has_rotation': 'rotation' in bone,
+                'rotation': bone.get('rotation', [0, 0, 0]),
+                'has_cubes': 'cubes' in bone,
+            }
+
+            if 'cubes' in bone:
+                cubes_data = []
+                for cube in bone['cubes']:
+                    cube_data = {
+                        'origin': cube['origin'],
+                        'size': cube['size'],
+                        'uv': cube['uv'],
+                        'has_mirror': cube.get('mirror', False),
+                        'has_inflate': 'inflate' in cube,
+                        'inflate': cube.get('inflate', 0.0),
+                    }
+                    cubes_data.append(cube_data)
+                bone_data['cubes'] = cubes_data
+
+            prepared.append(bone_data)
+
+        return prepared
 
 
 if __name__ == "__main__":
@@ -741,5 +970,34 @@ if __name__ == "__main__":
 
     converter = ModelConverter()
     result = converter.convert(test_java, "model.test")
+
+    print("=== Game Format (direct JSON) ===")
     print(converter.to_geo_json_string(result))
-    print("\nBone mapping:", result['bone_mapping'])
+
+    print("\n=== Blockbench Format (direct JSON) ===")
+    print(converter.to_blockbench_geo_json_string(result))
+
+    print("\n=== Bone mapping:", result['bone_mapping'])
+
+    # Verify key coordinate conversions
+    print("\n=== Coordinate Verification ===")
+    head_bone = result['geo_json']['model']['bones'][1]  # root is [0]
+    print(f"Head pivot: {head_bone['pivot']}")
+    # In 1.12.2: pivot (0, 0, 0) -> convert_model_pos -> (0, 0, 0)
+    # Relative to root at (0, 24, 0): world position (0, 24, 0) = top of entity
+
+    head_cube = head_bone['cubes'][0]
+    print(f"Head cube origin: {head_cube['origin']}")
+    print(f"Head cube size: {head_cube['size']}")
+    # In 1.12.2: addBox(-4, -8, -4, 8, 8, 8)
+    # convert_model_cube_origin(-4, -8, -4, 8, 8, 8) = (-4, -(-8+8), -(-4+8)) = (-4, 0, -4)
+    # convert_model_cube_size(8, 8, 8) = (8, 8, 8)
+
+    body_bone = result['geo_json']['model']['bones'][2]
+    body_cube = body_bone['cubes'][0]
+    print(f"Body pivot: {body_bone['pivot']}")
+    print(f"Body cube origin: {body_cube['origin']}")
+    print(f"Body cube size: {body_cube['size']}")
+    # In 1.12.2: addBox(-4, 0, -2, 8, 12, 4)
+    # convert_model_cube_origin(-4, 0, -2, 8, 12, 4) = (-4, -(0+12), -(-2+4)) = (-4, -12, -2)
+    # convert_model_cube_size(8, 12, 4) = (8, 12, 4)

@@ -15,7 +15,7 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from core_math import convert_rot, convert_rotation_order, rad_to_deg
+from core_math import convert_model_rot, convert_model_rotation_order, rad_to_deg
 
 
 @dataclass
@@ -310,13 +310,13 @@ class AnimationConverter:
             for axis, expr in axis_exprs.items():
                 try:
                     value = self._evaluate_expression(expr, age_in_ticks)
-                    # Apply coordinate system rotation conversion
-                    # For each axis, we need to negate X and Z
-                    if axis == 'x':
+                    # Apply full model rotation conversion (M_model = diag(1,-1,-1))
+                    # convert_model_rot: X preserved, Y negated, Z negated
+                    if axis == 'y':
                         value = -value
                     elif axis == 'z':
                         value = -value
-                    # Y stays the same
+                    # X stays the same (not negated like in pure RH→LH)
 
                     kf[axis] = round(rad_to_deg(value), 6)
                 except Exception as e:
@@ -668,7 +668,9 @@ class KirinAnimationConverter(AnimationConverter):
                             expr, age_in_ticks, vars_def
                         )
                         # Apply coordinate system rotation conversion
-                        if axis == 'x':
+                        # Apply full model rotation conversion (M_model = diag(1,-1,-1))
+                        # convert_model_rot: X preserved, Y negated, Z negated
+                        if axis == 'y':
                             value = -value
                         elif axis == 'z':
                             value = -value
