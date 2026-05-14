@@ -581,9 +581,170 @@ class ModelConverter:
 
         return cube
 
+    # ========================================================================
+    # Blockbench Preview Format Conversion
+    # ========================================================================
+    #
+    # Format differences between GeckoLib game format and Blockbench preview format:
+    #
+    # Game format (GeckoLib 4.x, kirin.geo.json):
+    #   - Top-level wrapper: { "format_version": "1.12.0", "model": { ... } }
+    #   - UV format: { "uv": [u, v], "uv_size": [w, h] } per face
+    #   - Used by: GeckoLib runtime loader in Minecraft 1.20.1
+    #
+    # Blockbench preview format (kirin_bb.geo.json):
+    #   - Top-level wrapper: { "format_version": "1.12.0", "minecraft:geometry": [{ ... }] }
+    #   - UV format: [u1, v1, u2, v2] per face (u2=u1+w, v2=v1+h)
+    #   - Used by: Blockbench with GeckoLib plugin for visual preview/editing
+    #
+    # Mathematical transformation is IDENTICAL for both formats — only the
+    # JSON serialization of UV data and the top-level wrapper differ.
+
+    @staticmethod
+    def convert_uv_to_bb_format(cube_uv: dict) -> dict:
+        """
+        Convert UV from GeckoLib game format to Blockbench preview format.
+
+        Game format:  { "uv": [u, v], "uv_size": [w, h] }
+        Blockbench:   [u1, v1, u2, v2]  where u2 = u1 + w, v2 = v1 + h
+
+        For mirrored cubes, the UV horizontal coordinates are swapped:
+          [u1, v1, u2, v2] → [u2, v1, u1, v2]  (horizontal flip)
+        This is because Blockbench interprets the UV array as absolute pixel
+        coordinates, and mirroring means the texture is sampled in reverse
+        along the horizontal axis.
+
+        Args:
+            cube_uv: Dict mapping face names to {"uv": [u,v], "uv_size": [w,h]}
+
+        Returns:
+            Dict mapping face names to [u1, v1, u2, v2] arrays
+        """
+        bb_uv = {}
+        for face_name, face_data in cube_uv.items():
+            u1 = face_data['uv'][0]
+            v1 = face_data['uv'][1]
+            w = face_data['uv_size'][0]
+            h = face_data['uv_size'][1]
+            u2 = u1 + w
+            v2 = v1 + h
+            bb_uv[face_name] = {
+                "uv": [round(u1, 4), round(v1, 4), round(u2, 4), round(v2, 4)]
+            }
+        return bb_uv
+
+    @staticmethod
+    def convert_uv_to_bb_format_mirrored(cube_uv: dict) -> dict:
+        """
+        Convert UV for a mirrored cube to Blockbench preview format.
+
+        For mirrored cubes, the horizontal UV coordinates are swapped per face
+        to indicate that the texture is horizontally flipped:
+          Normal:  [u1, v1, u2, v2]
+          Mirrored: [u2, v1, u1, v2]  (swap u1 ↔ u2)
+
+        This is the standard Blockbench convention for UV mirroring.
+
+        Args:
+            cube_uv: Dict mapping face names to {"uv": [u,v], "uv_size": [w,h]}
+
+        Returns:
+            Dict mapping face names to {"uv": [u1, v1, u2, v2]} with mirrored u coords
+        """
+        bb_uv = {}
+        for face_name, face_data in cube_uv.items():
+            u1 = face_data['uv'][0]
+            v1 = face_data['uv'][1]
+            w = face_data['uv_size'][0]
+            h = face_data['uv_size'][1]
+            u2 = u1 + w
+            v2 = v1 + h
+            # Mirror: swap u1 and u2 to flip horizontally
+            bb_uv[face_name] = {
+                "uv": [round(u2, 4), round(v1, 4), round(u1, 4), round(v2, 4)]
+            }
+        return bb_uv
+
+    def convert_to_blockbench_format(self, result: dict) -> dict:
+        """
+        Convert the game-format geo_json result to Blockbench preview format.
+
+        The Blockbench GeckoLib plugin requires:
+          1. Top-level "minecraft:geometry" array wrapper (instead of "model" object)
+          2. "description" sub-object with identifier, texture_width, texture_height
+          3. UV as [u1, v1, u2, v2] arrays (instead of {"uv":[], "uv_size":[]})
+          4. "mirror" property on cubes remains as boolean
+
+        All parent references, pivot points, rotations, and sizes are preserved
+        identically — only the JSON structure/serialization changes.
+
+        Args:
+            result: The output dict from self.convert(), containing 'geo_json' key
+
+        Returns:
+            Dict in Blockbench-compatible .geo.json format
+        """
+        geo_json = result['geo_json']
+        model = geo_json['model']
+
+        bb_bones = []
+        for bone in model['bones']:
+            bb_bone = {
+                "name": bone["name"],
+                "pivot": bone["pivot"]
+            }
+            if "parent" in bone:
+                bb_bone["parent"] = bone["parent"]
+            if "rotation" in bone:
+                bb_bone["rotation"] = bone["rotation"]
+
+            if "cubes" in bone:
+                bb_cubes = []
+                for cube in bone["cubes"]:
+                    is_mirror = cube.get("mirror", False)
+                    # Convert UV format
+                    if is_mirror:
+                        bb_uv = self.convert_uv_to_bb_format_mirrored(cube["uv"])
+                    else:
+                        bb_uv = self.convert_uv_to_bb_format(cube["uv"])
+
+                    bb_cube = {
+                        "origin": cube["origin"],
+                        "size": cube["size"],
+                        "uv": bb_uv
+                    }
+                    if is_mirror:
+                        bb_cube["mirror"] = True
+                    bb_cubes.append(bb_cube)
+                bb_bone["cubes"] = bb_cubes
+
+            bb_bones.append(bb_bone)
+
+        # Build Blockbench-compatible top-level structure
+        bb_geo = {
+            "format_version": "1.12.0",
+            "minecraft:geometry": [
+                {
+                    "description": {
+                        "identifier": model["identifier"],
+                        "texture_width": model["texture_width"],
+                        "texture_height": model["texture_height"]
+                    },
+                    "bones": bb_bones
+                }
+            ]
+        }
+
+        return bb_geo
+
     def to_geo_json_string(self, result: dict, indent: int = 2) -> str:
-        """Convert the result dict to a formatted JSON string."""
+        """Convert the result dict to a formatted JSON string (game format)."""
         return json.dumps(result['geo_json'], indent=indent, ensure_ascii=False)
+
+    def to_blockbench_geo_json_string(self, result: dict, indent: int = 2) -> str:
+        """Convert the result dict to a Blockbench-compatible formatted JSON string."""
+        bb_geo = self.convert_to_blockbench_format(result)
+        return json.dumps(bb_geo, indent=indent, ensure_ascii=False)
 
     def save_bone_mapping(self, result: dict, filepath: str) -> None:
         """Save the bone mapping table to a JSON file."""

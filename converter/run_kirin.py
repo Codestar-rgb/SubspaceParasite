@@ -3,12 +3,17 @@
 MC1122 to GeckoLib Converter - Main Runner
 ============================================
 Processes the Kirin entity from SRParasites mod.
+
+Supports:
+  --blockbench   Also generate Blockbench preview format (kirin_bb.geo.json)
+  --mode MODE    Output mode: "game" (default), "blockbench", or "both"
 """
 
 import os
 import sys
 import json
 import shutil
+import argparse
 
 # Add converter directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,8 +23,33 @@ from animation_converter import KirinAnimationConverter
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="MC 1.12.2 → GeckoLib 1.20.1 Converter - Kirin Entity"
+    )
+    parser.add_argument(
+        "--blockbench",
+        action="store_true",
+        help="Also generate Blockbench preview format (kirin_bb.geo.json). "
+             "Equivalent to --mode both"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["game", "blockbench", "both"],
+        default="game",
+        help="Output mode: 'game' (default, kirin.geo.json only), "
+             "'blockbench' (kirin_bb.geo.json only), "
+             "'both' (generate both formats)"
+    )
+    args = parser.parse_args()
+
+    # --blockbench flag is shorthand for --mode both
+    output_mode = args.mode
+    if args.blockbench and output_mode == "game":
+        output_mode = "both"
+
     print("=" * 70)
     print("  MC 1.12.2 → GeckoLib 1.20.1 Converter - Kirin Entity")
+    print(f"  Output mode: {output_mode}")
     print("=" * 70)
     print()
 
@@ -28,7 +58,7 @@ def main():
     # ========================================================================
     model_java_path = "/home/z/my-project/decompiled/com/dhanantry/scapeandrunparasites/client/model/entity/derived/ModelKirin.java"
 
-    print(f"[1/6] Reading ModelKirin.java...")
+    print(f"[1/7] Reading ModelKirin.java...")
     with open(model_java_path, 'r') as f:
         model_java = f.read()
     print(f"      Source: {len(model_java)} chars, {model_java.count(chr(10))} lines")
@@ -36,7 +66,7 @@ def main():
     # ========================================================================
     # Step 2: Convert model to .geo.json
     # ========================================================================
-    print("\n[2/6] Converting model to .geo.json...")
+    print("\n[2/7] Converting model to .geo.json...")
     converter = ModelConverter()
     result = converter.convert(model_java, "model.kirin")
 
@@ -51,23 +81,44 @@ def main():
             print(f"        - {w}")
 
     # ========================================================================
-    # Step 3: Save .geo.json
+    # Step 3: Save game-format .geo.json
     # ========================================================================
     output_dir = "/home/z/my-project/converter/output"
     os.makedirs(output_dir, exist_ok=True)
 
-    geo_json_path = os.path.join(output_dir, "kirin.geo.json")
-    print(f"\n[3/6] Saving .geo.json to {geo_json_path}...")
-    geo_json_str = json.dumps(geo_json, indent=2, ensure_ascii=False)
-    with open(geo_json_path, 'w') as f:
-        f.write(geo_json_str)
-    print(f"      File size: {len(geo_json_str)} bytes")
+    if output_mode in ("game", "both"):
+        geo_json_path = os.path.join(output_dir, "kirin.geo.json")
+        print(f"\n[3/7] Saving game-format .geo.json to {geo_json_path}...")
+        geo_json_str = json.dumps(geo_json, indent=2, ensure_ascii=False)
+        with open(geo_json_path, 'w') as f:
+            f.write(geo_json_str)
+        print(f"      File size: {len(geo_json_str)} bytes")
+    else:
+        print("\n[3/7] Skipping game-format output (mode={output_mode})")
 
     # ========================================================================
-    # Step 4: Save bone mapping
+    # Step 4: Save Blockbench preview format .geo.json
+    # ========================================================================
+    if output_mode in ("blockbench", "both"):
+        bb_geo_json_path = os.path.join(output_dir, "kirin_bb.geo.json")
+        print(f"\n[4/7] Saving Blockbench preview format to {bb_geo_json_path}...")
+        bb_geo_str = converter.to_blockbench_geo_json_string(result)
+        with open(bb_geo_json_path, 'w') as f:
+            f.write(bb_geo_str)
+        print(f"      File size: {len(bb_geo_str)} bytes")
+
+        # Verify: check bone count in BB format
+        bb_data = json.loads(bb_geo_str)
+        bb_bone_count = len(bb_data["minecraft:geometry"][0]["bones"])
+        print(f"      BB format bone count: {bb_bone_count}")
+    else:
+        print("\n[4/7] Skipping Blockbench format output (mode={output_mode})")
+
+    # ========================================================================
+    # Step 5: Save bone mapping
     # ========================================================================
     mapping_path = os.path.join(output_dir, "kirin_bone_mapping.json")
-    print(f"\n[4/6] Saving bone mapping to {mapping_path}...")
+    print(f"\n[5/7] Saving bone mapping to {mapping_path}...")
     converter.save_bone_mapping(result, mapping_path)
     print(f"      Mapped bones: {len(bone_mapping)}")
 
@@ -78,9 +129,9 @@ def main():
         print(f"      {java_var:25s} → {bone_name}")
 
     # ========================================================================
-    # Step 5: Convert animations
+    # Step 6: Convert animations
     # ========================================================================
-    print(f"\n[5/6] Converting animations...")
+    print(f"\n[6/7] Converting animations...")
     anim_converter = KirinAnimationConverter(bone_mapping)
     anim_result = anim_converter.convert_kirin_idle(model_java)
 
@@ -108,9 +159,9 @@ def main():
             print(f"        - {w}")
 
     # ========================================================================
-    # Step 6: Copy texture
+    # Step 7: Copy texture
     # ========================================================================
-    print(f"\n[6/6] Copying texture...")
+    print(f"\n[7/7] Copying texture...")
     src_texture = "/home/z/my-project/jar_extract/assets/srparasites/textures/entity/monster/kirin.png"
     dst_texture = os.path.join(output_dir, "kirin.png")
     shutil.copy2(src_texture, dst_texture)
@@ -122,11 +173,17 @@ def main():
     print("\n" + "=" * 70)
     print("  CONVERSION COMPLETE")
     print("=" * 70)
+    print(f"\n  Output mode: {output_mode}")
     print(f"\n  Output files:")
-    for f in os.listdir(output_dir):
+    for f in sorted(os.listdir(output_dir)):
         fpath = os.path.join(output_dir, f)
         size = os.path.getsize(fpath)
-        print(f"    📄 {f} ({size:,} bytes)")
+        marker = ""
+        if f == "kirin_bb.geo.json":
+            marker = " [Blockbench Preview]"
+        elif f == "kirin.geo.json":
+            marker = " [GeckoLib Game]"
+        print(f"    📄 {f} ({size:,} bytes){marker}")
 
     print(f"\n  Model Statistics:")
     print(f"    Total bones: {len(geo_json['model']['bones'])}")
@@ -142,6 +199,12 @@ def main():
     print(f"    Model: srparasites:geo/entity/kirin.geo.json")
     print(f"    Texture: srparasites:textures/entity/monster/kirin.png")
     print(f"    Animation: srparasites:animations/entity/kirin.animation.json")
+
+    if output_mode in ("blockbench", "both"):
+        print(f"\n  Blockbench Preview:")
+        print(f"    File: kirin_bb.geo.json")
+        print(f"    Drag this file into Blockbench with GeckoLib plugin")
+        print(f"    Then assign kirin.png as texture for UV verification")
 
     # Generate example Java class for 1.20.1
     _generate_geckolib_java(output_dir, bone_mapping)

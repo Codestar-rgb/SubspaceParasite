@@ -112,3 +112,29 @@ Stage Summary:
 - Frontend complete at /home/z/my-project/src/app/page.tsx
 - All 5 converted files downloadable
 - Responsive design with mobile support
+
+---
+Task ID: 7
+Agent: Main Agent
+Task: Add Blockbench preview format support to ModelConverter
+
+Work Log:
+- Added convert_uv_to_bb_format() static method: converts {uv:[u,v], uv_size:[w,h]} → {uv:[u1,v1,u2,v2]}
+- Added convert_uv_to_bb_format_mirrored() for mirrored cubes: swaps u1↔u2 for horizontal flip
+- Added convert_to_blockbench_format() method: wraps in minecraft:geometry array with description sub-object
+- Added to_blockbench_geo_json_string() serialization method
+- Updated run_kirin.py with --blockbench and --mode (game/blockbench/both) CLI arguments
+- Ran converter with --blockbench: generated kirin_bb.geo.json (238KB, 142 bones)
+- Verified both JSON formats: game format unchanged, BB format has correct structure
+- Copied kirin_bb.geo.json to db/ and public/converted/ directories
+- Updated frontend download panel with Blockbench format card (teal accent)
+- Updated "Download All" button to include kirin_bb.geo.json
+- Added "输出格式对比" section explaining format differences and use cases
+- Lint clean, dev server running
+
+Stage Summary:
+- Blockbench preview format support added to model_converter.py
+- kirin_bb.geo.json generated with minecraft:geometry wrapper and [u1,v1,u2,v2] UV format
+- Game format kirin.geo.json unaffected and still GeckoLib-compatible
+- Frontend updated with BB format download card and format comparison section
+- All files available in db/, public/converted/, and converter/output/

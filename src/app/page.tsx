@@ -727,11 +727,14 @@ export default function ConverterPage() {
                     <FileJson className="h-5 w-5 text-emerald-600" />
                     <CardTitle className="text-sm">kirin.geo.json</CardTitle>
                   </div>
-                  <CardDescription>GeckoLib model file</CardDescription>
+                  <CardDescription>GeckoLib 游戏格式</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    {boneCount} bones, {totalCubes} cubes, format version 1.12.0
+                  <p className="text-xs text-muted-foreground mb-1">
+                    {boneCount} bones, {totalCubes} cubes • format version 1.12.0
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mb-3">
+                    UV 格式: {"{uv:[], uv_size:[]}"} • GeckoLib 4.x 运行时加载
                   </p>
                   <Button
                     size="sm"
@@ -745,6 +748,40 @@ export default function ConverterPage() {
                   >
                     <Download className="h-3.5 w-3.5 mr-1.5" />
                     Download .geo.json
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="hover:shadow-md transition-shadow border-teal-600/30">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-2">
+                    <FileJson className="h-5 w-5 text-teal-600" />
+                    <CardTitle className="text-sm">kirin_bb.geo.json</CardTitle>
+                  </div>
+                  <CardDescription>
+                    Blockbench 预览格式
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground mb-1">
+                    {boneCount} bones, {totalCubes} cubes • minecraft:geometry 包装
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mb-3">
+                    UV 格式: [u1, v1, u2, v2] • 拖入 Blockbench + GeckoLib 插件即可预览
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full border-teal-600/40 hover:bg-teal-50 dark:hover:bg-teal-950"
+                    onClick={() =>
+                      downloadFile(
+                        "/converted/kirin_bb.geo.json",
+                        "kirin_bb.geo.json"
+                      )
+                    }
+                  >
+                    <Download className="h-3.5 w-3.5 mr-1.5" />
+                    Download BB Preview
                   </Button>
                 </CardContent>
               </Card>
@@ -896,10 +933,18 @@ export default function ConverterPage() {
                       setTimeout(
                         () =>
                           downloadFile(
+                            "/converted/kirin_bb.geo.json",
+                            "kirin_bb.geo.json"
+                          ),
+                        200
+                      );
+                      setTimeout(
+                        () =>
+                          downloadFile(
                             "/converted/kirin.animation.json",
                             "kirin.animation.json"
                           ),
-                        200
+                        400
                       );
                       setTimeout(
                         () =>
@@ -907,11 +952,11 @@ export default function ConverterPage() {
                             "/converted/kirin_bone_mapping.json",
                             "kirin_bone_mapping.json"
                           ),
-                        400
+                        600
                       );
                       setTimeout(
                         () => downloadFile("/converted/kirin.png", "kirin.png"),
-                        600
+                        800
                       );
                       setTimeout(
                         () =>
@@ -919,7 +964,7 @@ export default function ConverterPage() {
                             "/converted/KirinGeoModel.java",
                             "KirinGeoModel.java"
                           ),
-                        800
+                        1000
                       );
                     }}
                   >
@@ -929,6 +974,50 @@ export default function ConverterPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Format Comparison Reference */}
+            <Card className="mt-4">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">
+                  输出格式对比
+                </CardTitle>
+                <CardDescription>
+                  两种 .geo.json 格式的差异及适用场景
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <FileJson className="h-4 w-4 text-emerald-600" />
+                      <span className="text-sm font-medium">kirin.geo.json — 游戏格式</span>
+                    </div>
+                    <ul className="text-xs text-muted-foreground space-y-1">
+                      <li>• 顶层包装: <code className="font-mono">{"{ \"model\": { ... } }"}</code></li>
+                      <li>• UV 格式: <code className="font-mono">{"{ \"uv\": [u,v], \"uv_size\": [w,h] }"}</code></li>
+                      <li>• 适用: GeckoLib 4.x 运行时加载</li>
+                      <li>• 直接放入 mod 资源包即可使用</li>
+                    </ul>
+                  </div>
+                  <div className="p-4 rounded-lg bg-teal-50 dark:bg-teal-950 border border-teal-200 dark:border-teal-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <FileJson className="h-4 w-4 text-teal-600" />
+                      <span className="text-sm font-medium">kirin_bb.geo.json — Blockbench 预览格式</span>
+                    </div>
+                    <ul className="text-xs text-muted-foreground space-y-1">
+                      <li>• 顶层包装: <code className="font-mono">{"{ \"minecraft:geometry\": [...] }"}</code></li>
+                      <li>• UV 格式: <code className="font-mono">{"{ \"uv\": [u1,v1,u2,v2] }"}</code></li>
+                      <li>• 适用: Blockbench + GeckoLib 插件预览/编辑</li>
+                      <li>• 拖入 Blockbench 后分配 kirin.png 贴图验证</li>
+                    </ul>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-3">
+                  ⚠ 两种格式的数学变换（坐标、旋转、尺寸）完全一致，仅 JSON 序列化方式和 UV 表示不同。
+                  不要将 Blockbench 格式文件放入 mod 资源包，GeckoLib 无法加载。
+                </p>
+              </CardContent>
+            </Card>
 
             {/* Resource Locations Reference */}
             <Card className="mt-4">
