@@ -138,3 +138,31 @@ Stage Summary:
 - Game format kirin.geo.json unaffected and still GeckoLib-compatible
 - Frontend updated with BB format download card and format comparison section
 - All files available in db/, public/converted/, and converter/output/
+
+---
+Task ID: 8
+Agent: Main Agent
+Task: Fix critical model display bugs - Z-origin, UV format, mirror handling
+
+Work Log:
+- Diagnosed 3 critical bugs causing broken Blockbench/game format output:
+  1. Z-origin bug: convert_pos(ox,oy,oz) gave (ox,oy,-oz) but box spanning [oz,oz+d]
+     after Z-flip spans [-(oz+d),-oz], so origin should be (ox,oy,-(oz+d)) not (ox,oy,-oz)
+     This shifted EVERY cube by its depth in Z direction (avg 4.2 units error)
+  2. Blockbench UV format: incorrectly used [u1,v1,u2,v2] arrays but minecraft:geometry
+     format uses the SAME {"uv":[u,v],"uv_size":[w,h]} as GeckoLib game format
+  3. Mirror double-flip: code swapped west/east UV AND set mirror=true, causing double-mirror
+- Fixed _convert_cube(): new_origin_z = -(oz + d) instead of -oz, with correct negative-depth handling
+- Fixed _calculate_uv(): removed incorrect west/east UV swap for mirror, let mirror flag handle it
+- Fixed convert_to_blockbench_format(): UV format stays same as game, added visible_bounds
+- Deleted all old output files from converter/output/, public/converted/, db/
+- Regenerated all files with --blockbench flag
+- Verified: Z range [-6.0, 6.5] (was incorrectly shifted before), all 39 animation bones match geo
+- Updated frontend format comparison text (UV format is same, not different)
+
+Stage Summary:
+- 3 critical bugs fixed in model_converter.py
+- All files regenerated and copied to db/, public/converted/, converter/output/
+- Game format and BB format both now produce correct cube positions
+- Animation bone names verified to match geo bone names (39/39 match)
+- BB format uses correct {"uv":[u,v],"uv_size":[w,h]} format with minecraft:geometry wrapper

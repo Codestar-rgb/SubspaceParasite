@@ -1006,15 +1006,15 @@ export default function ConverterPage() {
                     </div>
                     <ul className="text-xs text-muted-foreground space-y-1">
                       <li>• 顶层包装: <code className="font-mono">{"{ \"minecraft:geometry\": [...] }"}</code></li>
-                      <li>• UV 格式: <code className="font-mono">{"{ \"uv\": [u1,v1,u2,v2] }"}</code></li>
+                      <li>• UV 格式: <code className="font-mono">{"{ \"uv\": [u,v], \"uv_size\": [w,h] }"}</code> (与游戏格式相同)</li>
                       <li>• 适用: Blockbench + GeckoLib 插件预览/编辑</li>
                       <li>• 拖入 Blockbench 后分配 kirin.png 贴图验证</li>
                     </ul>
                   </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-3">
-                  ⚠ 两种格式的数学变换（坐标、旋转、尺寸）完全一致，仅 JSON 序列化方式和 UV 表示不同。
-                  不要将 Blockbench 格式文件放入 mod 资源包，GeckoLib 无法加载。
+                  ⚠ 两种格式的数学变换（坐标、旋转、尺寸）和 UV 格式完全一致，仅 JSON 顶层包装结构不同。
+                  不要将 Blockbench 格式文件放入 mod 资源包，GeckoLib 无法加载 minecraft:geometry 包装。
                 </p>
               </CardContent>
             </Card>

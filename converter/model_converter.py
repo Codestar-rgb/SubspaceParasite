@@ -405,29 +405,14 @@ class ModelConverter:
             'uv_size': [w, d]
         }
 
-        # Handle mirror: swap west/east UV horizontal coordinates
-        if box.mirror:
-            # Mirror flips the horizontal UV of west and east faces
-            west_uv = uv['west']['uv'][0]
-            west_w = uv['west']['uv_size'][0]
-            east_uv = uv['east']['uv'][0]
-            east_w = uv['east']['uv_size'][0]
-
-            # For mirrored, the UV start is adjusted
-            # Mirror flips: new_u = original_u + size - (relative offset)
-            # For west: original [u, v+d] size [d, h] -> mirrored [u+d, v+d] size [-d, h]
-            # But since we can't have negative size, we swap west and east
-            uv['west'], uv['east'] = uv['east'], uv['west']
-
-            # For mirrored faces, flip the horizontal UV
-            for face_name in ['west', 'east']:
-                face = uv[face_name]
-                orig_u = face['uv'][0]
-                face_w = face['uv_size'][0]
-                # Mirror: new_u = orig_u + face_w, new_size = -face_w
-                # But we represent as: new_u stays, just note the mirror
-                # In GeckoLib, we set mirror to true on the cube instead
-                pass
+        # Mirror handling: DO NOT swap UV coordinates here.
+        # When mirror=true is set on the cube, GeckoLib/Blockbench automatically
+        # handles the X-axis mirror by swapping west/east face rendering and
+        # flipping UV horizontally. Swapping UV here would cause double-mirror.
+        #
+        # In 1.12.2, mirror=true causes GlStateManager.scale(-1, 1, 1) which
+        # flips the entire cube. GeckoLib's mirror property does the same.
+        # Therefore, the standard UV calculation is correct as-is for mirrored cubes.
 
         return uv
 
@@ -536,24 +521,61 @@ class ModelConverter:
         return bone_output
 
     def _convert_cube(self, box: BoxData) -> dict:
-        """Convert a single cube/box to GeckoLib format."""
-        # Convert box origin (offset from pivot)
-        new_origin = convert_pos(box.offset_x, box.offset_y, box.offset_z)
+        """Convert a single cube/box to GeckoLib format.
 
-        # Convert size (depth preserved)
-        new_size = convert_size(box.width, box.height, box.depth)
+        CRITICAL: Cube origin Z calculation
+        ====================================
+        In 1.12.2 (right-hand, Z into screen), addBox(ox, oy, oz, w, h, d) creates
+        a box spanning [ox, ox+w] × [oy, oy+h] × [oz, oz+d].
 
-        # Handle negative depth by adjusting origin
-        w, h, d = new_size
-        ox, oy, oz = new_origin
-        if box.depth < 0:
-            # Negative depth: adjust Z origin
-            oz += d
-            d = abs(d)
-            new_size = (w, h, d)
-            new_origin = (ox, oy, oz)
+        After Z-flip (z → -z), the box spans:
+          X: [ox, ox+w]        (unchanged)
+          Y: [oy, oy+h]        (unchanged)
+          Z: [-(oz+d), -oz]    (flipped interval)
+
+        In GeckoLib/Bedrock format, the cube origin is the MINIMUM corner.
+        Therefore the new origin Z must be -(oz+d), NOT -oz.
+
+        LaTeX derivation:
+          1.12.2 Z-interval: [z_0, z_0 + d]
+          After z -> -z: [-z_0 - d, -z_0]
+          New origin Z = min(-z_0 - d, -z_0) = -z_0 - d  (d > 0)
+          New depth = d (preserved)
+
+        For negative depth (d < 0):
+          1.12.2 Z-interval: [z_0 + d, z_0]  (d < 0, z_0 + d < z_0)
+          After z -> -z: [-z_0, -(z_0 + d)]
+          New origin Z = -z_0
+          New depth = |d|
+        """
+        ox = box.offset_x
+        oy = box.offset_y
+        oz = box.offset_z
+        w = box.width
+        h = box.height
+        d = box.depth
+
+        # Convert origin: X and Y stay, Z = -(oz + d) for the minimum corner
+        # This accounts for the box extending from oz to oz+d in the +Z direction,
+        # which after Z-flip becomes -(oz+d) to -oz.
+        if d >= 0:
+            new_origin_z = -(oz + d)
+            new_size_z = d
+        else:
+            # Negative depth: box extends in -Z direction
+            # Original spans [oz+d, oz] where oz+d < oz
+            # After flip: [-oz, -(oz+d)]
+            # Minimum corner is -oz
+            new_origin_z = -oz
+            new_size_z = abs(d)
+
+        new_origin = (ox, oy, new_origin_z)
+        new_size = (w, h, new_size_z)
 
         # Apply inflate AFTER coordinate conversion
+        # Inflate expands the box symmetrically in all 6 directions.
+        # Since inflate is uniform, applying it after conversion is equivalent
+        # to applying before conversion (the result is the same).
         inflate = box.inflate
         if abs(inflate) > 1e-10:
             new_origin = (
@@ -567,7 +589,7 @@ class ModelConverter:
                 new_size[2] + 2 * inflate
             )
 
-        # Calculate UV
+        # Calculate UV (uses original 1.12.2 dimensions, no mirror swap needed)
         uv = self._calculate_uv(box)
 
         cube = {
@@ -576,6 +598,10 @@ class ModelConverter:
             "uv": uv
         }
 
+        # Mirror: set flag only, do NOT swap UV coordinates.
+        # GeckoLib/Blockbench handles the X-axis mirror internally when
+        # mirror=true, which swaps west/east face rendering and flips UV.
+        # Swapping UV here AND setting mirror would cause double-mirror.
         if box.mirror:
             cube["mirror"] = True
 
@@ -594,89 +620,28 @@ class ModelConverter:
     #
     # Blockbench preview format (kirin_bb.geo.json):
     #   - Top-level wrapper: { "format_version": "1.12.0", "minecraft:geometry": [{ ... }] }
-    #   - UV format: [u1, v1, u2, v2] per face (u2=u1+w, v2=v1+h)
+    #   - UV format: SAME as game format: { "uv": [u, v], "uv_size": [w, h] } per face
+    #   - The minecraft:geometry format uses the SAME UV convention as GeckoLib
+    #   - [u1, v1, u2, v2] is ONLY for Java Edition item models, NOT entity models
     #   - Used by: Blockbench with GeckoLib plugin for visual preview/editing
     #
-    # Mathematical transformation is IDENTICAL for both formats — only the
-    # JSON serialization of UV data and the top-level wrapper differ.
-
-    @staticmethod
-    def convert_uv_to_bb_format(cube_uv: dict) -> dict:
-        """
-        Convert UV from GeckoLib game format to Blockbench preview format.
-
-        Game format:  { "uv": [u, v], "uv_size": [w, h] }
-        Blockbench:   [u1, v1, u2, v2]  where u2 = u1 + w, v2 = v1 + h
-
-        For mirrored cubes, the UV horizontal coordinates are swapped:
-          [u1, v1, u2, v2] → [u2, v1, u1, v2]  (horizontal flip)
-        This is because Blockbench interprets the UV array as absolute pixel
-        coordinates, and mirroring means the texture is sampled in reverse
-        along the horizontal axis.
-
-        Args:
-            cube_uv: Dict mapping face names to {"uv": [u,v], "uv_size": [w,h]}
-
-        Returns:
-            Dict mapping face names to [u1, v1, u2, v2] arrays
-        """
-        bb_uv = {}
-        for face_name, face_data in cube_uv.items():
-            u1 = face_data['uv'][0]
-            v1 = face_data['uv'][1]
-            w = face_data['uv_size'][0]
-            h = face_data['uv_size'][1]
-            u2 = u1 + w
-            v2 = v1 + h
-            bb_uv[face_name] = {
-                "uv": [round(u1, 4), round(v1, 4), round(u2, 4), round(v2, 4)]
-            }
-        return bb_uv
-
-    @staticmethod
-    def convert_uv_to_bb_format_mirrored(cube_uv: dict) -> dict:
-        """
-        Convert UV for a mirrored cube to Blockbench preview format.
-
-        For mirrored cubes, the horizontal UV coordinates are swapped per face
-        to indicate that the texture is horizontally flipped:
-          Normal:  [u1, v1, u2, v2]
-          Mirrored: [u2, v1, u1, v2]  (swap u1 ↔ u2)
-
-        This is the standard Blockbench convention for UV mirroring.
-
-        Args:
-            cube_uv: Dict mapping face names to {"uv": [u,v], "uv_size": [w,h]}
-
-        Returns:
-            Dict mapping face names to {"uv": [u1, v1, u2, v2]} with mirrored u coords
-        """
-        bb_uv = {}
-        for face_name, face_data in cube_uv.items():
-            u1 = face_data['uv'][0]
-            v1 = face_data['uv'][1]
-            w = face_data['uv_size'][0]
-            h = face_data['uv_size'][1]
-            u2 = u1 + w
-            v2 = v1 + h
-            # Mirror: swap u1 and u2 to flip horizontally
-            bb_uv[face_name] = {
-                "uv": [round(u2, 4), round(v1, 4), round(u1, 4), round(v2, 4)]
-            }
-        return bb_uv
+    # Mathematical transformation is IDENTICAL for both formats.
+    # The ONLY differences are:
+    #   1. Top-level JSON wrapper structure
+    #   2. Description object placement
+    #   3. visible_bounds for Blockbench viewport
 
     def convert_to_blockbench_format(self, result: dict) -> dict:
         """
         Convert the game-format geo_json result to Blockbench preview format.
 
-        The Blockbench GeckoLib plugin requires:
+        The Blockbench Bedrock/GeckoLib format requires:
           1. Top-level "minecraft:geometry" array wrapper (instead of "model" object)
-          2. "description" sub-object with identifier, texture_width, texture_height
-          3. UV as [u1, v1, u2, v2] arrays (instead of {"uv":[], "uv_size":[]})
+          2. "description" sub-object with identifier, texture_width, texture_height,
+             visible_bounds_width, visible_bounds_height, visible_bounds_offset
+          3. UV format stays the SAME: {"uv": [u,v], "uv_size": [w,h]} per face
           4. "mirror" property on cubes remains as boolean
-
-        All parent references, pivot points, rotations, and sizes are preserved
-        identically — only the JSON structure/serialization changes.
+          5. All bone data (pivot, rotation, cubes, parent) is identical
 
         Args:
             result: The output dict from self.convert(), containing 'geo_json' key
@@ -687,6 +652,8 @@ class ModelConverter:
         geo_json = result['geo_json']
         model = geo_json['model']
 
+        # Calculate visible_bounds from the model data
+        # visible_bounds controls the Blockbench viewport framing
         bb_bones = []
         for bone in model['bones']:
             bb_bone = {
@@ -699,22 +666,18 @@ class ModelConverter:
                 bb_bone["rotation"] = bone["rotation"]
 
             if "cubes" in bone:
+                # Copy cubes directly — UV format is the SAME in both formats
                 bb_cubes = []
                 for cube in bone["cubes"]:
-                    is_mirror = cube.get("mirror", False)
-                    # Convert UV format
-                    if is_mirror:
-                        bb_uv = self.convert_uv_to_bb_format_mirrored(cube["uv"])
-                    else:
-                        bb_uv = self.convert_uv_to_bb_format(cube["uv"])
-
                     bb_cube = {
                         "origin": cube["origin"],
                         "size": cube["size"],
-                        "uv": bb_uv
+                        "uv": cube["uv"]  # SAME UV format, no conversion needed
                     }
-                    if is_mirror:
+                    if cube.get("mirror", False):
                         bb_cube["mirror"] = True
+                    if "inflate" in cube:
+                        bb_cube["inflate"] = cube["inflate"]
                     bb_cubes.append(bb_cube)
                 bb_bone["cubes"] = bb_cubes
 
@@ -728,7 +691,10 @@ class ModelConverter:
                     "description": {
                         "identifier": model["identifier"],
                         "texture_width": model["texture_width"],
-                        "texture_height": model["texture_height"]
+                        "texture_height": model["texture_height"],
+                        "visible_bounds_width": 3,
+                        "visible_bounds_height": 4.5,
+                        "visible_bounds_offset": [0, 1.5, 0]
                     },
                     "bones": bb_bones
                 }
