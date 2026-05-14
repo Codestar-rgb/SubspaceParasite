@@ -56,6 +56,8 @@ public class {{ class_name }} extends GeoModel<{{ entity_class }}> {
     public ResourceLocation getAnimationResource({{ entity_class }} animatable) {
         return new ResourceLocation("{{ mod_id }}", "{{ animation_path }}");
     }
+{% block render_type %}
+{% endblock %}
 {% if has_code_animations %}
 
     /**
@@ -68,6 +70,8 @@ public class {{ class_name }} extends GeoModel<{{ entity_class }}> {
 {{ code_animation_methods | indent(8) }}
     }
 {% endif %}
+{% block visibility_code %}
+{% endblock %}
 {% if has_head_tracking %}
 
     /**
@@ -110,4 +114,6 @@ public class {{ class_name }} extends GeoModel<{{ entity_class }}> {
 {% endif %}
     }
 {% endif %}
+{% block render_order_code %}
+{% endblock %}
 }

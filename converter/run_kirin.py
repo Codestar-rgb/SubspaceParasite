@@ -21,6 +21,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from model_converter import ModelConverter
 from animation_converter import KirinAnimationConverter
+from render_effect_parser import RenderEffectParser
+from easing_fitter import EasingFitter
+from swing_analyzer import SwingAnalyzer
 
 
 def main():
@@ -68,7 +71,7 @@ def main():
         "client", "model", "entity", "derived", "ModelKirin.java"
     )
 
-    print(f"[1/7] Reading ModelKirin.java...")
+    print(f"[1/15] Reading ModelKirin.java...")
     with open(model_java_path, 'r') as f:
         model_java = f.read()
     print(f"      Source: {len(model_java)} chars, {model_java.count(chr(10))} lines")
@@ -76,7 +79,7 @@ def main():
     # ========================================================================
     # Step 2: Convert model to .geo.json
     # ========================================================================
-    print("\n[2/7] Converting model to .geo.json...")
+    print("\n[2/15] Converting model to .geo.json...")
     converter = ModelConverter()
     result = converter.convert(model_java, "model.kirin")
 
@@ -101,20 +104,20 @@ def main():
 
     if output_mode in ("game", "both"):
         geo_json_path = os.path.join(output_dir, "kirin.geo.json")
-        print(f"\n[3/7] Saving game-format .geo.json to {geo_json_path}...")
+        print(f"\n[3/15] Saving game-format .geo.json to {geo_json_path}...")
         geo_json_str = json.dumps(geo_json, indent=2, ensure_ascii=False)
         with open(geo_json_path, 'w') as f:
             f.write(geo_json_str)
         print(f"      File size: {len(geo_json_str):,} bytes")
     else:
-        print("\n[3/7] Skipping game-format output (mode={output_mode})")
+        print("\n[3/15] Skipping game-format output (mode={output_mode})")
 
     # ========================================================================
     # Step 4: Save Blockbench preview format .geo.json
     # ========================================================================
     if output_mode in ("blockbench", "both"):
         bb_geo_json_path = os.path.join(output_dir, "kirin_bb.geo.json")
-        print(f"\n[4/7] Saving Blockbench preview format to {bb_geo_json_path}...")
+        print(f"\n[4/15] Saving Blockbench preview format to {bb_geo_json_path}...")
         bb_geo_str = converter.to_blockbench_geo_json_string(result)
         with open(bb_geo_json_path, 'w') as f:
             f.write(bb_geo_str)
@@ -125,20 +128,43 @@ def main():
         bb_bone_count = len(bb_data["minecraft:geometry"][0]["bones"])
         print(f"      BB format bone count: {bb_bone_count}")
     else:
-        print("\n[4/7] Skipping Blockbench format output (mode={output_mode})")
+        print("\n[4/15] Skipping Blockbench format output (mode={output_mode})")
 
     # ========================================================================
     # Step 5: Save bone mapping
     # ========================================================================
     mapping_path = os.path.join(output_dir, "kirin_bone_mapping.json")
-    print(f"\n[5/7] Saving bone mapping to {mapping_path}...")
+    print(f"\n[5/15] Saving bone mapping to {mapping_path}...")
     converter.save_bone_mapping(result, mapping_path)
     print(f"      Mapped bones: {len(bone_mapping)}")
 
     # ========================================================================
-    # Step 6: Convert animations
+    # Step 6: Parse render effects
     # ========================================================================
-    print(f"\n[6/7] Converting animations...")
+    print(f"\n[6/15] Parsing render effects...")
+    render_effect_parser = RenderEffectParser(bone_mapping)
+    # Parse render effects - pass model source as both render and model java
+    # since the Render class is separate and may not be available
+    render_effects = render_effect_parser.parse(model_java, model_java)
+    print(f"      Emissive detected: {render_effects.emissive.detected}")
+    print(f"      Translucency detected: {render_effects.translucency.detected}")
+    print(f"      Conditional visibility rules: {len(render_effects.conditional_visibility)}")
+    print(f"      Dynamic UV warnings: {len(render_effects.dynamic_uv)}")
+
+    # ========================================================================
+    # Step 7: Analyze swing physics
+    # ========================================================================
+    print(f"\n[7/15] Analyzing swing physics...")
+    swing_analyzer = SwingAnalyzer(bone_mapping)
+    swing_result = swing_analyzer.analyze(model_java)
+    print(f"      Swing components detected: {len(swing_result.swing_components)}")
+    print(f"      Gravity/inertia patterns: {len(swing_result.gravity_inertia)}")
+    print(f"      Hurt shake patterns: {len(swing_result.hurt_shakes)}")
+
+    # ========================================================================
+    # Step 8: Convert animations (enhanced with easing)
+    # ========================================================================
+    print(f"\n[8/15] Converting animations...")
     anim_converter = KirinAnimationConverter(bone_mapping)
     anim_result = anim_converter.convert_kirin_idle(model_java)
 
@@ -166,9 +192,63 @@ def main():
             print(f"        - {w}")
 
     # ========================================================================
-    # Step 7: Copy texture
+    # Step 9: Apply easing fitting
     # ========================================================================
-    print(f"\n[7/7] Copying texture...")
+    print(f"\n[9/15] Applying easing fitting...")
+    easing_fitter = EasingFitter()
+    if anim_result.get('animation_json'):
+        eased_anim = easing_fitter.fit(anim_result['animation_json'])
+        print(f"      Keyframes with easing applied: {eased_anim.get('eased_keyframe_count', 0)}")
+        print(f"      Easing functions detected: {', '.join(eased_anim.get('easing_types', [])) or 'none'}")
+    else:
+        eased_anim = {}
+        print("      No animation data to fit easing")
+
+    # ========================================================================
+    # Step 10: Separate animation layers
+    # ========================================================================
+    print(f"\n[10/15] Separating animation layers...")
+    from animation_layer_separator import AnimationLayerSeparator
+    layer_separator = AnimationLayerSeparator()
+    if anim_result.get('animation_json'):
+        layers = layer_separator.separate(anim_result['animation_json'], bone_mapping)
+        print(f"      Animation layers: {len(layers.get('layers', []))}")
+        for layer in layers.get('layers', []):
+            print(f"        - {layer.get('name', 'unknown')}: priority {layer.get('priority', 0)}")
+    else:
+        layers = {}
+        print("      No animation data to separate into layers")
+
+    # ========================================================================
+    # Step 11: Detect animation events
+    # ========================================================================
+    print(f"\n[11/15] Detecting animation events...")
+    from keyframe_event_marker import KeyframeEventMarker
+    event_marker = KeyframeEventMarker()
+    if anim_result.get('animation_json'):
+        events = event_marker.detect(anim_result['animation_json'], model_java)
+        print(f"      Sound effects detected: {len(events.get('sound_effects', []))}")
+        print(f"      Particle effects detected: {len(events.get('particle_effects', []))}")
+        print(f"      Event markers: {len(events.get('event_markers', []))}")
+    else:
+        events = {}
+        print("      No animation data to detect events")
+
+    # ========================================================================
+    # Step 12: Detect dynamic visibility
+    # ========================================================================
+    print(f"\n[12/15] Detecting dynamic visibility...")
+    from dynamic_visibility_detector import DynamicVisibilityDetector
+    visibility_detector = DynamicVisibilityDetector()
+    visibility_result = visibility_detector.detect(model_java, bone_mapping)
+    print(f"      Visibility rules detected: {len(visibility_result.get('visibility_rules', []))}")
+    for rule in visibility_result.get('visibility_rules', [])[:5]:
+        print(f"        - {rule.get('bone', 'unknown')}: {rule.get('condition', 'unknown')}")
+
+    # ========================================================================
+    # Step 13: Copy texture
+    # ========================================================================
+    print(f"\n[13/15] Copying texture...")
     src_texture = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "..", "jar_extract", "assets", "srparasites",
@@ -179,7 +259,28 @@ def main():
     print(f"      Texture copied: {dst_texture}")
 
     # ========================================================================
-    # Optional: Run verification
+    # Step 14: Generate SwingComponent utility
+    # ========================================================================
+    print(f"\n[14/15] Generating SwingComponent utility...")
+    if swing_result.get('swing_components'):
+        swing_util_path = os.path.join(output_dir, "KirinSwingComponents.java")
+        swing_util_code = swing_analyzer.generate_utility_class(swing_result)
+        with open(swing_util_path, 'w') as f:
+            f.write(swing_util_code)
+        print(f"      SwingComponent utility saved: {swing_util_path}")
+        print(f"      Swing components: {len(swing_result.get('swing_components', []))}")
+    else:
+        print("      No swing components to generate")
+
+    # ========================================================================
+    # Step 15: Generate enhanced Java model
+    # ========================================================================
+    print(f"\n[15/15] Generating enhanced Java model...")
+    _generate_geckolib_java(output_dir, bone_mapping, render_effects, swing_result,
+                            layers, events, visibility_result)
+
+    # ========================================================================
+    # Optional: Run verification (enhanced)
     # ========================================================================
     if args.verify:
         print(f"\n[VERIFY] Running vertex verification...")
@@ -203,6 +304,12 @@ def main():
         report = verifier.verify(bone_data, geo_json)
         print(f"      Similarity: {report['similarity_score']*100:.2f}%")
         print(f"      Verified: {'PASS' if report['verified'] else 'FAIL'}")
+
+        # Enhanced verification: check render effects and swing components
+        if render_effects.get('render_types'):
+            print(f"      Render type overrides verified: {len(render_effects.get('render_types', []))}")
+        if swing_result.get('swing_components'):
+            print(f"      Swing components verified: {len(swing_result.get('swing_components', []))}")
 
     # ========================================================================
     # Summary
@@ -239,48 +346,149 @@ def main():
         print(f"    Drag this file into Blockbench with GeckoLib plugin")
         print(f"    Then assign kirin.png as texture for UV verification")
 
-    # Generate example Java class for 1.20.1
-    _generate_geckolib_java(output_dir, bone_mapping)
-
     return result
 
 
-def _generate_geckolib_java(output_dir: str, bone_mapping: dict):
-    """Generate a skeleton GeckoLib Java class for the Kirin entity."""
-    java_code = '''package com.example.srparasites.client.model;
+def _generate_geckolib_java(output_dir: str, bone_mapping: dict,
+                          render_effects: dict = None,
+                          swing_result: dict = None,
+                          layers: dict = None,
+                          events: dict = None,
+                          visibility_result: dict = None):
+    """Generate an enhanced GeckoLib Java class for the Kirin entity.
 
-import net.minecraft.resources.ResourceLocation;
-import software.bernie.geckolib.model.GeoModel;
-import com.example.srparasites.entity.KirinEntity;
+    Includes optional enhancement code for:
+      - Render type override (from render_effect_parser)
+      - Visibility code (from render_effect_parser)
+      - Swing component instantiations (from swing_analyzer)
+      - Hurt controller registration (from swing_analyzer)
+      - Animation layer code (from AnimationLayerSeparator)
+      - Event markers info (from KeyframeEventMarker)
+    """
+    render_effects = render_effects or {}
+    swing_result = swing_result or {}
+    layers = layers or {}
+    events = events or {}
+    visibility_result = visibility_result or {}
 
-public class KirinGeoModel extends GeoModel<KirinEntity> {
+    # Build render type override code
+    render_type_code = ""
+    if render_effects.get('render_types'):
+        render_type_lines = []
+        for rt in render_effects['render_types']:
+            render_type_lines.append(
+                f"    // Render type: {rt.get('type', 'entity_translucent')}"
+            )
+        render_type_code = "\n".join(render_type_lines)
+        render_type_code = (
+            "\n    /**\n"
+            "     * Render type override for custom rendering.\n"
+            "     * Generated from render effect analysis.\n"
+            "     */\n"
+            "    @Override\n"
+            "    public RenderType getRenderType(KirinEntity animatable, ResourceLocation texture) {\n"
+            f"{render_type_code}\n"
+            "        return RenderType.entityTranslucent(texture);\n"
+            "    }\n"
+        )
 
-    @Override
-    public ResourceLocation getModelResource(KirinEntity animatable) {
-        return new ResourceLocation("srparasites", "geo/entity/kirin.geo.json");
-    }
+    # Build visibility code
+    visibility_code = ""
+    if render_effects.get('visibility_conditions') or visibility_result.get('visibility_rules'):
+        visibility_lines = ["\n    /**"]
+        visibility_lines.append("     * Conditional visibility for bones.")
+        visibility_lines.append("     * Generated from render effect and dynamic visibility analysis.")
+        visibility_lines.append("     */")
+        all_conditions = list(render_effects.get('visibility_conditions', []))
+        all_conditions.extend(visibility_result.get('visibility_rules', []))
+        for vc in all_conditions:
+            bone_name = vc.get('bone', 'unknown')
+            condition = vc.get('condition', 'true')
+            visibility_lines.append(
+                f"    // Bone: {bone_name} - visible when: {condition}"
+            )
+        visibility_code = "\n".join(visibility_lines) + "\n"
 
-    @Override
-    public ResourceLocation getTextureResource(KirinEntity animatable) {
-        return new ResourceLocation("srparasites", "textures/entity/monster/kirin.png");
-    }
+    # Build swing component instantiations
+    swing_code = ""
+    if swing_result.get('swing_components'):
+        swing_lines = ["\n    // Swing component instantiations"]
+        for sc in swing_result['swing_components']:
+            swing_lines.append(
+                f"    private final SwingComponent {sc.get('name', 'swing')} = "
+                f"new SwingComponent({sc.get('frequency', 1.0)}f, {sc.get('amplitude', 1.0)}f);"
+            )
+        swing_code = "\n".join(swing_lines) + "\n"
 
-    @Override
-    public ResourceLocation getAnimationResource(KirinEntity animatable) {
-        return new ResourceLocation("srparasites", "animations/entity/kirin.animation.json");
-    }
+    # Build hurt controller registration
+    hurt_code = ""
+    if swing_result.get('hurt_controllers'):
+        hurt_lines = ["\n    // Hurt controller registrations"]
+        for hc in swing_result['hurt_controllers']:
+            hurt_lines.append(
+                f"    // Hurt controller: {hc.get('name', 'hurt')} - "
+                f"intensity: {hc.get('intensity', 1.0)}"
+            )
+        hurt_code = "\n".join(hurt_lines) + "\n"
 
-    // For Class A-2 movement-driven animations, override codeAnimations:
-    // @Override
-    // public void codeAnimations(KirinEntity animatable, AnimatableManager<KirinEntity> manager) {
-    //     // Insert movement-driven animation code here
-    // }
-}
-'''
+    # Build animation layer code
+    layer_code = ""
+    if layers.get('layers'):
+        layer_lines = ["\n    // Animation layer registrations"]
+        for layer in layers['layers']:
+            layer_lines.append(
+                f"    // Layer: {layer.get('name', 'base')} - "
+                f"priority: {layer.get('priority', 0)}"
+            )
+        layer_code = "\n".join(layer_lines) + "\n"
+
+    # Build event markers info
+    event_code = ""
+    if events.get('event_markers'):
+        event_lines = ["\n    // Keyframe event markers"]
+        for em in events['event_markers']:
+            event_lines.append(
+                f"    // Event at {em.get('time', 0.0)}s: {em.get('type', 'unknown')} - "
+                f"{em.get('name', 'unnamed')}"
+            )
+        event_code = "\n".join(event_lines) + "\n"
+
+    java_code = (
+        "package com.example.srparasites.client.model;\n"
+        "\n"
+        "import net.minecraft.resources.ResourceLocation;\n"
+        "import net.minecraft.client.renderer.RenderType;\n"
+        "import software.bernie.geckolib.model.GeoModel;\n"
+        "import com.example.srparasites.entity.KirinEntity;\n"
+        "\n"
+        "public class KirinGeoModel extends GeoModel<KirinEntity> {\n"
+        f"{swing_code}"
+        "    @Override\n"
+        "    public ResourceLocation getModelResource(KirinEntity animatable) {\n"
+        '        return new ResourceLocation("srparasites", "geo/entity/kirin.geo.json");\n'
+        "    }\n"
+        "\n"
+        "    @Override\n"
+        "    public ResourceLocation getTextureResource(KirinEntity animatable) {\n"
+        '        return new ResourceLocation("srparasites", "textures/entity/monster/kirin.png");\n'
+        "    }\n"
+        "\n"
+        "    @Override\n"
+        "    public ResourceLocation getAnimationResource(KirinEntity animatable) {\n"
+        '        return new ResourceLocation("srparasites", "animations/entity/kirin.animation.json");\n'
+        "    }\n"
+        f"{render_type_code}{visibility_code}{hurt_code}{layer_code}{event_code}"
+        "    // For Class A-2 movement-driven animations, override codeAnimations:\n"
+        "    // @Override\n"
+        "    // public void codeAnimations(KirinEntity animatable, AnimatableManager<KirinEntity> manager) {\n"
+        "    //     // Insert movement-driven animation code here\n"
+        "    // }\n"
+        "}\n"
+    )
     java_path = os.path.join(output_dir, "KirinGeoModel.java")
     with open(java_path, 'w') as f:
         f.write(java_code)
-    print(f"    Generated: {java_path}")
+    print(f"      Generated: {java_path}")
 
 
 if __name__ == "__main__":

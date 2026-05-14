@@ -23,9 +23,13 @@
     - has_scale: bool               Whether scale channel exists
 
   Keyframe data format (per axis):
-    - keyframes: list of {time: float, value: float}
+    - keyframes: list of {time: float, value: float, easing: str(optional)}
       OR
     - single_value: float          Static value for the entire animation
+
+  Animation-level event data (optional):
+    - sound_effects: list of {time: float, effect: str}
+    - particle_effects: list of {time: float, effect: str, locator: str( optional)}
 -#}
 {
   "format_version": {{ format_version | tojson }},
@@ -50,7 +54,11 @@
 {% elif axis_data.keyframes %}
             "{{ axis_name }}": {
 {% for kf in axis_data.keyframes %}
+{% if kf.easing is defined %}
+              "{{ "%.4f" | format(kf.time) }}": {"vector": {{ kf.value | tojson }}, "easing": {{ kf.easing | tojson }}}{{ "," if not loop.last else "" }}
+{% else %}
               "{{ "%.4f" | format(kf.time) }}": {{ kf.value | tojson }}{{ "," if not loop.last else "" }}
+{% endif %}
 {% endfor %}
             }{{ "," if not loop.last else "" }}
 {% endif %}
@@ -65,7 +73,11 @@
 {% elif axis_data.keyframes %}
             "{{ axis_name }}": {
 {% for kf in axis_data.keyframes %}
+{% if kf.easing is defined %}
+              "{{ "%.4f" | format(kf.time) }}": {"vector": {{ kf.value | tojson }}, "easing": {{ kf.easing | tojson }}}{{ "," if not loop.last else "" }}
+{% else %}
               "{{ "%.4f" | format(kf.time) }}": {{ kf.value | tojson }}{{ "," if not loop.last else "" }}
+{% endif %}
 {% endfor %}
             }{{ "," if not loop.last else "" }}
 {% endif %}
@@ -80,7 +92,11 @@
 {% elif axis_data.keyframes %}
             "{{ axis_name }}": {
 {% for kf in axis_data.keyframes %}
+{% if kf.easing is defined %}
+              "{{ "%.4f" | format(kf.time) }}": {"vector": {{ kf.value | tojson }}, "easing": {{ kf.easing | tojson }}}{{ "," if not loop.last else "" }}
+{% else %}
               "{{ "%.4f" | format(kf.time) }}": {{ kf.value | tojson }}{{ "," if not loop.last else "" }}
+{% endif %}
 {% endfor %}
             }{{ "," if not loop.last else "" }}
 {% endif %}
@@ -89,7 +105,17 @@
 {% endif %}
         }{{ "," if not loop.last else "" }}
 {% endfor %}
-      }
+      }{% if anim.sound_effects %},
+      "sound_effects": {
+{% for sfx in anim.sound_effects %}
+        "{{ "%.4f" | format(sfx.time) }}": {"effect": {{ sfx.effect | tojson }}}{{ "," if not loop.last else "" }}
+{% endfor %}
+      }{% endif %}{% if anim.particle_effects %},
+      "particle_effects": {
+{% for pfx in anim.particle_effects %}
+        "{{ "%.4f" | format(pfx.time) }}": {"effect": {{ pfx.effect | tojson }}{% if pfx.locator %}, "locator": {{ pfx.locator | tojson }}{% endif %}}{{ "," if not loop.last else "" }}
+{% endfor %}
+      }{% endif %}
     }{{ "," if not loop.last else "" }}
 {% endfor %}
   }

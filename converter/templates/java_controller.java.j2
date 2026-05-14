@@ -26,6 +26,25 @@
     - animatable.isAttacking()
     - animatable.getState() == State.IDLE
     - animatable.getHealth() > 0
+
+  Animation layers (optional):
+    - animation_layers: list of layer dicts for multi-layer animation
+
+  Each layer dict has:
+    - name: str                     Layer name (e.g. "base", "overlay", "emotion")
+    - priority: int                 Layer priority (higher = overrides lower)
+    - controller_name: str          Controller name for this layer
+    - transition_length: float      Transition length in ticks
+    - states: list                  List of state dicts (same format as above)
+
+  Overlay controllers (optional):
+    - overlay_controllers: list of overlay controller dicts
+
+  Each overlay controller dict has:
+    - name: str                     Overlay controller name
+    - transition_length: float      Transition length in ticks
+    - transition_nested: bool       Whether to use transitionNested for smooth blending
+    - states: list                  List of state dicts (same format as above)
 -#}
 // Auto-generated AnimationController for {{ entity_class }}
 // Class B: State Machine Animation
@@ -60,3 +79,83 @@ AnimationController<{{ entity_class }}> {{ controller_name }} =
 // public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
 //     controllers.add({{ controller_name }});
 // }
+{% if animation_layers %}
+
+// ========================================================================
+// Animation Layers (Multi-layer animation with priorities)
+// ========================================================================
+{% for layer in animation_layers | sort(attribute='priority', reverse=True) %}
+
+// Layer: {{ layer.name }} (priority {{ layer.priority }})
+AnimationController<{{ entity_class }}> {{ layer.controller_name }} =
+    new AnimationController<{{ entity_class }}>(this, "{{ layer.controller_name }}", {{ layer.transition_length }}f, event -> {
+        {{ entity_class }} animatable = event.getAnimatable();
+
+{% for state in layer.states | sort(attribute='priority', reverse=True) %}
+        // State: {{ state.name }} (priority {{ state.priority }})
+        if ({{ state.condition }}) {
+{% if state.is_looping %}
+            event.getController().setAnimation(
+                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.LOOP)
+            );
+{% else %}
+            event.getController().setAnimation(
+                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.PLAY_ONCE)
+            );
+{% endif %}
+            return PlayState.CONTINUE;
+        }
+
+{% endfor %}
+        return PlayState.STOP;
+    });
+
+{% endfor %}
+// Register all layers in registerControllers():
+// @Override
+// public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+{% for layer in animation_layers | sort(attribute='priority', reverse=True) %}
+//     controllers.add({{ layer.controller_name }});
+{% endfor %}
+// }
+{% endif %}
+{% if overlay_controllers %}
+
+// ========================================================================
+// Overlay Controllers (with transitionNested support)
+// ========================================================================
+{% for overlay in overlay_controllers %}
+
+// Overlay: {{ overlay.name }}
+AnimationController<{{ entity_class }}> {{ overlay.name }} =
+    new AnimationController<{{ entity_class }}>(this, "{{ overlay.name }}", {{ overlay.transition_length }}f, event -> {
+        {{ entity_class }} animatable = event.getAnimatable();
+
+{% for state in overlay.states | sort(attribute='priority', reverse=True) %}
+        // State: {{ state.name }} (priority {{ state.priority }})
+        if ({{ state.condition }}) {
+{% if state.is_looping %}
+            event.getController().setAnimation(
+                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.LOOP)
+            );
+{% else %}
+            event.getController().setAnimation(
+                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.PLAY_ONCE)
+            );
+{% endif %}
+            return PlayState.CONTINUE;
+        }
+
+{% endfor %}
+        return PlayState.STOP;
+    }){% if overlay.transition_nested %}.transitionNested({{ overlay.transition_length }}f){% endif %};
+
+{% endfor %}
+// Register overlay controllers in registerControllers():
+// @Override
+// public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+{% for overlay in overlay_controllers %}
+//     controllers.add({{ overlay.name }});
+{% endfor %}
+// }
+{% endif %}

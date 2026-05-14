@@ -17,6 +17,11 @@ Enhanced verification checks:
   5. Inflate handling verification
   6. Blockbench format validation
   7. Y-offset handling (root bone at [0,24,0])
+  8. Emissive/render effect consistency
+  9. Easing fitting consistency
+  10. Swing component consistency
+  11. Conditional visibility after hide
+  12. Animation event consistency
 """
 
 import math
@@ -33,7 +38,9 @@ class ModelVerifier:
     between the original 1.12.2 model and the converted 1.20.1 model.
 
     Enhanced with UV validation, bone hierarchy checks, animation bone matching,
-    inflate verification, Blockbench format validation, and Y-offset handling.
+    inflate verification, Blockbench format validation, Y-offset handling,
+    render effect consistency, easing fitting, swing component validation,
+    conditional visibility checks, and animation event consistency.
     """
 
     # Standard root bone pivot in GeckoLib Y-up coordinate system
@@ -68,7 +75,11 @@ class ModelVerifier:
 
     def verify_full(self, bone_data_1122: dict, geo_json_1201: dict,
                     animation_json: Optional[dict] = None,
-                    blockbench_json: Optional[dict] = None) -> dict:
+                    blockbench_json: Optional[dict] = None,
+                    render_effect_result: Optional[dict] = None,
+                    easing_results: Optional[dict] = None,
+                    swing_result: Optional[dict] = None,
+                    animation_events: Optional[dict] = None) -> dict:
         """
         Full verification suite with all enhanced checks.
 
@@ -77,6 +88,10 @@ class ModelVerifier:
             geo_json_1201: Converted .geo.json structure (game format)
             animation_json: Optional .animation.json for bone name matching
             blockbench_json: Optional Blockbench format .geo.json for format validation
+            render_effect_result: Optional result from render_effect_parser.py
+            easing_results: Optional result from easing_fitter.py
+            swing_result: Optional result from swing_analyzer.py
+            animation_events: Optional animation events data
 
         Returns:
             Comprehensive verification report dict
@@ -123,6 +138,58 @@ class ModelVerifier:
                 'reason': 'No Blockbench JSON provided'
             }
 
+        # 8. Render effect consistency
+        if render_effect_result:
+            render_result = self.validate_render_effects(render_effect_result, geo_json_1201)
+            results['render_effects'] = render_result
+        else:
+            results['render_effects'] = {
+                'checked': False,
+                'reason': 'No render effect result provided'
+            }
+
+        # 9. Easing fitting consistency
+        if easing_results:
+            easing_result = self.validate_easing_fitting(easing_results)
+            results['easing_fitting'] = easing_result
+        else:
+            results['easing_fitting'] = {
+                'checked': False,
+                'reason': 'No easing results provided'
+            }
+
+        # 10. Swing component consistency
+        if swing_result:
+            swing_check_result = self.validate_swing_components(swing_result, geo_json_1201)
+            results['swing_components'] = swing_check_result
+        else:
+            results['swing_components'] = {
+                'checked': False,
+                'reason': 'No swing result provided'
+            }
+
+        # 11. Bone visibility consistency
+        if render_effect_result:
+            visibility_result = self.validate_bone_visibility(
+                render_effect_result, geo_json_1201, animation_json
+            )
+            results['bone_visibility'] = visibility_result
+        else:
+            results['bone_visibility'] = {
+                'checked': False,
+                'reason': 'No render effect result provided'
+            }
+
+        # 12. Animation event consistency
+        if animation_events:
+            events_result = self.validate_animation_events(animation_events, animation_json)
+            results['animation_events'] = events_result
+        else:
+            results['animation_events'] = {
+                'checked': False,
+                'reason': 'No animation events provided'
+            }
+
         # Overall pass/fail
         all_checks = [
             vertex_result.get('verified', False),
@@ -134,6 +201,16 @@ class ModelVerifier:
             all_checks.append(anim_result.get('passed', False))
         if blockbench_json:
             all_checks.append(bb_result.get('passed', False))
+        if render_effect_result:
+            all_checks.append(render_result.get('passed', False))
+        if easing_results:
+            all_checks.append(easing_result.get('passed', False))
+        if swing_result:
+            all_checks.append(swing_check_result.get('passed', False))
+        if render_effect_result:
+            all_checks.append(visibility_result.get('passed', False))
+        if animation_events:
+            all_checks.append(events_result.get('passed', False))
 
         results['overall_passed'] = all(all_checks)
         results['overall_score'] = sum(1 for c in all_checks if c) / max(len(all_checks), 1)
@@ -600,6 +677,337 @@ class ModelVerifier:
             'checks': checks,
             'issue_count': len(issues),
             'issues': issues[:20]
+        }
+
+    # ========================================================================
+    # Emissive/Render Effect Consistency
+    # ========================================================================
+
+    # Valid GeckoLib easing type names
+    VALID_GECKOLIB_EASINGS = {
+        'linear', 'step',
+        'easeInQuad', 'easeOutQuad', 'easeInOutQuad',
+        'easeInCubic', 'easeOutCubic', 'easeInOutCubic',
+        'easeInQuart', 'easeOutQuart', 'easeInOutQuart',
+        'easeInQuint', 'easeOutQuint', 'easeInOutQuint',
+        'easeInSine', 'easeOutSine', 'easeInOutSine',
+        'easeInExpo', 'easeOutExpo', 'easeInOutExpo',
+        'easeInCirc', 'easeOutCirc', 'easeInOutCirc',
+        'easeInElastic', 'easeOutElastic', 'easeInOutElastic',
+        'easeInBack', 'easeOutBack', 'easeInOutBack',
+        'easeInBounce', 'easeOutBounce', 'easeInOutBounce',
+    }
+
+    # Valid GeckoLib keyframe event types
+    VALID_GECKOLIB_KEYFRAME_TYPES = {
+        'position', 'rotation', 'scale',
+        'sound', 'particle', 'custom_instruction',
+        'timeline',
+    }
+
+    def validate_render_effects(self, render_effect_result: dict, geo_json_1201: dict) -> dict:
+        """
+        Validate emissive/render effect consistency with geo.json bone names.
+
+        Checks that:
+          - Emissive bone names exist in the geo.json
+          - Translucency bone names exist in the geo.json
+          - Conditional visibility bone names exist in the geo.json
+
+        Args:
+            render_effect_result: Result dict from render_effect_parser.py
+            geo_json_1201: The converted .geo.json structure
+
+        Returns:
+            Dict with 'passed', 'emissive_bones_valid', 'translucency_bones_valid',
+            'visibility_bones_valid', 'warnings' keys
+        """
+        model = geo_json_1201.get('model', geo_json_1201.get('minecraft:geometry', [{}])[0])
+        geo_bone_names = {b['name'] for b in model.get('bones', [])}
+
+        warnings = []
+        emissive_bones_valid = True
+        translucency_bones_valid = True
+        visibility_bones_valid = True
+
+        # Check emissive bone names
+        emissive_bones = render_effect_result.get('emissive_bones', [])
+        for bone_name in emissive_bones:
+            if bone_name not in geo_bone_names:
+                emissive_bones_valid = False
+                warnings.append(f'Emissive bone "{bone_name}" not found in geo.json')
+
+        # Check translucency bone names
+        translucency_bones = render_effect_result.get('translucency_bones', [])
+        for bone_name in translucency_bones:
+            if bone_name not in geo_bone_names:
+                translucency_bones_valid = False
+                warnings.append(f'Translucency bone "{bone_name}" not found in geo.json')
+
+        # Check conditional visibility bone names
+        visibility_bones = render_effect_result.get('conditional_visibility_bones', [])
+        for bone_name in visibility_bones:
+            if bone_name not in geo_bone_names:
+                visibility_bones_valid = False
+                warnings.append(f'Conditional visibility bone "{bone_name}" not found in geo.json')
+
+        passed = emissive_bones_valid and translucency_bones_valid and visibility_bones_valid
+
+        return {
+            'passed': passed,
+            'emissive_bones_valid': emissive_bones_valid,
+            'translucency_bones_valid': translucency_bones_valid,
+            'visibility_bones_valid': visibility_bones_valid,
+            'warnings': warnings
+        }
+
+    # ========================================================================
+    # Easing Fitting Consistency
+    # ========================================================================
+
+    def validate_easing_fitting(self, easing_results: dict) -> dict:
+        """
+        Validate easing fitting results for GeckoLib compatibility.
+
+        Checks that:
+          - All easing types are valid GeckoLib names
+          - Fallback segments are documented
+
+        Args:
+            easing_results: Result dict from easing_fitter.py
+
+        Returns:
+            Dict with 'passed', 'total_segments', 'valid_easing_count',
+            'fallback_count', 'invalid_easing_names' keys
+        """
+        segments = easing_results.get('segments', [])
+        total_segments = len(segments)
+        valid_easing_count = 0
+        fallback_count = 0
+        invalid_easing_names = []
+
+        for segment in segments:
+            easing_name = segment.get('easing', 'linear')
+            if easing_name in self.VALID_GECKOLIB_EASINGS:
+                valid_easing_count += 1
+            else:
+                invalid_easing_names.append(easing_name)
+
+            if segment.get('is_fallback', False):
+                fallback_count += 1
+
+        passed = len(invalid_easing_names) == 0 and fallback_count == 0
+
+        return {
+            'passed': passed,
+            'total_segments': total_segments,
+            'valid_easing_count': valid_easing_count,
+            'fallback_count': fallback_count,
+            'invalid_easing_names': invalid_easing_names
+        }
+
+    # ========================================================================
+    # Swing Component Consistency
+    # ========================================================================
+
+    def validate_swing_components(self, swing_result: dict, geo_json_1201: dict) -> dict:
+        """
+        Validate swing component results for bone name and parameter consistency.
+
+        Checks that:
+          - All swing component bone names exist in geo.json bone mapping
+          - Chain relationships are valid (parent exists)
+          - Amplitude/frequency values are reasonable (not zero or extremely large)
+
+        Args:
+            swing_result: Result dict from swing_analyzer.py
+            geo_json_1201: The converted .geo.json structure
+
+        Returns:
+            Dict with 'passed', 'total_components', 'valid_bones',
+            'chain_valid', 'parameter_issues' keys
+        """
+        model = geo_json_1201.get('model', geo_json_1201.get('minecraft:geometry', [{}])[0])
+        geo_bone_names = {b['name'] for b in model.get('bones', [])}
+
+        components = swing_result.get('components', [])
+        total_components = len(components)
+        valid_bones = 0
+        chain_valid = True
+        parameter_issues = []
+
+        for component in components:
+            bone_name = component.get('bone_name', '')
+            if bone_name in geo_bone_names:
+                valid_bones += 1
+
+            # Check chain relationships
+            parent_bone = component.get('parent_bone')
+            if parent_bone and parent_bone not in geo_bone_names:
+                chain_valid = False
+
+            # Check amplitude/frequency values
+            amplitude = component.get('amplitude', 0)
+            frequency = component.get('frequency', 0)
+
+            if amplitude == 0:
+                parameter_issues.append(f'Bone "{bone_name}": amplitude is zero')
+            elif abs(amplitude) > 1000:
+                parameter_issues.append(
+                    f'Bone "{bone_name}": amplitude {amplitude} is extremely large'
+                )
+
+            if frequency == 0:
+                parameter_issues.append(f'Bone "{bone_name}": frequency is zero')
+            elif abs(frequency) > 1000:
+                parameter_issues.append(
+                    f'Bone "{bone_name}": frequency {frequency} is extremely large'
+                )
+
+        passed = (valid_bones == total_components and
+                  chain_valid and
+                  len(parameter_issues) == 0)
+
+        return {
+            'passed': passed,
+            'total_components': total_components,
+            'valid_bones': valid_bones,
+            'chain_valid': chain_valid,
+            'parameter_issues': parameter_issues
+        }
+
+    # ========================================================================
+    # Conditional Visibility After Hide
+    # ========================================================================
+
+    def validate_bone_visibility(self, render_effect_result: dict, geo_json_1201: dict,
+                                  animation_json: Optional[dict] = None) -> dict:
+        """
+        Validate that conditional visibility rules don't permanently hide bones.
+
+        Checks that:
+          - After applying conditional visibility rules, no bone is permanently
+            hidden unless explicitly intended
+          - Hurt shake bones still appear in base animations
+
+        Args:
+            render_effect_result: Result dict from render_effect_parser.py
+            geo_json_1201: The converted .geo.json structure
+            animation_json: Optional .animation.json for hurt bone overlap check
+
+        Returns:
+            Dict with 'passed', 'permanently_hidden_bones', 'hurt_bone_overlap' keys
+        """
+        visibility_rules = render_effect_result.get('conditional_visibility', {})
+        permanently_hidden_bones = []
+
+        for bone_name, rule in visibility_rules.items():
+            # A bone is permanently hidden if visibility is explicitly False
+            # with no conditions that could restore it
+            if isinstance(rule, dict):
+                if rule.get('visible', True) is False and not rule.get('conditions'):
+                    permanently_hidden_bones.append(bone_name)
+            elif rule is False:
+                permanently_hidden_bones.append(bone_name)
+
+        # Check hurt shake bones still appear in base animations
+        hurt_bones = set(render_effect_result.get('hurt_shake_bones', []))
+        hurt_bone_overlap = set()
+
+        if animation_json and hurt_bones:
+            animations = animation_json.get('animations', {})
+            for anim_name, anim_data in animations.items():
+                # Check base (non-hurt) animations for hurt shake bones
+                if 'hurt' not in anim_name.lower():
+                    anim_bones = set(anim_data.get('bones', {}).keys())
+                    hurt_bone_overlap.update(hurt_bones & anim_bones)
+
+        # Pass if no permanently hidden bones and hurt shake bones appear in base
+        hurt_check = (not hurt_bones) or (len(hurt_bone_overlap) > 0)
+        passed = len(permanently_hidden_bones) == 0 and hurt_check
+
+        return {
+            'passed': passed,
+            'permanently_hidden_bones': permanently_hidden_bones,
+            'hurt_bone_overlap': sorted(list(hurt_bone_overlap))
+        }
+
+    # ========================================================================
+    # Animation Event Consistency
+    # ========================================================================
+
+    def validate_animation_events(self, animation_events: dict,
+                                   animation_json: Optional[dict] = None) -> dict:
+        """
+        Validate animation events for time bounds and type consistency.
+
+        Checks that:
+          - Event times fall within animation length bounds
+          - Event types are valid GeckoLib keyframe types
+
+        Args:
+            animation_events: Animation events data dict
+            animation_json: Optional .animation.json for animation length reference
+
+        Returns:
+            Dict with 'passed', 'total_events', 'valid_events',
+            'out_of_bounds_events', 'invalid_type_events' keys
+        """
+        events = animation_events.get('events', [])
+        total_events = len(events)
+        valid_events = 0
+        out_of_bounds_events = []
+        invalid_type_events = []
+
+        # Get animation length if available
+        anim_length = None
+        if animation_json:
+            animations = animation_json.get('animations', {})
+            for anim_name, anim_data in animations.items():
+                anim_length = anim_data.get('animation_length', None)
+                break
+
+        for event in events:
+            time = event.get('time', 0)
+            event_type = event.get('type', '')
+
+            # Check time bounds
+            time_valid = True
+            if time < 0:
+                time_valid = False
+                out_of_bounds_events.append({
+                    'time': time,
+                    'type': event_type,
+                    'reason': 'Event time is negative'
+                })
+            elif anim_length is not None and time > anim_length:
+                time_valid = False
+                out_of_bounds_events.append({
+                    'time': time,
+                    'type': event_type,
+                    'reason': f'Event time {time} exceeds animation length {anim_length}'
+                })
+
+            # Check event type
+            type_valid = event_type in self.VALID_GECKOLIB_KEYFRAME_TYPES
+            if not type_valid:
+                invalid_type_events.append({
+                    'time': time,
+                    'type': event_type,
+                    'reason': f'Invalid GeckoLib keyframe type: {event_type}'
+                })
+
+            if time_valid and type_valid:
+                valid_events += 1
+
+        passed = len(out_of_bounds_events) == 0 and len(invalid_type_events) == 0
+
+        return {
+            'passed': passed,
+            'total_events': total_events,
+            'valid_events': valid_events,
+            'out_of_bounds_events': out_of_bounds_events,
+            'invalid_type_events': invalid_type_events
         }
 
     # ========================================================================
@@ -1164,4 +1572,9 @@ if __name__ == "__main__":
     print("  validate_inflate_handling()    - Inflate value verification")
     print("  validate_y_offset()            - Root bone Y-offset check")
     print("  verify_blockbench_format()     - Blockbench format validation")
+    print("  validate_render_effects()      - Emissive/render effect consistency")
+    print("  validate_easing_fitting()      - Easing fitting consistency")
+    print("  validate_swing_components()    - Swing component consistency")
+    print("  validate_bone_visibility()     - Conditional visibility after hide")
+    print("  validate_animation_events()    - Animation event consistency")
     print("  generate_verification_report() - Generate text report")

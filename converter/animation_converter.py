@@ -1778,3 +1778,1109 @@ class KirinAnimationConverter(AnimationConverter):
             'anim_class': 'A-2',
             'warnings': self.warnings
         }
+
+
+# ============================================================================
+# Task 7: Animation Layer Auto-Separation
+# ============================================================================
+
+@dataclass
+class AnimationLayer:
+    """Represents a single animation layer separated from a mixed animation method."""
+    name: str  # e.g., "base_walk", "hurt_overlay"
+    priority: int = 0  # Higher = rendered on top
+    expressions: List[AnimationExpression] = field(default_factory=list)
+    is_additive: bool = True  # Overlay layers are additive
+    transition_length: float = 0.0
+    condition: str = ""  # e.g., "entity.hurtTime > 0"
+
+
+class AnimationLayerSeparator:
+    """
+    Detects when the same animation method uses if-conditions to apply multiple
+    overlapping rotations to the same bone (e.g., walk + hurt shake). Generates
+    separate AnimationController definitions for each layer.
+
+    Layer separation rules:
+      - Code outside any conditional → base layer (priority 0)
+      - if (entity.hurtTime > 0) blocks → hurt overlay (priority 10)
+      - if (entity.isInvisible()) blocks → invisible overlay (priority 5)
+      - Other if-blocks → named overlay based on condition
+
+    The base layer is a continuous animation. Overlay layers use
+    ``transitionNested`` or an independent controller with higher priority.
+    """
+
+    # Condition patterns and their corresponding layer info
+    _CONDITION_LAYERS = [
+        (re.compile(r'entity\.hurtTime\s*>\s*0'), "hurt_overlay", 10, "entity.hurtTime > 0"),
+        (re.compile(r'entity\.isInvisible\(\)'), "invisible_overlay", 5, "entity.isInvisible()"),
+        (re.compile(r'entity\.isAlive\(\)'), "alive_overlay", 3, "entity.isAlive()"),
+        (re.compile(r'entity\.isAggressive\(\)'), "aggressive_overlay", 8, "entity.isAggressive()"),
+        (re.compile(r'entity\.isCharging\(\)'), "charge_overlay", 7, "entity.isCharging()"),
+    ]
+
+    def __init__(self, bone_mapping: Dict[str, str] = None):
+        """
+        Args:
+            bone_mapping: Dict mapping 1.12.2 java var names to GeckoLib bone IDs.
+        """
+        self.bone_mapping = bone_mapping or {}
+        self.warnings: List[str] = []
+
+    def separate_layers(self, method_body: str) -> List[AnimationLayer]:
+        """
+        Parse a method body and separate into base + overlay layers based on
+        if-condition blocks.
+
+        The method scans the Java source for if-blocks that correspond to known
+        overlay conditions (hurt, invisible, etc.) and splits the rotation
+        assignments accordingly. Code outside any conditional block is assigned
+        to the base layer.
+
+        Args:
+            method_body: The Java source of the animation method body.
+
+        Returns:
+            A list of :class:`AnimationLayer` objects, always including at least
+            a base layer. Overlay layers are sorted by descending priority.
+        """
+        if not method_body or not method_body.strip():
+            self.warnings.append("Empty method body provided to AnimationLayerSeparator")
+            return [AnimationLayer(name="base", priority=0, is_additive=False)]
+
+        try:
+            # Find all if-blocks and their ranges in the method body
+            if_blocks = self._find_if_blocks(method_body)
+
+            if not if_blocks:
+                # No conditional blocks found — everything is the base layer
+                return [AnimationLayer(name="base", priority=0, is_additive=False)]
+
+            # Identify which if-blocks correspond to known overlay conditions
+            overlay_blocks: List[Dict[str, Any]] = []
+            for block_info in if_blocks:
+                layer_match = self._match_condition_to_layer(block_info['condition'])
+                if layer_match:
+                    overlay_blocks.append({
+                        **block_info,
+                        'layer_name': layer_match[0],
+                        'priority': layer_match[1],
+                        'condition_str': layer_match[2],
+                    })
+
+            # Build the base layer from code outside overlay blocks
+            overlay_ranges = [(b['start'], b['end']) for b in overlay_blocks]
+            base_code = self._extract_code_outside_ranges(method_body, overlay_ranges)
+            base_expressions = self._parse_expressions_from_code(base_code)
+
+            layers: List[AnimationLayer] = []
+
+            # Base layer
+            base_layer = AnimationLayer(
+                name="base",
+                priority=0,
+                expressions=base_expressions,
+                is_additive=False,
+                transition_length=0.0,
+                condition="",
+            )
+            layers.append(base_layer)
+
+            # Overlay layers
+            for block in overlay_blocks:
+                overlay_code = method_body[block['start']:block['end']]
+                # Strip the if-condition line and outer braces
+                overlay_code = self._strip_if_wrapper(overlay_code)
+                overlay_expressions = self._parse_expressions_from_code(overlay_code)
+
+                layer = AnimationLayer(
+                    name=block['layer_name'],
+                    priority=block['priority'],
+                    expressions=overlay_expressions,
+                    is_additive=True,
+                    transition_length=0.2,  # Default transition for overlays
+                    condition=block['condition_str'],
+                )
+                layers.append(layer)
+
+            # Sort overlays by descending priority
+            layers.sort(key=lambda l: l.priority, reverse=True)
+
+            return layers
+
+        except Exception as e:
+            self.warnings.append(
+                f"AnimationLayerSeparator.separate_layers failed: {e}. "
+                f"Returning base layer only."
+            )
+            return [AnimationLayer(name="base", priority=0, is_additive=False)]
+
+    def generate_controller_code(self, layers: List[AnimationLayer]) -> str:
+        """
+        Generate Java code for each controller with proper priority and blending.
+
+        The base layer is generated as a continuous animation controller.
+        Overlay layers are generated with higher priority and use
+        ``transitionNested`` or independent controllers.
+
+        Args:
+            layers: List of :class:`AnimationLayer` objects, typically from
+                :meth:`separate_layers`.
+
+        Returns:
+            A string of Java code defining the animation controllers.
+        """
+        if not layers:
+            self.warnings.append("No layers provided to generate_controller_code")
+            return "// No animation layers to generate"
+
+        lines: List[str] = []
+        lines.append("// Auto-generated AnimationController definitions")
+        lines.append("// Generated by AnimationLayerSeparator")
+        lines.append("")
+
+        for layer in layers:
+            lines.append(f"// --- Layer: {layer.name} (priority={layer.priority}) ---")
+
+            if layer.priority == 0:
+                # Base layer: continuous controller
+                lines.append(f"AnimationController<{'>,'.join(['T extends GeoAnimatable'])}> {layer.name}Controller =")
+                lines.append(f"    new AnimationController<>(this, \"{layer.name}\", 0, event -> {{")
+                lines.append(f"        event.getController().setAnimation(")
+                lines.append(f"            new AnimationBuilder().addAnimation(\"animation.model.{layer.name}\", true));")
+                lines.append(f"        return PlayState.CONTINUE;")
+                lines.append(f"    }});")
+            else:
+                # Overlay layer: conditional controller with transition
+                transition = layer.transition_length
+                lines.append(f"AnimationController<{'>,'.join(['T extends GeoAnimatable'])}> {layer.name}Controller =")
+                lines.append(f"    new AnimationController<>(this, \"{layer.name}\", {transition}, event -> {{")
+                if layer.condition:
+                    lines.append(f"        // Condition: {layer.condition}")
+                    lines.append(f"        if ({layer.condition}) {{")
+                    lines.append(f"            event.getController().setAnimation(")
+                    lines.append(f"                new AnimationBuilder().addAnimation(\"animation.model.{layer.name}\", true));")
+                    lines.append(f"            return PlayState.CONTINUE;")
+                    lines.append(f"        }}")
+                    lines.append(f"        return PlayState.STOP;")
+                else:
+                    lines.append(f"        event.getController().setAnimation(")
+                    lines.append(f"            new AnimationBuilder().addAnimation(\"animation.model.{layer.name}\", true));")
+                    lines.append(f"        return PlayState.CONTINUE;")
+                lines.append(f"    }});")
+                lines.append(f"{layer.name}Controller.priority = {layer.priority};")
+                if layer.is_additive:
+                    lines.append(f"{layer.name}Controller.transitionNested = true;")
+
+            lines.append("")
+
+        # Register all controllers
+        lines.append("// Register all controllers:")
+        lines.append("@Override")
+        lines.append("public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {")
+        for layer in layers:
+            lines.append(f"    controllers.add({layer.name}Controller);")
+        lines.append("}")
+
+        return '\n'.join(lines)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _find_if_blocks(self, method_body: str) -> List[Dict[str, Any]]:
+        """
+        Find all top-level if-blocks in the method body.
+
+        Returns a list of dicts with keys:
+          - 'condition': the condition string inside if(...)
+          - 'start': character position of the block start (the 'if')
+          - 'end': character position after the closing brace
+        """
+        blocks: List[Dict[str, Any]] = []
+        pattern = re.compile(r'\bif\s*\(')
+        pos = 0
+
+        while pos < len(method_body):
+            match = pattern.search(method_body, pos)
+            if not match:
+                break
+
+            if_start = match.start()
+
+            # Extract the condition string between the parentheses of if(...)
+            paren_start = match.end() - 1  # position of '('
+            depth = 0
+            paren_end = paren_start
+            for i in range(paren_start, len(method_body)):
+                if method_body[i] == '(':
+                    depth += 1
+                elif method_body[i] == ')':
+                    depth -= 1
+                    if depth == 0:
+                        paren_end = i
+                        break
+
+            condition_str = method_body[paren_start + 1:paren_end]
+
+            # Find the opening brace of the if-block body
+            body_start = paren_end + 1
+            # Skip whitespace
+            while body_start < len(method_body) and method_body[body_start] in ' \t\n\r':
+                body_start += 1
+
+            if body_start >= len(method_body) or method_body[body_start] != '{':
+                # Single-line if without braces — skip for now
+                pos = paren_end + 1
+                continue
+
+            # Find matching closing brace
+            depth = 0
+            brace_end = body_start
+            for i in range(body_start, len(method_body)):
+                if method_body[i] == '{':
+                    depth += 1
+                elif method_body[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        brace_end = i
+                        break
+
+            blocks.append({
+                'condition': condition_str,
+                'start': if_start,
+                'end': brace_end + 1,
+            })
+
+            pos = brace_end + 1
+
+        return blocks
+
+    def _match_condition_to_layer(
+        self, condition: str
+    ) -> Optional[Tuple[str, int, str]]:
+        """
+        Match a condition string to a known overlay layer type.
+
+        Returns:
+            Tuple of (layer_name, priority, condition_str) or None if no match.
+        """
+        for pattern, name, priority, cond_str in self._CONDITION_LAYERS:
+            if pattern.search(condition):
+                return (name, priority, cond_str)
+        return None
+
+    def _extract_code_outside_ranges(
+        self, source: str, ranges: List[Tuple[int, int]]
+    ) -> str:
+        """
+        Extract the parts of source that are not covered by any of the
+        given ranges.
+        """
+        if not ranges:
+            return source
+
+        # Sort ranges by start position
+        sorted_ranges = sorted(ranges, key=lambda r: r[0])
+
+        parts: List[str] = []
+        prev_end = 0
+        for start, end in sorted_ranges:
+            if start > prev_end:
+                parts.append(source[prev_end:start])
+            prev_end = max(prev_end, end)
+
+        # Append any remaining code after the last range
+        if prev_end < len(source):
+            parts.append(source[prev_end:])
+
+        return '\n'.join(parts)
+
+    def _strip_if_wrapper(self, code: str) -> str:
+        """
+        Strip the ``if (condition) {`` and closing ``}`` from an if-block,
+        returning only the body.
+        """
+        # Find first '{' and last '}'
+        brace_start = code.find('{')
+        brace_end = code.rfind('}')
+        if brace_start == -1 or brace_end == -1 or brace_start >= brace_end:
+            return code
+        return code[brace_start + 1:brace_end]
+
+    def _parse_expressions_from_code(self, code: str) -> List[AnimationExpression]:
+        """
+        Parse rotation assignment expressions from a code fragment.
+
+        Uses the same SRG field → axis mapping as the parent
+        :class:`AnimationConverter`.
+        """
+        expressions: List[AnimationExpression] = []
+
+        axis_map = {
+            'field_78795_f': 'x',
+            'field_78796_g': 'y',
+            'field_78808_h': 'z',
+        }
+
+        pattern = re.compile(
+            r'this\.(\w+)\.(field_78795_f|field_78796_g|field_78808_h)\s*=\s*([^;]+);'
+        )
+
+        for match in pattern.finditer(code):
+            bone_var = match.group(1)
+            axis_field = match.group(2)
+            expr_str = match.group(3).strip()
+
+            axis = axis_map.get(axis_field)
+            if not axis:
+                continue
+
+            if bone_var not in self.bone_mapping:
+                self.warnings.append(
+                    f"AnimationLayerSeparator: Bone variable '{bone_var}' "
+                    f"not found in bone mapping. Skipping."
+                )
+                continue
+
+            expr = AnimationExpression(
+                bone_var=bone_var,
+                axis=axis,
+                expression=expr_str,
+                is_time_driven='ageInTicks' in expr_str,
+                is_movement_driven='limbSwing' in expr_str,
+            )
+            expressions.append(expr)
+
+        return expressions
+
+
+# ============================================================================
+# Task 8: Animation Event Markers
+# ============================================================================
+
+@dataclass
+class AnimationEvent:
+    """Represents an event detected inside animation Java code at a specific tick."""
+    event_type: str  # "sound", "effect", "comment"
+    time_ticks: int  # Tick position in the animation
+    time_seconds: float  # Converted time
+    original_call: str  # The original Java method call
+    resource_hint: str = ""  # Extracted resource path if available
+    description: str = ""  # Human-readable description
+
+
+class KeyframeEventMarker:
+    """
+    Detects calls to ``entity.attackEntityAsMob(...)``, ``entity.playSound(...)``,
+    ``world.spawnParticle(...)`` inside animation Java code at specific tick/time
+    points. Outputs markers in the ``.animation.json`` at corresponding time
+    positions using GeckoLib's sound/effect keyframe format.
+
+    Supported event patterns:
+      - ``entity.attackEntityAsMob(...)`` → "effect" event
+      - ``entity.playSound(...)`` → "sound" event (extracts sound resource path)
+      - ``world.spawnParticle(...)`` → "effect" event
+      - Other entity method calls inside animation → "comment" event
+    """
+
+    # Ticks per second in Minecraft
+    TPS = 20.0
+
+    def __init__(self, bone_mapping: Dict[str, str] = None):
+        """
+        Args:
+            bone_mapping: Dict mapping 1.12.2 java var names to GeckoLib bone IDs.
+        """
+        self.bone_mapping = bone_mapping or {}
+        self.warnings: List[str] = []
+
+    def detect_events(self, java_source: str) -> List[AnimationEvent]:
+        """
+        Scan animation code for method calls that represent events.
+
+        Detects:
+          - ``entity.attackEntityAsMob(...)`` → "effect" event
+          - ``entity.playSound(...)`` → "sound" event; extracts sound resource
+            path if the first argument is a string literal or a
+            ``SoundEvents`` reference.
+          - ``world.spawnParticle(...)`` → "effect" event
+          - Any other ``entity.*(...)`` calls inside animation methods →
+            "comment" event with the original code
+
+        Args:
+            java_source: The Java source containing animation methods.
+
+        Returns:
+            A list of :class:`AnimationEvent` instances sorted by time_ticks.
+        """
+        if not java_source or not java_source.strip():
+            self.warnings.append("Empty Java source provided to KeyframeEventMarker.detect_events")
+            return []
+
+        events: List[AnimationEvent] = []
+
+        try:
+            # Detect entity.attackEntityAsMob calls
+            attack_pattern = re.compile(
+                r'entity\.attackEntityAsMob\s*\([^)]*\)'
+            )
+            for match in attack_pattern.finditer(java_source):
+                tick = self._estimate_time_ticks(match.start(), java_source)
+                events.append(AnimationEvent(
+                    event_type="effect",
+                    time_ticks=tick,
+                    time_seconds=round(tick / self.TPS, 4),
+                    original_call=match.group(),
+                    resource_hint="",
+                    description="Attack entity as mob",
+                ))
+
+            # Detect entity.playSound calls
+            sound_pattern = re.compile(
+                r'entity\.playSound\s*\(([^)]*)\)'
+            )
+            for match in sound_pattern.finditer(java_source):
+                args_str = match.group(1).strip()
+                resource_hint = self._extract_sound_resource(args_str)
+                tick = self._estimate_time_ticks(match.start(), java_source)
+                events.append(AnimationEvent(
+                    event_type="sound",
+                    time_ticks=tick,
+                    time_seconds=round(tick / self.TPS, 4),
+                    original_call=match.group(),
+                    resource_hint=resource_hint,
+                    description=f"Play sound: {resource_hint}" if resource_hint else "Play sound",
+                ))
+
+            # Detect world.spawnParticle calls
+            particle_pattern = re.compile(
+                r'world\.spawnParticle\s*\([^)]*\)'
+            )
+            for match in particle_pattern.finditer(java_source):
+                tick = self._estimate_time_ticks(match.start(), java_source)
+                events.append(AnimationEvent(
+                    event_type="effect",
+                    time_ticks=tick,
+                    time_seconds=round(tick / self.TPS, 4),
+                    original_call=match.group(),
+                    resource_hint="",
+                    description="Spawn particle",
+                ))
+
+            # Detect other entity method calls (comment events)
+            # Exclude already-detected methods
+            excluded_methods = {
+                'attackEntityAsMob', 'playSound',
+            }
+            entity_method_pattern = re.compile(
+                r'entity\.(\w+)\s*\([^)]*\)'
+            )
+            for match in entity_method_pattern.finditer(java_source):
+                method_name = match.group(1)
+                if method_name in excluded_methods:
+                    continue
+                # Skip common non-event entity methods
+                if method_name in {
+                    'getPosition', 'getPosX', 'getPosY', 'getPosZ',
+                    'getHealth', 'getMaxHealth', 'isAlive', 'isInvisible',
+                    'hurtTime', 'deathTime', 'limbSwing', 'limbSwingAmount',
+                    'ageInTicks', 'rotationYaw', 'rotationPitch',
+                    'getRNG', 'getRandom',
+                }:
+                    continue
+                tick = self._estimate_time_ticks(match.start(), java_source)
+                events.append(AnimationEvent(
+                    event_type="comment",
+                    time_ticks=tick,
+                    time_seconds=round(tick / self.TPS, 4),
+                    original_call=match.group(),
+                    resource_hint="",
+                    description=f"Entity call: {method_name}",
+                ))
+
+            # Sort by time
+            events.sort(key=lambda e: e.time_ticks)
+
+        except Exception as e:
+            self.warnings.append(
+                f"KeyframeEventMarker.detect_events failed: {e}. "
+                f"Returning partial results."
+            )
+
+        return events
+
+    def apply_to_animation_json(
+        self, animation_json: dict, events: List[AnimationEvent]
+    ) -> dict:
+        """
+        Insert events into the animation JSON at the correct time positions
+        using GeckoLib's sound/effect keyframe format.
+
+        For events where the resource ID is known, uses the appropriate
+        ``sound`` or ``effect`` keyframe type. For unknown resource IDs,
+        uses ``comment`` type instead.
+
+        The GeckoLib keyframe format places sound and effect markers at
+        the animation level (not under a specific bone).
+
+        Args:
+            animation_json: The animation JSON dict to modify.
+            events: List of :class:`AnimationEvent` instances.
+
+        Returns:
+            The modified animation JSON dict with event keyframes inserted.
+        """
+        if not events:
+            return animation_json
+
+        try:
+            anims = animation_json.get('animations', {})
+            for anim_name, anim_data in anims.items():
+                sound_keyframes = []
+                effect_keyframes = []
+
+                for event in events:
+                    time_str = f"{event.time_seconds:.4f}"
+                    if event.event_type == "sound" and event.resource_hint:
+                        sound_keyframes.append({
+                            "time": time_str,
+                            "effect": event.resource_hint,
+                        })
+                    elif event.event_type == "effect" and event.resource_hint:
+                        effect_keyframes.append({
+                            "time": time_str,
+                            "effect": event.resource_hint,
+                        })
+                    else:
+                        # Use comment type for unknown resources
+                        comment_text = event.description or event.original_call
+                        if "sound_effects" not in anim_data:
+                            anim_data["sound_effects"] = {}
+                        if not isinstance(anim_data.get("sound_effects"), dict):
+                            anim_data["sound_effects"] = {}
+                        time_key = time_str
+                        anim_data["sound_effects"][time_key] = {
+                            "effect": comment_text,
+                        }
+
+                if sound_keyframes:
+                    if "sound_effects" not in anim_data:
+                        anim_data["sound_effects"] = {}
+                    if not isinstance(anim_data.get("sound_effects"), dict):
+                        anim_data["sound_effects"] = {}
+                    for kf in sound_keyframes:
+                        time_key = kf["time"]
+                        anim_data["sound_effects"][time_key] = {
+                            "effect": kf["effect"],
+                        }
+
+                if effect_keyframes:
+                    if "particle_effects" not in anim_data:
+                        anim_data["particle_effects"] = {}
+                    if not isinstance(anim_data.get("particle_effects"), dict):
+                        anim_data["particle_effects"] = {}
+                    for kf in effect_keyframes:
+                        time_key = kf["time"]
+                        anim_data["particle_effects"][time_key] = {
+                            "effect": kf["effect"],
+                        }
+
+        except Exception as e:
+            self.warnings.append(
+                f"KeyframeEventMarker.apply_to_animation_json failed: {e}. "
+                f"Returning unmodified animation JSON."
+            )
+
+        return animation_json
+
+    def _estimate_time_ticks(self, call_position: int, method_body: str) -> int:
+        """
+        Heuristic to estimate which tick the event occurs at based on code
+        position relative to the method.
+
+        The heuristic counts the number of lines before the call position,
+        assuming roughly one logical step per line. In Minecraft animations,
+        the ``setRotationAngles`` method is called once per tick, so each
+        line roughly corresponds to one sub-step within that tick.
+
+        A more refined estimate uses the ratio of the call position to the
+        total method length, scaled to a typical animation period.
+
+        Args:
+            call_position: Character offset of the call in method_body.
+            method_body: The full method body string.
+
+        Returns:
+            Estimated tick number (0-based).
+        """
+        if not method_body:
+            return 0
+
+        try:
+            # Count the number of newlines before the call position
+            line_number = method_body[:call_position].count('\n')
+
+            # Use a simple heuristic: assume ~1 line per tick,
+            # but cap at a reasonable animation length
+            estimated_tick = line_number
+
+            # Cap at a reasonable max (most animations are < 200 ticks)
+            max_ticks = 200
+            return min(estimated_tick, max_ticks)
+
+        except Exception:
+            return 0
+
+    def _extract_sound_resource(self, args_str: str) -> str:
+        """
+        Extract a sound resource path from playSound arguments.
+
+        Handles:
+          - String literal first arg: ``"minecraft:entity.zombie.hurt"``
+          - SoundEvents reference: ``SoundEvents.ENTITY_ZOMBIE_HURT``
+          - Fallback: returns empty string
+
+        Args:
+            args_str: The comma-separated arguments inside playSound(...).
+
+        Returns:
+            The extracted resource path string, or empty string if not found.
+        """
+        if not args_str:
+            return ""
+
+        # Split by comma, take first argument
+        parts = [p.strip() for p in args_str.split(',')]
+        if not parts:
+            return ""
+
+        first_arg = parts[0]
+
+        # Try string literal: "minecraft:entity.zombie.hurt"
+        str_match = re.match(r'"([^"]+)"', first_arg)
+        if str_match:
+            return str_match.group(1)
+
+        # Try SoundEvents reference: SoundEvents.ENTITY_ZOMBIE_HURT
+        sfx_match = re.match(r'SoundEvents\.(\w+)', first_arg)
+        if sfx_match:
+            # Convert CONSTANT_CASE to resource path
+            name = sfx_match.group(1).lower()
+            return f"minecraft:{name.replace('_', '.')}"
+
+        return ""
+
+
+# ============================================================================
+# Task 9: Dynamic Bone Visibility
+# ============================================================================
+
+@dataclass
+class DynamicVisibilityRule:
+    """Represents a bone whose scale or rotation is set to near-zero to simulate hiding."""
+    bone_var: str
+    axis: str
+    is_pseudo_hide: bool  # True if using near-zero scale/rotation to simulate hiding
+    original_expression: str
+    replacement_code: str  # setHidden replacement code
+
+
+class DynamicVisibilityDetector:
+    """
+    Detects bones whose scale or rotation is set to extremely small values
+    (near 0) to simulate hiding. Replaces with proper ``bone.setHidden(true/false)``
+    calls.
+
+    Detection patterns:
+      - ``this.bone.field_78795_f = 0.01f`` (rotation near zero → pseudo-hide)
+      - Scale set to values < threshold for more than 1 frame
+      - Periodic patterns where bone values drop below threshold
+        (blinking/eye closing)
+
+    The replacement uses ``GeoBone.setHidden()`` instead of the pseudo-hide
+    pattern, with comments explaining the original behavior.
+    """
+
+    # SRG field → axis mapping
+    _AXIS_MAP = {
+        'field_78795_f': 'x',
+        'field_78796_g': 'y',
+        'field_78808_h': 'z',
+    }
+
+    def __init__(self, bone_mapping: Dict[str, str] = None, threshold: float = 0.05):
+        """
+        Args:
+            bone_mapping: Dict mapping 1.12.2 java var names to GeckoLib bone IDs.
+            threshold: Values below this are considered "near-zero" (pseudo-hide).
+                Default is 0.05 radians.
+        """
+        self.bone_mapping = bone_mapping or {}
+        self.threshold = threshold
+        self.warnings: List[str] = []
+
+    def detect(self, method_body: str) -> List[DynamicVisibilityRule]:
+        """
+        Find patterns where bone scale or rotation is set to near-zero values
+        to simulate hiding.
+
+        Specifically detects:
+          - Rotation assignments with literal near-zero values (e.g. 0.01f)
+          - Ternary expressions that set bone to 0 on a condition
+            (e.g. ``condition ? 0.0f : normalValue``)
+          - Periodic patterns where a cosine/sine function multiplied by a
+            very small amplitude produces values below threshold
+          - Scale assignments with near-zero values
+
+        Args:
+            method_body: The Java source of the animation method body.
+
+        Returns:
+            A list of :class:`DynamicVisibilityRule` instances for each
+            detected pseudo-hide pattern.
+        """
+        if not method_body or not method_body.strip():
+            self.warnings.append("Empty method body provided to DynamicVisibilityDetector.detect")
+            return []
+
+        rules: List[DynamicVisibilityRule] = []
+
+        try:
+            # 1. Detect rotation assignments with literal near-zero values
+            rules.extend(self._detect_near_zero_rotations(method_body))
+
+            # 2. Detect ternary patterns: condition ? 0.0f : value
+            rules.extend(self._detect_ternary_zero_patterns(method_body))
+
+            # 3. Detect periodic patterns (blinking) where amplitude < threshold
+            rules.extend(self._detect_periodic_zero_patterns(method_body))
+
+        except Exception as e:
+            self.warnings.append(
+                f"DynamicVisibilityDetector.detect failed: {e}. "
+                f"Returning partial results."
+            )
+
+        return rules
+
+    def generate_visibility_code(self, rules: List[DynamicVisibilityRule]) -> str:
+        """
+        Generate Java code for codeAnimations that uses ``bone.setHidden()``
+        instead of the pseudo-hide pattern.
+
+        Each replacement is annotated with a comment explaining what the
+        original code was doing.
+
+        Args:
+            rules: List of :class:`DynamicVisibilityRule` instances.
+
+        Returns:
+            A string of Java code with ``setHidden()`` replacements.
+        """
+        if not rules:
+            return "// No dynamic visibility rules detected"
+
+        lines: List[str] = []
+        lines.append("// Auto-generated dynamic visibility code")
+        lines.append("// Generated by DynamicVisibilityDetector")
+        lines.append("// Replaces near-zero scale/rotation pseudo-hide with setHidden()")
+        lines.append("")
+
+        # Group rules by bone variable
+        bone_rules: Dict[str, List[DynamicVisibilityRule]] = {}
+        for rule in rules:
+            if rule.bone_var not in bone_rules:
+                bone_rules[rule.bone_var] = []
+            bone_rules[rule.bone_var].append(rule)
+
+        for bone_var, bone_rule_list in bone_rules.items():
+            bone_name = self.bone_mapping.get(bone_var, bone_var)
+            lines.append(f"GeoBone {bone_var}Bone = this.getAnimationProcessor().getBone(\"{bone_name}\");")
+            lines.append(f"if ({bone_var}Bone != null) {{")
+
+            for rule in bone_rule_list:
+                lines.append(f"    // Original: this.{rule.bone_var}.{rule.axis} = {rule.original_expression}")
+                lines.append(f"    // Detected pseudo-hide on axis '{rule.axis}' (near-zero value)")
+                lines.append(f"    {rule.replacement_code}")
+
+            lines.append("}")
+            lines.append("")
+
+        return '\n'.join(lines)
+
+    # ------------------------------------------------------------------
+    # Internal detection helpers
+    # ------------------------------------------------------------------
+
+    def _detect_near_zero_rotations(self, method_body: str) -> List[DynamicVisibilityRule]:
+        """
+        Detect rotation assignments where the value is a literal near-zero
+        constant.
+
+        Matches patterns like:
+          - ``this.bone.field_78795_f = 0.01f;``
+          - ``this.bone.field_78795_f = 0.0f;``
+        """
+        rules: List[DynamicVisibilityRule] = []
+
+        # Pattern for: this.boneVar.field_xxxxx_x = literalValue;
+        pattern = re.compile(
+            r'this\.(\w+)\.(field_78795_f|field_78796_g|field_78808_h)\s*=\s*([^;]+);'
+        )
+
+        for match in pattern.finditer(method_body):
+            bone_var = match.group(1)
+            axis_field = match.group(2)
+            expr_str = match.group(3).strip()
+
+            axis = self._AXIS_MAP.get(axis_field)
+            if not axis:
+                continue
+
+            # Check if the expression is a near-zero literal
+            if self._is_near_zero_literal(expr_str):
+                if bone_var not in self.bone_mapping:
+                    self.warnings.append(
+                        f"DynamicVisibilityDetector: Bone '{bone_var}' not in mapping. Skipping."
+                    )
+                    continue
+
+                bone_name = self.bone_mapping[bone_var]
+                replacement = (
+                    f"// Pseudo-hide: {bone_var}.{axis} was set to {expr_str}\n"
+                    f"    {bone_var}Bone.setHidden(true);"
+                )
+
+                rules.append(DynamicVisibilityRule(
+                    bone_var=bone_var,
+                    axis=axis,
+                    is_pseudo_hide=True,
+                    original_expression=expr_str,
+                    replacement_code=replacement,
+                ))
+
+        return rules
+
+    def _detect_ternary_zero_patterns(self, method_body: str) -> List[DynamicVisibilityRule]:
+        """
+        Detect ternary expressions that set a bone rotation to 0 on a condition.
+
+        Matches patterns like:
+          - ``this.bone.field_xxxxx_x = entity.hurtTime > 0 ? 0.0f : f4;``
+          - ``condition ? 0 : value``
+        """
+        rules: List[DynamicVisibilityRule] = []
+
+        pattern = re.compile(
+            r'this\.(\w+)\.(field_78795_f|field_78796_g|field_78808_h)\s*=\s*([^;]+);'
+        )
+
+        for match in pattern.finditer(method_body):
+            bone_var = match.group(1)
+            axis_field = match.group(2)
+            expr_str = match.group(3).strip()
+
+            axis = self._AXIS_MAP.get(axis_field)
+            if not axis:
+                continue
+
+            # Check if the expression contains a ternary with a zero branch
+            if '?' in expr_str and ':' in expr_str:
+                zero_branch = self._check_ternary_zero_branch(expr_str)
+                if zero_branch is not None:
+                    if bone_var not in self.bone_mapping:
+                        self.warnings.append(
+                            f"DynamicVisibilityDetector: Bone '{bone_var}' not in mapping. Skipping."
+                        )
+                        continue
+
+                    bone_name = self.bone_mapping[bone_var]
+                    condition = self._extract_ternary_condition(expr_str)
+
+                    if zero_branch == 'true':
+                        # condition ? 0 : value → hide when condition is true
+                        replacement = (
+                            f"// Pseudo-hide via ternary: when ({condition}) is true, "
+                            f"{bone_var}.{axis} → 0\n"
+                            f"    if ({condition}) {{\n"
+                            f"        {bone_var}Bone.setHidden(true);\n"
+                            f"    }} else {{\n"
+                            f"        {bone_var}Bone.setHidden(false);\n"
+                            f"    }}"
+                        )
+                    else:
+                        # condition ? value : 0 → hide when condition is false
+                        replacement = (
+                            f"// Pseudo-hide via ternary: when ({condition}) is false, "
+                            f"{bone_var}.{axis} → 0\n"
+                            f"    if (!({condition})) {{\n"
+                            f"        {bone_var}Bone.setHidden(true);\n"
+                            f"    }} else {{\n"
+                            f"        {bone_var}Bone.setHidden(false);\n"
+                            f"    }}"
+                        )
+
+                    rules.append(DynamicVisibilityRule(
+                        bone_var=bone_var,
+                        axis=axis,
+                        is_pseudo_hide=True,
+                        original_expression=expr_str,
+                        replacement_code=replacement,
+                    ))
+
+        return rules
+
+    def _detect_periodic_zero_patterns(self, method_body: str) -> List[DynamicVisibilityRule]:
+        """
+        Detect periodic patterns where bone values drop below threshold
+        (blinking/eye closing).
+
+        Looks for expressions where a trigonometric function is multiplied
+        by a very small amplitude, producing values near zero for most of
+        the animation cycle.
+
+        Matches patterns like:
+          - ``MathHelper.cos(ageInTicks * 0.1f) * 0.01f``
+          - Expressions with amplitude < threshold
+        """
+        rules: List[DynamicVisibilityRule] = []
+
+        # Pattern for small-amplitude trig expressions
+        # Matches: MathHelper.cos/sin(...) * 0.01f  or  0.01f * MathHelper.cos/sin(...)
+        small_amp_pattern = re.compile(
+            r'MathHelper\.(?:func_76134_b|func_76126_a|func_76133_a|cos|sin)\s*\([^)]*\)\s*\*\s*(0?\.\d+f?)'
+        )
+        small_amp_pattern2 = re.compile(
+            r'(0?\.\d+f?)\s*\*\s*MathHelper\.(?:func_76134_b|func_76126_a|func_76133_a|cos|sin)\s*\([^)]*\)'
+        )
+
+        # Find bone rotation assignments that use these patterns
+        assignment_pattern = re.compile(
+            r'this\.(\w+)\.(field_78795_f|field_78796_g|field_78808_h)\s*=\s*([^;]+);'
+        )
+
+        for match in assignment_pattern.finditer(method_body):
+            bone_var = match.group(1)
+            axis_field = match.group(2)
+            expr_str = match.group(3).strip()
+
+            axis = self._AXIS_MAP.get(axis_field)
+            if not axis:
+                continue
+
+            # Check for small-amplitude periodic patterns
+            amp_match = small_amp_pattern.search(expr_str) or small_amp_pattern2.search(expr_str)
+            if amp_match:
+                amplitude_str = amp_match.group(1)
+                try:
+                    amplitude = float(amplitude_str.rstrip('fF'))
+                except ValueError:
+                    continue
+
+                if amplitude < self.threshold:
+                    if bone_var not in self.bone_mapping:
+                        self.warnings.append(
+                            f"DynamicVisibilityDetector: Bone '{bone_var}' not in mapping. Skipping."
+                        )
+                        continue
+
+                    bone_name = self.bone_mapping[bone_var]
+                    replacement = (
+                        f"// Periodic pseudo-hide: {bone_var}.{axis} uses amplitude {amplitude_str} "
+                        f"(below threshold {self.threshold})\n"
+                        f"    // Consider using setHidden() with a timer-based condition instead\n"
+                        f"    // Original expression: {expr_str}\n"
+                        f"    {bone_var}Bone.setHidden(false); // REVIEW: implement blink timer"
+                    )
+
+                    rules.append(DynamicVisibilityRule(
+                        bone_var=bone_var,
+                        axis=axis,
+                        is_pseudo_hide=True,
+                        original_expression=expr_str,
+                        replacement_code=replacement,
+                    ))
+
+        return rules
+
+    # ------------------------------------------------------------------
+    # Utility helpers
+    # ------------------------------------------------------------------
+
+    def _is_near_zero_literal(self, expr: str) -> bool:
+        """
+        Check if an expression is a literal near-zero value.
+
+        Handles:
+          - ``0.0f``, ``0.01f``, ``0.001``
+          - ``0f``, ``0``
+          - Negated near-zero values
+        """
+        # Strip whitespace and common modifiers
+        cleaned = expr.strip()
+        # Remove float suffix
+        cleaned = re.sub(r'[fF]$', '', cleaned)
+        # Remove surrounding parentheses
+        cleaned = cleaned.strip('()')
+
+        try:
+            value = float(cleaned)
+            return abs(value) < self.threshold
+        except ValueError:
+            return False
+
+    def _check_ternary_zero_branch(self, expr: str) -> Optional[str]:
+        """
+        Check if a ternary expression has a branch that evaluates to zero.
+
+        Returns:
+            'true' if the true branch is zero, 'false' if the false branch is
+            zero, or None if neither branch is near-zero.
+        """
+        # Find the ? and : at depth 0
+        depth = 0
+        question_pos = -1
+        colon_pos = -1
+
+        for i, ch in enumerate(expr):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            elif ch == '?' and depth == 0 and question_pos == -1:
+                question_pos = i
+            elif ch == ':' and depth == 0 and question_pos != -1 and colon_pos == -1:
+                colon_pos = i
+
+        if question_pos == -1 or colon_pos == -1:
+            return None
+
+        true_expr = expr[question_pos + 1:colon_pos].strip()
+        false_expr = expr[colon_pos + 1:].strip()
+
+        true_is_zero = self._is_near_zero_literal(true_expr)
+        false_is_zero = self._is_near_zero_literal(false_expr)
+
+        if true_is_zero:
+            return 'true'
+        elif false_is_zero:
+            return 'false'
+        return None
+
+    def _extract_ternary_condition(self, expr: str) -> str:
+        """
+        Extract the condition portion of a ternary expression.
+
+        Returns the text before the first ``?`` at depth 0.
+        """
+        depth = 0
+        for i, ch in enumerate(expr):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            elif ch == '?' and depth == 0:
+                return expr[:i].strip()
+        return expr
