@@ -1,0 +1,57 @@
+{
+  "parent": "srparasites:kill_root",
+  "display": {
+    "icon": {
+      "item": "srparasites:lurecomponent1"
+    },
+    "title": {
+      "translate": "advancements.srparasites.kill_inborn.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.kill_inborn.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "k_buglin": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:buglin" } }
+    },
+    "k_rupter": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:rupter" } }
+    },
+    "k_mangler": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:mangler" } }
+    },
+    "k_gnat": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:gnat" } }
+    },
+    "k_carrier_flying": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:carrier_flying" } }
+    },
+    "k_carrier_heavy": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:carrier_heavy" } }
+    },
+    "k_carrier_light": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:carrier_light" } }
+    }
+  },
+  "requirements": [
+    [ "k_buglin" ],
+    [ "k_rupter" ],
+    [ "k_mangler" ],
+    [ "k_gnat" ],
+    [ "k_carrier_flying" ],
+    [ "k_carrier_heavy" ],
+    [ "k_carrier_light" ]
+  ]
+}

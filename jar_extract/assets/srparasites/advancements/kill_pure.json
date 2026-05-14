@@ -1,0 +1,57 @@
+{
+  "parent": "srparasites:kill_root",
+  "display": {
+    "icon": {
+      "item": "srparasites:dried_tendons"
+    },
+    "title": {
+      "translate": "advancements.srparasites.kill_pure.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.kill_pure.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "k_grunt": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:grunt" } }
+    },
+    "k_bomber_light": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:bomber_light" } }
+    },
+    "k_marauder": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:marauder" } }
+    },
+    "k_monarch": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:monarch" } }
+    },
+    "k_overseer": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:overseer" } }
+    },
+    "k_vigilante": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:vigilante" } }
+    },
+    "k_warden": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:warden" } }
+    }
+  },
+  "requirements": [
+    [ "k_grunt" ],
+    [ "k_bomber_light" ],
+    [ "k_marauder" ],
+    [ "k_monarch" ],
+    [ "k_overseer" ],
+    [ "k_vigilante" ],
+    [ "k_warden" ]
+  ]
+}

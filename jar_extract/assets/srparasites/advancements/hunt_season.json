@@ -1,0 +1,23 @@
+{
+  "parent": "srparasites:enemy_enemy",
+  "display": {
+    "icon": {
+      "item": "srparasites:weapon_bow_sentient"
+    },
+    "title": {
+      "translate": "advancements.srparasites.hunt_season.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.hunt_season.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "fifty_in_day": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

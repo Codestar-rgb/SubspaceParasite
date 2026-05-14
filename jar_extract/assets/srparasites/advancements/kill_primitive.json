@@ -1,0 +1,82 @@
+{
+  "parent": "srparasites:kill_assimilated",
+  "display": {
+    "icon": {
+      "item": "srparasites:lurecomponent4"
+    },
+    "title": {
+      "translate": "advancements.srparasites.kill_primitive.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.kill_primitive.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "k_pri_arachnida": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_arachnida" } }
+    },
+    "k_pri_bolster": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_bolster" } }
+    },
+    "k_pri_burrower": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_burrower" } }
+    },
+    "k_pri_devourer": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_devourer" } }
+    },
+    "k_pri_longarms": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_longarms" } }
+    },
+    "k_pri_manducater": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_manducater" } }
+    },
+    "k_pri_reeker": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_reeker" } }
+    },
+    "k_pri_summoner": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_summoner" } }
+    },
+    "k_pri_tozoon": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_tozoon" } }
+    },
+    "k_pri_vermin": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_vermin" } }
+    },
+    "k_pri_viscera": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_viscera" } }
+    },
+    "k_pri_yelloweye": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:pri_yelloweye" } }
+    }
+  },
+  "requirements": [
+    [ "k_pri_arachnida" ],
+    [ "k_pri_bolster" ],
+    [ "k_pri_burrower" ],
+    [ "k_pri_devourer" ],
+    [ "k_pri_longarms" ],
+    [ "k_pri_manducater" ],
+    [ "k_pri_reeker" ],
+    [ "k_pri_summoner" ],
+    [ "k_pri_tozoon" ],
+    [ "k_pri_vermin" ],
+    [ "k_pri_viscera" ],
+    [ "k_pri_yelloweye" ]
+  ]
+}

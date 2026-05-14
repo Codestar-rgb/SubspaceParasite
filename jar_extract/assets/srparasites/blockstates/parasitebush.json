@@ -1,0 +1,995 @@
+{
+  "forge_marker": 1,
+  "defaults": {
+    "model": "srparasites:parasitebush_tendril"
+  },
+  "variants": {
+    "end=false,node=false,variant=tendril": [
+      {
+        "model": "srparasites:parasitebush_tendril"
+      },
+      {
+        "model": "srparasites:parasitebush_tendril",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_tendril",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_tendril",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=tendril": [
+      {
+        "model": "srparasites:parasitebush_tendril_end"
+      },
+      {
+        "model": "srparasites:parasitebush_tendril_end",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_tendril_end",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_tendril_end",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=tendril": [
+      {
+        "model": "srparasites:parasitebush_tendril_bottom"
+      },
+      {
+        "model": "srparasites:parasitebush_tendril_bottom",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_tendril_bottom",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_tendril_bottom",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=tendril": [
+      {
+        "model": "srparasites:parasitebush_tendril_bottom"
+      },
+      {
+        "model": "srparasites:parasitebush_tendril_bottom",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_tendril_bottom",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_tendril_bottom",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=bine": [
+      {
+        "model": "srparasites:parasitebush_bine"
+      },
+      {
+        "model": "srparasites:parasitebush_bine",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_bine",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_bine",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=bine": [
+      {
+        "model": "srparasites:parasitebush_bine_top"
+      },
+      {
+        "model": "srparasites:parasitebush_bine_top",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_bine_top",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_bine_top",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=bine": [
+      {
+        "model": "srparasites:parasitebush_bine_end"
+      },
+      {
+        "model": "srparasites:parasitebush_bine_end",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_bine_end",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_bine_end",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=bine": [
+      {
+        "model": "srparasites:parasitebush_bine_end"
+      },
+      {
+        "model": "srparasites:parasitebush_bine_end",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_bine_end",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_bine_end",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=pop": [
+      {
+        "model": "srparasites:parasitebush_pop"
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=pop": [
+      {
+        "model": "srparasites:parasitebush_pop"
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=pop": [
+      {
+        "model": "srparasites:parasitebush_pop"
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=pop": [
+      {
+        "model": "srparasites:parasitebush_pop"
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_pop",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=eye": [
+      {
+        "model": "srparasites:parasitebush_eye"
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=eye": [
+      {
+        "model": "srparasites:parasitebush_eye"
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=eye": [
+      {
+        "model": "srparasites:parasitebush_eye"
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=eye": [
+      {
+        "model": "srparasites:parasitebush_eye"
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_eye",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=tooh": [
+      {
+        "model": "srparasites:parasitebush_tooh"
+      },
+      {
+        "model": "srparasites:parasitebush_tooh",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_tooh",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_tooh",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=tooh": [
+      {
+        "model": "srparasites:parasitebush_tooh_node"
+      },
+      {
+        "model": "srparasites:parasitebush_tooh_node",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_tooh_node",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_tooh_node",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=tooh": [
+      {
+        "model": "srparasites:parasitebush_tooh"
+      },
+      {
+        "model": "srparasites:parasitebush_tooh",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_tooh",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_tooh",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=tooh": [
+      {
+        "model": "srparasites:parasitebush_tooh"
+      },
+      {
+        "model": "srparasites:parasitebush_tooh",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_tooh",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_tooh",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=frostg": [
+      {
+        "model": "srparasites:parasitebush_frostg1"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg2"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg3"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg4"
+      }
+    ],
+    "end=true,node=false,variant=frostg": [
+      {
+        "model": "srparasites:parasitebush_frostg1"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg2"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg3"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg4"
+      }
+    ],
+    "end=false,node=true,variant=frostg": [
+      {
+        "model": "srparasites:parasitebush_frostg1"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg2"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg3"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg4"
+      }
+    ],
+    "end=true,node=true,variant=frostg": [
+      {
+        "model": "srparasites:parasitebush_frostg1"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg2"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg3"
+      },
+      {
+        "model": "srparasites:parasitebush_frostg4"
+      }
+    ],
+    "end=false,node=false,variant=frostgt": [
+      {
+        "model": "srparasites:parasitebush_frostgt1"
+      },
+      {
+        "model": "srparasites:parasitebush_frostgt2"
+      },
+      {
+        "model": "srparasites:parasitebush_frostgt3"
+      }
+    ],
+    "end=true,node=false,variant=frostgt": [
+      {
+        "model": "srparasites:parasitebush_frostgt1"
+      },
+      {
+        "model": "srparasites:parasitebush_frostgt2"
+      },
+      {
+        "model": "srparasites:parasitebush_frostgt3"
+      }
+    ],
+    "end=false,node=true,variant=frostgt": [
+      {
+        "model": "srparasites:parasitebush_frostgt1"
+      },
+      {
+        "model": "srparasites:parasitebush_frostgt2"
+      },
+      {
+        "model": "srparasites:parasitebush_frostgt3"
+      }
+    ],
+    "end=true,node=true,variant=frostgt": [
+      {
+        "model": "srparasites:parasitebush_frostgt1"
+      },
+      {
+        "model": "srparasites:parasitebush_frostgt2"
+      },
+      {
+        "model": "srparasites:parasitebush_frostgt3"
+      }
+    ],
+    "end=false,node=false,variant=thorn": [
+      {
+        "model": "srparasites:parasitebush_thorn"
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=thorn": [
+      {
+        "model": "srparasites:parasitebush_thorn"
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=thorn": [
+      {
+        "model": "srparasites:parasitebush_thorn"
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=thorn": [
+      {
+        "model": "srparasites:parasitebush_thorn"
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorn",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=thorndead": [
+      {
+        "model": "srparasites:parasitebush_thorndead"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=thorndead": [
+      {
+        "model": "srparasites:parasitebush_thorndead"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=thorndead": [
+      {
+        "model": "srparasites:parasitebush_thorndead"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=thorndead": [
+      {
+        "model": "srparasites:parasitebush_thorndead"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndead",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=thorndormat": [
+      {
+        "model": "srparasites:parasitebush_thorndormat"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=thorndormat": [
+      {
+        "model": "srparasites:parasitebush_thorndormat"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=thorndormat": [
+      {
+        "model": "srparasites:parasitebush_thorndormat"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=thorndormat": [
+      {
+        "model": "srparasites:parasitebush_thorndormat"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormat",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=thorndormats": [
+      {
+        "model": "srparasites:parasitebush_thorndormats"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=thorndormats": [
+      {
+        "model": "srparasites:parasitebush_thorndormats"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=thorndormats": [
+      {
+        "model": "srparasites:parasitebush_thorndormats"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=thorndormats": [
+      {
+        "model": "srparasites:parasitebush_thorndormats"
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorndormats",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=thorntwo": [
+      {
+        "model": "srparasites:parasitebush_thorntwo"
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=thorntwo": [
+      {
+        "model": "srparasites:parasitebush_thorntwo"
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=thorntwo": [
+      {
+        "model": "srparasites:parasitebush_thorntwo"
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=thorntwo": [
+      {
+        "model": "srparasites:parasitebush_thorntwo"
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwo",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=thorntwos": [
+      {
+        "model": "srparasites:parasitebush_thorntwos"
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=thorntwos": [
+      {
+        "model": "srparasites:parasitebush_thorntwos"
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=thorntwos": [
+      {
+        "model": "srparasites:parasitebush_thorntwos"
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=thorntwos": [
+      {
+        "model": "srparasites:parasitebush_thorntwos"
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_thorntwos",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=decanter": [
+      {
+        "model": "srparasites:parasitebush_decanter"
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=decanter": [
+      {
+        "model": "srparasites:parasitebush_decanter"
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=decanter": [
+      {
+        "model": "srparasites:parasitebush_decanter"
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=decanter": [
+      {
+        "model": "srparasites:parasitebush_decanter"
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_decanter",
+        "y": 270
+      }
+    ],
+    "end=false,node=false,variant=decanterempty": [
+      {
+        "model": "srparasites:parasitebush_decanterempty"
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 270
+      }
+    ],
+    "end=true,node=false,variant=decanterempty": [
+      {
+        "model": "srparasites:parasitebush_decanterempty"
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 270
+      }
+    ],
+    "end=false,node=true,variant=decanterempty": [
+      {
+        "model": "srparasites:parasitebush_decanterempty"
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 270
+      }
+    ],
+    "end=true,node=true,variant=decanterempty": [
+      {
+        "model": "srparasites:parasitebush_decanterempty"
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 90
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 180
+      },
+      {
+        "model": "srparasites:parasitebush_decanterempty",
+        "y": 270
+      }
+    ],
+    "inventory": [
+      {}
+    ]
+  }
+}

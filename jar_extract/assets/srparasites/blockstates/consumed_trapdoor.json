@@ -1,0 +1,83 @@
+{
+  "forge_marker": 1,
+  "defaults": {
+    "model": "srparasites:consumed_planks_stairs"
+  },
+  "variants": {
+    "facing=east,half=top,open=false": {
+      "model": "srparasites:consumed_planks_stairs"
+    },
+    "facing=west,half=top,open=false": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=south,half=top,open=false": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=north,half=top,open=false": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 270,
+      "uvlock": true
+    },
+    "facing=east,half=top,open=true": {
+      "model": "srparasites:consumed_planks_stairs"
+    },
+    "facing=west,half=top,open=true": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=south,half=top,open=true": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=north,half=top,open=true": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 270,
+      "uvlock": true
+    },
+    "facing=east,half=bottom,open=false": {
+      "model": "srparasites:consumed_planks_stairs"
+    },
+    "facing=west,half=bottom,open=false": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=south,half=bottom,open=false": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=north,half=bottom,open=false": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 270,
+      "uvlock": true
+    },
+    "facing=east,half=bottom,open=true": {
+      "model": "srparasites:consumed_planks_stairs"
+    },
+    "facing=west,half=bottom,open=true": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=south,half=bottom,open=true": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=north,half=bottom,open=true": {
+      "model": "srparasites:consumed_planks_stairs",
+      "y": 270,
+      "uvlock": true
+    },
+    "inventory": [
+      {}
+    ]
+  }
+}

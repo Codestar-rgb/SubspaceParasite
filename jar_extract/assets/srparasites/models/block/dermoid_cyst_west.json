@@ -1,0 +1,27 @@
+{
+  "parent": "block/cube",
+  "textures": {
+    "particle": "srparasites:blocks/dermoid_cyst_side",
+    "front": "srparasites:blocks/dermoid_cyst_front",
+    "back": "srparasites:blocks/dermoid_cyst_back",
+    "side": "srparasites:blocks/dermoid_cyst_side",
+    "top": "srparasites:blocks/dermoid_cyst_top",
+    "bottom": "srparasites:blocks/dermoid_cyst_bottom"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "west":  { "texture": "#front" },
+        "east":  { "texture": "#back" },
+
+        "south": { "texture": "#side" },
+        "north": { "texture": "#side", "uv": [16, 0, 0, 16] },
+
+        "up":    { "texture": "#top", "rotation": 270 },
+        "down":  { "texture": "#bottom", "rotation": 270 }
+      }
+    }
+  ]
+}

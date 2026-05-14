@@ -1,0 +1,114 @@
+---
+Task ID: 1
+Agent: Main Agent
+Task: Extract and explore SRParasites JAR to find Kirin entity model/animation Java sources
+
+Work Log:
+- Extracted SRParasites-1.10.4.jar using unzip
+- Found Kirin entity files: ModelKirin.class, RenderKirin.class, EntityKirin.class
+- Used CFR decompiler to decompile .class files to .java
+- Read and analyzed all decompiled source files
+- Identified SRG name mappings (func_78793_a = setRotationPoint, etc.)
+- Found texture at assets/srparasites/textures/entity/monster/kirin.png
+- Decompile ModelSRP base class with animation helper methods
+
+Stage Summary:
+- ModelKirin.java: 925 lines, 141 ModelRenderer instances, complex bone hierarchy
+- Animation: idle animation uses MathHelper.cos with ageInTicks (Class A-1 time-driven)
+- Texture: 256x256 PNG
+- Key SRG mappings documented for converter
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Build CoreMath module - coordinate system transformation library
+
+Work Log:
+- Implemented convert_pos(x, y, z) → (x, y, -z) with LaTeX derivation
+- Implemented convert_rot(rx, ry, rz) → (-rx, ry, -rz) with similarity transform proof
+- Implemented convert_size(w, h, d) → (w, h, d) with interval mapping proof
+- Implemented convert_rotation_order() using Graphics Gems IV matrix decomposition
+- Fixed Euler angle decomposition formula (was using wrong convention)
+- All tests pass: position, size, single-axis rotation, multi-axis rotation, matrix verification
+
+Stage Summary:
+- CoreMath module complete at /home/z/my-project/converter/core_math.py
+- All mathematical transformations verified with numerical examples
+- Rotation order decomposition correctly handles X→Y→Z intrinsic = Z→Y→X extrinsic
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Build ModelConverter module - parse Java, build bones, output .geo.json
+
+Work Log:
+- Created ModelConverter class with text-based parsing (handles SRG names)
+- Implemented extraction of texture dimensions, field declarations, constructor data
+- Parsed setRotationPoint (func_78793_a), addBox (func_78790_a), addChild (func_78792_a), setRotateAngle
+- Built bone hierarchy with cycle detection
+- Implemented UV calculation using standard 1.12.2 UV formulas
+- Applied CoreMath coordinate/rotation/size transformations
+- Handled inflate parameter (applied after coordinate conversion)
+- Tested with simple model and ModelKirin
+
+Stage Summary:
+- ModelConverter module at /home/z/my-project/converter/model_converter.py
+- Successfully converts ModelKirin.java (141 bones) to .geo.json format
+- UV calculation outputs pixel coordinates for all 6 faces per cube
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Build AnimationConverter module - time-driven and movement-driven animation conversion
+
+Work Log:
+- Created AnimationConverter base class with expression parsing
+- Created KirinAnimationConverter specialized for ModelKirin's pattern
+- Implemented intermediate variable resolution (f11, f22, f33)
+- Implemented numerical sampling (120 points over 2π period)
+- Implemented Douglas-Peucker keyframe simplification (0.01° threshold)
+- Generated .animation.json with GeckoLib format version 1.8.0
+- 39 bones with animation data, 6.28s animation length
+
+Stage Summary:
+- AnimationConverter at /home/z/my-project/converter/animation_converter.py
+- Class A-1 (time-driven) idle animation successfully converted to JSON
+- Class A-2 (movement-driven) code generation framework in place
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Run conversion on Kirin entity
+
+Work Log:
+- Executed run_kirin.py with full conversion pipeline
+- Model: 142 bones (141 + root), 141 cubes, 256x256 texture
+- Animation: 39 animated bones, 6.2832s loop, Douglas-Peucker simplified
+- Generated files: kirin.geo.json (255KB), kirin.animation.json (8KB), bone mapping, texture, Java skeleton
+- All output files in /home/z/my-project/converter/output/
+
+Stage Summary:
+- Complete conversion output in /home/z/my-project/converter/output/
+- Files also copied to /home/z/my-project/public/converted/ for web serving
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: Build Next.js frontend to display conversion results
+
+Work Log:
+- Built comprehensive page.tsx with tabs: Model, Animation, Mapping, Texture, Files
+- Interactive bone hierarchy tree with expand/collapse
+- Bone detail view showing pivot, rotation, cubes, UV data
+- Animation tab with keyframe counts and rotation ranges
+- Bone mapping table with 141 entries
+- Texture preview with checkerboard transparency background
+- Download tab with individual and batch download buttons
+- GeckoLib resource location reference
+- API route for file serving
+- Lint clean, dev server running
+
+Stage Summary:
+- Frontend complete at /home/z/my-project/src/app/page.tsx
+- All 5 converted files downloadable
+- Responsive design with mobile support

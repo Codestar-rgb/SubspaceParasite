@@ -1,0 +1,23 @@
+{
+  "parent": "srparasites:columbus",
+  "display": {
+    "icon": {
+      "item": "srparasites:vector_map"
+    },
+    "title": {
+      "translate": "advancements.srparasites.stolas.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.stolas.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "unlock": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

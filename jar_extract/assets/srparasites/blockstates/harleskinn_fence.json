@@ -1,0 +1,60 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "srparasites:harleskinn_fence_post",
+        "textures": {
+          "texture": "srparasites:blocks/harleskinn_block"
+        }
+      }
+    },
+    {
+      "when": {
+        "north": "true"
+      },
+      "apply": {
+        "model": "srparasites:harleskinn_fence_side",
+        "y": 0,
+        "textures": {
+          "texture": "srparasites:blocks/harleskinn_block"
+        }
+      }
+    },
+    {
+      "when": {
+        "south": "true"
+      },
+      "apply": {
+        "model": "srparasites:harleskinn_fence_side",
+        "y": 180,
+        "textures": {
+          "texture": "srparasites:blocks/harleskinn_block"
+        }
+      }
+    },
+    {
+      "when": {
+        "east": "true"
+      },
+      "apply": {
+        "model": "srparasites:harleskinn_fence_side",
+        "y": 90,
+        "textures": {
+          "texture": "srparasites:blocks/harleskinn_block"
+        }
+      }
+    },
+    {
+      "when": {
+        "west": "true"
+      },
+      "apply": {
+        "model": "srparasites:harleskinn_fence_side",
+        "y": 270,
+        "textures": {
+          "texture": "srparasites:blocks/harleskinn_block"
+        }
+      }
+    }
+  ]
+}

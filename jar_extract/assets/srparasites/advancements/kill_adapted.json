@@ -1,0 +1,38 @@
+{
+  "parent": "srparasites:kill_assimilated",
+  "display": {
+    "icon": { "item": "srparasites:lurecomponent5" },
+    "title": { "translate": "advancements.srparasites.kill_adapted.title" },
+    "description": { "translate": "advancements.srparasites.kill_adapted.description" },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "k_ada_arachnida": { "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_arachnida" } } },
+    "k_ada_bolster":   { "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_bolster" } } },
+    "k_ada_burrower":  { "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_burrower" } } },
+    "k_ada_devourer":  { "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_devourer" } } },
+    "k_ada_longarms":  { "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_longarms" } } },
+    "k_ada_manducater":{ "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_manducater" } } },
+    "k_ada_reeker":    { "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_reeker" } } },
+    "k_ada_summoner":  { "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_summoner" } } },
+    "k_ada_tozoon":    { "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_tozoon" } } },
+    "k_ada_viscera":   { "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_viscera" } } },
+    "k_ada_yelloweye": { "trigger": "minecraft:player_killed_entity", "conditions": { "entity": { "type": "srparasites:ada_yelloweye" } } }
+  },
+  "requirements": [
+    [ "k_ada_arachnida" ],
+    [ "k_ada_bolster" ],
+    [ "k_ada_burrower" ],
+    [ "k_ada_devourer" ],
+    [ "k_ada_longarms" ],
+    [ "k_ada_manducater" ],
+    [ "k_ada_reeker" ],
+    [ "k_ada_summoner" ],
+    [ "k_ada_tozoon" ],
+    [ "k_ada_viscera" ],
+    [ "k_ada_yelloweye" ]
+  ]
+}

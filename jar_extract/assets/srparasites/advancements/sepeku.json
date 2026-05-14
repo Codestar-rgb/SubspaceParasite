@@ -1,0 +1,23 @@
+{
+  "parent": "srparasites:fermented_arrogance",
+  "display": {
+    "icon": {
+      "item": "srparasites:bough"
+    },
+    "title": {
+      "translate": "advancement.srparasites.sepeku.title"
+    },
+    "description": {
+      "translate": "advancement.srparasites.sepeku.desc"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

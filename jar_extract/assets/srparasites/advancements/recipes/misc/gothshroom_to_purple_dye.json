@@ -1,0 +1,25 @@
+{
+  "parent": "minecraft:recipes/root",
+  "rewards": {
+    "recipes": [
+      "srparasites:gothshroom_to_purple_dye"
+    ]
+  },
+  "criteria": {
+    "has_gothshroom": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "item": "srparasites:gothshroom"
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "has_gothshroom"
+    ]
+  ]
+}

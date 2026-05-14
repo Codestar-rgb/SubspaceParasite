@@ -1,0 +1,24 @@
+{
+  "parent": "srparasites:kill_dispatcher_s4",
+  "display": {
+    "icon": {
+      "item": "srparasites:parasiterubbledense",
+      "data": 1
+    },
+    "title": {
+      "translate": "advancements.srparasites.qliphoth_overload.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.qliphoth_overload.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "detected_dispatcher_siv": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

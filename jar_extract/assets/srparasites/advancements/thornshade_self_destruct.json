@@ -1,0 +1,23 @@
+{
+  "parent": "srparasites:guerilla",
+  "display": {
+    "icon": {
+      "item": "srparasites:thornshade_decanter"
+    },
+    "title": {
+      "translate": "advancement.srparasites.thornshade_self_destruct.title"
+    },
+    "description": {
+      "translate": "advancement.srparasites.thornshade_self_destruct.desc"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "exploded": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

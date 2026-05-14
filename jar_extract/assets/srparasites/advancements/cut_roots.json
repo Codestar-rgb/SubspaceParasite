@@ -1,0 +1,23 @@
+{
+  "parent": "srparasites:sepeku",
+  "display": {
+    "icon": {
+      "item": "minecraft:shears"
+    },
+    "title": {
+      "translate": "advancements.srparasites.cut_roots.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.cut_roots.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "reached_1000_rupter_kills": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "SRParasites:items/levelclock0"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "level": 0
+      },
+      "model": "SRParasites:item/levelclock0"
+    },
+    {
+      "predicate": {
+        "level": 1
+      },
+      "model": "SRParasites:item/levelclock1"
+    },
+    {
+      "predicate": {
+        "level": 2
+      },
+      "model": "SRParasites:item/levelclock2"
+    },
+    {
+      "predicate": {
+        "level": 3
+      },
+      "model": "SRParasites:item/levelclock3"
+    },
+    {
+      "predicate": {
+        "level": 4
+      },
+      "model": "SRParasites:item/levelclock4"
+    }
+  ]
+}

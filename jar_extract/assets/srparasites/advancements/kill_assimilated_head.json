@@ -1,0 +1,72 @@
+{
+  "parent": "srparasites:kill_inborn",
+  "display": {
+    "icon": {
+      "item": "srparasites:assimilated_flesh"
+    },
+    "title": {
+      "translate": "advancements.srparasites.beheaded.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.beheaded.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "k_sim_adventurerhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_adventurerhead" } }
+    },
+    "k_sim_cowhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_cowhead" } }
+    },
+    "k_sim_dragonehead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_dragonehead" } }
+    },
+    "k_sim_endermanhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_endermanhead" } }
+    },
+    "k_sim_horsehead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_horsehead" } }
+    },
+    "k_sim_humanhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_humanhead" } }
+    },
+    "k_sim_pighead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_pighead" } }
+    },
+    "k_sim_sheephead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_sheephead" } }
+    },
+    "k_sim_villagerhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_villagerhead" } }
+    },
+    "k_sim_wolfhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_wolfhead" } }
+    }
+  },
+  "requirements": [
+    [ "k_sim_adventurerhead" ],
+    [ "k_sim_cowhead" ],
+    [ "k_sim_dragonehead" ],
+    [ "k_sim_endermanhead" ],
+    [ "k_sim_horsehead" ],
+    [ "k_sim_humanhead" ],
+    [ "k_sim_pighead" ],
+    [ "k_sim_sheephead" ],
+    [ "k_sim_villagerhead" ],
+    [ "k_sim_wolfhead" ]
+  ]
+}

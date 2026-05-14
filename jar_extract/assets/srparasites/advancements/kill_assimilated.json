@@ -1,0 +1,137 @@
+{
+  "parent": "srparasites:kill_inborn",
+  "display": {
+    "icon": {
+      "item": "srparasites:lurecomponent2"
+    },
+    "title": {
+      "translate": "advancements.srparasites.kill_assimilated.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.kill_assimilated.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "k_sim_adventurer": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_adventurer" } }
+    },
+    "k_sim_adventurerhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_adventurerhead" } }
+    },
+    "k_sim_bear": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_bear" } }
+    },
+    "k_sim_bigspider": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_bigspider" } }
+    },
+    "k_sim_cow": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_cow" } }
+    },
+    "k_sim_cowhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_cowhead" } }
+    },
+    "k_sim_dragone": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_dragone" } }
+    },
+    "k_sim_dragonehead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_dragonehead" } }
+    },
+    "k_sim_enderman": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_enderman" } }
+    },
+    "k_sim_endermanhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_endermanhead" } }
+    },
+    "k_sim_horse": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_horse" } }
+    },
+    "k_sim_horsehead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_horsehead" } }
+    },
+    "k_sim_human": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_human" } }
+    },
+    "k_sim_humanhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_humanhead" } }
+    },
+    "k_sim_pig": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_pig" } }
+    },
+    "k_sim_pighead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_pighead" } }
+    },
+    "k_sim_sheep": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_sheep" } }
+    },
+    "k_sim_sheephead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_sheephead" } }
+    },
+    "k_sim_squid": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_squid" } }
+    },
+    "k_sim_villager": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_villager" } }
+    },
+    "k_sim_villagerhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_villagerhead" } }
+    },
+    "k_sim_wolf": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_wolf" } }
+    },
+    "k_sim_wolfhead": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": { "entity": { "type": "srparasites:sim_wolfhead" } }
+    }
+  },
+  "requirements": [
+    [ "k_sim_adventurer" ],
+    [ "k_sim_adventurerhead" ],
+    [ "k_sim_bear" ],
+    [ "k_sim_bigspider" ],
+    [ "k_sim_cow" ],
+    [ "k_sim_cowhead" ],
+    [ "k_sim_dragone" ],
+    [ "k_sim_dragonehead" ],
+    [ "k_sim_enderman" ],
+    [ "k_sim_endermanhead" ],
+    [ "k_sim_horse" ],
+    [ "k_sim_horsehead" ],
+    [ "k_sim_human" ],
+    [ "k_sim_humanhead" ],
+    [ "k_sim_pig" ],
+    [ "k_sim_pighead" ],
+    [ "k_sim_sheep" ],
+    [ "k_sim_sheephead" ],
+    [ "k_sim_squid" ],
+    [ "k_sim_villager" ],
+    [ "k_sim_villagerhead" ],
+    [ "k_sim_wolf" ],
+    [ "k_sim_wolfhead" ]
+  ]
+}

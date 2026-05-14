@@ -1,0 +1,23 @@
+{
+  "parent": "srparasites:kill_beckon_s4",
+  "display": {
+    "icon": {
+      "item": "srparasites:beckon_drop"
+    },
+    "title": {
+      "translate": "advancements.srparasites.monument.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.monument.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "detected_beckon_siv": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

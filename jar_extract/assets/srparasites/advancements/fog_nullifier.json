@@ -1,0 +1,30 @@
+{
+  "parent": "srparasites:firmamentum_root",
+  "display": {
+    "icon": {
+      "item": "srparasites:parasitefog"
+    },
+    "title": {
+      "translate": "advancements.srparasites.fog_nullifier.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.fog_nullifier.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "got_fog_nullifier": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "item": "srparasites:fog_nullifier"
+          }
+        ]
+      }
+    }
+  }
+}

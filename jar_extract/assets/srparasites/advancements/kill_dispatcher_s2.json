@@ -1,0 +1,29 @@
+{
+  "parent": "srparasites:kill_dispatcher_s1",
+  "display": {
+    "icon": {
+      "item": "srparasites:parasitesapling",
+      "data": 2
+    },
+    "title": {
+      "translate": "advancements.srparasites.kill_dispatcher_s2.title"
+    },
+    "description": {
+      "translate": "advancements.srparasites.kill_dispatcher_s2.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "kill_dispatcher_sii": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": {
+        "entity": {
+          "type": "srparasites:dispatcher_sii"
+        }
+      }
+    }
+  }
+}

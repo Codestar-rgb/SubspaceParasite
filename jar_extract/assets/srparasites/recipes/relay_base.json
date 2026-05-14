@@ -1,0 +1,30 @@
+{
+  "type": "forge:ore_shaped",
+  "pattern": [
+    "XRX",
+    "ZLZ",
+    "YZY"
+  ],
+  "key": {
+    "X": {
+      "item": "srparasites:semiorganic_ingot"
+    },
+    "R": {
+      "item": "minecraft:repeater"
+    },
+    "Y": {
+      "item": "srparasites:semiorganic_block"
+    },
+    "L": {
+      "item": "srparasites:node_redstone_lamp"
+    },
+    "Z": {
+      "type": "forge:ore_dict",
+      "ore": "plankWood"
+    }
+  },
+  "result": {
+    "item": "srparasites:relay_base",
+    "count": 1
+  }
+}
