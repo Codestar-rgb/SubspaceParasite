@@ -126,18 +126,21 @@ class RenderEffectParser:
         self.bone_mapping = bone_mapping or {}
         self._warnings: List[str] = []
 
-    def parse(self, render_java: str, model_java: str = "") -> RenderEffectResult:
+    def parse(self, render_java: str = "", model_java: str = "") -> RenderEffectResult:
         """
         Parse rendering effects from Java source(s).
 
         Args:
-            render_java: The Render class Java source
+            render_java: The Render class Java source (None treated as empty)
             model_java: The Model class Java source (optional, for additional detection)
 
         Returns:
             RenderEffectResult with all detected effects and generated code
         """
         result = RenderEffectResult()
+        # Guard against None inputs
+        render_java = render_java or ""
+        model_java = model_java or ""
         combined_source = render_java + "\n" + model_java
 
         # 1. Detect emissive/glow
@@ -411,9 +414,8 @@ class RenderEffectParser:
             is_negated = '!' in condition_expr and 'isInvisible' in condition_expr
 
             # Find bone references in the conditional block
-            bone_refs = re.findall(r'this\.(\w+)\.(?:func_78785_a|field_78795_f|field_78796_g|field_78808_h)', body)
+            bone_refs = re.findall(r'this\.(\w+)\.(?:func_78785_a|field_78795_f|field_78796_g|field_78808_h|showModel|field_78809_i)', body)
             for bone_var in bone_refs:
-                bone_name = self.bone_mapping.get(bone_var, bone_var)
                 visibilities.append(ConditionalVisibility(
                     bone_var=bone_var,
                     condition="entity.isInvisible()",
@@ -439,9 +441,8 @@ class RenderEffectParser:
                 except ValueError:
                     pass
 
-            bone_refs = re.findall(r'this\.(\w+)\.(?:func_78785_a|field_78795_f)', body)
+            bone_refs = re.findall(r'this\.(\w+)\.(?:func_78785_a|field_78795_f|showModel|field_78809_i)', body)
             for bone_var in bone_refs:
-                bone_name = self.bone_mapping.get(bone_var, bone_var)
                 visibilities.append(ConditionalVisibility(
                     bone_var=bone_var,
                     condition="entity.isChild()",
@@ -458,12 +459,8 @@ class RenderEffectParser:
         for match in hurt_pattern.finditer(source):
             body = match.group(1)
 
-            # Check for color modifications (red flash)
-            has_color_change = bool(re.search(r'GlStateManager\.color\s*\(', body))
-
-            bone_refs = re.findall(r'this\.(\w+)\.(?:func_78785_a|field_78795_f|field_78796_g)', body)
+            bone_refs = re.findall(r'this\.(\w+)\.(?:func_78785_a|field_78795_f|field_78796_g|showModel|field_78809_i)', body)
             for bone_var in bone_refs:
-                bone_name = self.bone_mapping.get(bone_var, bone_var)
                 visibilities.append(ConditionalVisibility(
                     bone_var=bone_var,
                     condition="entity.hurtTime > 0",
@@ -480,7 +477,6 @@ class RenderEffectParser:
             bone_var = match.group(2)
             if condition in ('isInvisible', 'isChild', 'hurtTime'):
                 continue  # Already handled above
-            bone_name = self.bone_mapping.get(bone_var, bone_var)
             visibilities.append(ConditionalVisibility(
                 bone_var=bone_var,
                 condition=f"entity.{condition}",
@@ -565,7 +561,7 @@ class RenderEffectParser:
     def _extract_animation_method(self, source: str) -> Optional[str]:
         """Extract the body of setRotationAngles or animate method."""
         # Try func_78087_a (setRotationAngles)
-        for method_name in [r'func_78087_a', r'setRotationAngles', r'setLivingAnimations', r'func_78087_a']:
+        for method_name in [r'func_78087_a', r'setRotationAngles', r'setLivingAnimations']:
             pattern = re.compile(
                 rf'public\s+void\s+{method_name}\s*\([^)]+\)\s*\{{',
                 re.DOTALL
@@ -652,7 +648,7 @@ class RenderEffectParser:
                     lines.append(f'// Show bone "{bone_name}" when entity is NOT invisible')
                     lines.append(f'GeoBone {cv.bone_var}Bone = this.getAnimationProcessor().getBone("{bone_name}");')
                     lines.append(f'if ({cv.bone_var}Bone != null) {{')
-                    lines.append(f'    {cv.bone_var}Bone.setHidden(!entity.isInvisible()); // inverted logic')
+                    lines.append(f'    {cv.bone_var}Bone.setHidden(entity.isInvisible()); // show when NOT invisible')
                     lines.append(f'}}')
                 else:
                     lines.append(f'// Hide bone "{bone_name}" when entity is invisible')

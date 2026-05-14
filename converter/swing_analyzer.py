@@ -251,21 +251,23 @@ class SwingAnalyzer:
         # Pattern 3: Direct sin/cos assignments (ageInTicks or limbSwing based)
         direct_swing_pattern = re.compile(
             r'this\.(\w+)\.(?:field_78795_f|field_78796_g|field_78808_h|rotateAngle[XYZ])\s*=\s*'
-            r'(?:[\d.fF\-]+\s*\+\s*)?'  # optional prefix
+            r'(-?)'                        # optional negation sign
+            r'(?:[\d.fF\-]+\s*\+\s*)?'    # optional prefix
             r'(?:\(float\)\s*)?'
             r'MathHelper\.(?:func_76126_a|func_76134_b|sin|cos)\s*\(\s*'
             r'([\w.]+)\s*\*\s*([\d.fF\-]+)\s*'  # variable * frequency
             r'(?:\+\s*([\d.fF\-]+)\s*)?'  # optional phase offset
-            r'\)\s*\*\s*([\d.fF\-]+)'  # amplitude
+            r'\)\s*\*\s*([\d.fF\-]+)'     # amplitude
         )
 
         for match in direct_swing_pattern.finditer(source):
             bone_var = match.group(1)
-            variable = match.group(2)
+            negation = match.group(2)  # '-' if negated, '' otherwise
+            variable = match.group(3)
             try:
-                frequency = float(match.group(3).rstrip('fF'))
-                phase = float(match.group(4).rstrip('fF')) if match.group(4) else 0.0
-                amplitude = float(match.group(5).rstrip('fF'))
+                frequency = float(match.group(4).rstrip('fF'))
+                phase = float(match.group(5).rstrip('fF')) if match.group(5) else 0.0
+                amplitude = float(match.group(6).rstrip('fF'))
             except ValueError:
                 continue
 
@@ -285,6 +287,9 @@ class SwingAnalyzer:
                 elif axis_match.group(1) == 'field_78808_h':
                     axis = 'z'
 
+            # Negation sign flips the invert value
+            invert_val = -1 if negation == '-' else 1
+
             components.append(SwingComponent(
                 bone_var=bone_var,
                 axis=axis,
@@ -292,7 +297,7 @@ class SwingAnalyzer:
                 frequency=frequency,
                 phase_offset=phase,
                 weight=0.0,
-                invert=1,
+                invert=invert_val,
                 expression=match.group(0),
                 is_chain=False
             ))
@@ -541,7 +546,6 @@ class SwingAnalyzer:
     def _extract_amplitude(expression: str) -> float:
         """Try to extract a numeric amplitude from an expression."""
         # Simple: look for numeric constants
-        import re
         nums = re.findall(r'[\d.]+f?', expression)
         for num in nums:
             try:
@@ -607,7 +611,7 @@ class SwingAnalyzer:
         lines.append("                * Math.cos(limbSwing * speed + phaseOffset)")
         lines.append("                + (weight * limbSwingAmount));")
         lines.append("        }")
-        lines.append("        return (float)((invert * limbSwingAmount * degree)")
+        lines.append("        return (float)((invert * degree)")
         lines.append("            * Math.cos(limbSwing * speed) * limbSwingAmount);")
         lines.append("    }")
         lines.append("")

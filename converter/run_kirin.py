@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
 """
-MinecraftModelMigrator-Pro - Main Runner
-=========================================
+MinecraftModelMigrator-Pro - Main Runner (Layer 1 Enhanced)
+============================================================
 Converts the Kirin entity from SRParasites mod (MC 1.12.2) to GeckoLib 1.20.1 format.
+
+Layer 1 Enhancement Pipeline:
+  Steps 1-5:  Core conversion (model, blockbench, bone mapping)
+  Step 6:     Render effect parsing (emissive, translucency, visibility, dynamic UV)
+  Step 7:     Swing physics analysis (tail/ear swing, gravity/inertia, hurt shake)
+  Step 8:     Animation conversion (Class A-1 time-driven, Class A-2 movement-driven)
+  Step 9:     Easing fitting (least-squares to GeckoLib easing types)
+  Step 10:    Animation layer separation (base, overlay, additive layers)
+  Step 11:    Keyframe event detection (sound, particle, attack events)
+  Step 12:    Dynamic visibility detection (showModel, isInvisible, isChild)
+  Steps 13-15: Output generation (texture, swing utility, Java model)
 
 Supports:
   --blockbench   Also generate Blockbench preview format
@@ -24,6 +35,9 @@ from animation_converter import KirinAnimationConverter
 from render_effect_parser import RenderEffectParser
 from easing_fitter import EasingFitter
 from swing_analyzer import SwingAnalyzer
+from animation_layer_separator import AnimationLayerSeparator
+from keyframe_event_marker import KeyframeEventMarker
+from dynamic_visibility_detector import DynamicVisibilityDetector
 
 
 def main():
@@ -56,7 +70,7 @@ def main():
         output_mode = "both"
 
     print("=" * 70)
-    print("  MinecraftModelMigrator-Pro")
+    print("  MinecraftModelMigrator-Pro (Layer 1 Enhanced)")
     print("  MC 1.12.2 → GeckoLib 1.20.1 Converter - Kirin Entity")
     print(f"  Output mode: {output_mode}")
     print("=" * 70)
@@ -143,13 +157,13 @@ def main():
     # ========================================================================
     print(f"\n[6/15] Parsing render effects...")
     render_effect_parser = RenderEffectParser(bone_mapping)
-    # Parse render effects - pass model source as both render and model java
-    # since the Render class is separate and may not be available
     render_effects = render_effect_parser.parse(model_java, model_java)
     print(f"      Emissive detected: {render_effects.emissive.detected}")
     print(f"      Translucency detected: {render_effects.translucency.detected}")
     print(f"      Conditional visibility rules: {len(render_effects.conditional_visibility)}")
     print(f"      Dynamic UV warnings: {len(render_effects.dynamic_uv)}")
+    if render_effects.render_order:
+        print(f"      Render order entries: {len(render_effects.render_order)}")
 
     # ========================================================================
     # Step 7: Analyze swing physics
@@ -160,6 +174,9 @@ def main():
     print(f"      Swing components detected: {len(swing_result.swing_components)}")
     print(f"      Gravity/inertia patterns: {len(swing_result.gravity_inertia)}")
     print(f"      Hurt shake patterns: {len(swing_result.hurt_shakes)}")
+    if swing_result.warnings:
+        for w in swing_result.warnings[:3]:
+            print(f"        Warning: {w}")
 
     # ========================================================================
     # Step 8: Convert animations (enhanced with easing)
@@ -168,14 +185,16 @@ def main():
     anim_converter = KirinAnimationConverter(bone_mapping)
     anim_result = anim_converter.convert_kirin_idle(model_java)
 
-    if anim_result['animation_json']:
+    anim_json = anim_result.get('animation_json')
+    if anim_json:
         anim_json_path = os.path.join(output_dir, "kirin.animation.json")
-        anim_json_str = json.dumps(anim_result['animation_json'], indent=2, ensure_ascii=False)
+        anim_json_str = json.dumps(anim_json, indent=2, ensure_ascii=False)
         with open(anim_json_path, 'w') as f:
             f.write(anim_json_str)
         print(f"      Idle animation saved: {anim_json_path}")
-        print(f"      Animation length: {anim_result['animation_json']['animations']['animation.model.idle']['animation_length']}s")
-        bones_with_anim = len(anim_result['animation_json']['animations']['animation.model.idle']['bones'])
+        idle_data = anim_json['animations'].get('animation.model.idle', {})
+        print(f"      Animation length: {idle_data.get('animation_length', 0)}s")
+        bones_with_anim = len(idle_data.get('bones', {}))
         print(f"      Bones with animation: {bones_with_anim}")
     else:
         print("      No animation generated")
@@ -186,7 +205,7 @@ def main():
             f.write(anim_result['java_code'])
         print(f"      Java code animation saved: {java_anim_path}")
 
-    if anim_result['warnings']:
+    if anim_result.get('warnings'):
         print(f"      Animation warnings: {len(anim_result['warnings'])}")
         for w in anim_result['warnings'][:5]:
             print(f"        - {w}")
@@ -195,55 +214,136 @@ def main():
     # Step 9: Apply easing fitting
     # ========================================================================
     print(f"\n[9/15] Applying easing fitting...")
-    easing_fitter = EasingFitter()
-    if anim_result.get('animation_json'):
-        eased_anim = easing_fitter.fit(anim_result['animation_json'])
-        print(f"      Keyframes with easing applied: {eased_anim.get('eased_keyframe_count', 0)}")
-        print(f"      Easing functions detected: {', '.join(eased_anim.get('easing_types', [])) or 'none'}")
+    easing_fitter_obj = EasingFitter()
+    easing_result = {}
+    if anim_json:
+        try:
+            # Prepare animation bones data for easing fitting
+            # Uses dict for O(1) time-key lookup instead of O(n) list search
+            animation_bones = {}
+            idle_data = anim_json['animations'].get('animation.model.idle', {})
+            for bone_name, bone_data in idle_data.get('bones', {}).items():
+                rotation = bone_data.get('rotation', {})
+                # Dict: time_key (rounded) -> keyframe dict
+                time_keyframes = {}
+                for axis, axis_data in rotation.items():
+                    if isinstance(axis_data, dict):
+                        for time_str, value in axis_data.items():
+                            # Extract numeric value from potential dict format
+                            numeric_val = value
+                            if isinstance(value, dict):
+                                vec = value.get('vector', value.get('value'))
+                                if isinstance(vec, (int, float)):
+                                    numeric_val = vec
+                                elif isinstance(vec, list) and vec:
+                                    numeric_val = vec[0]
+                                else:
+                                    continue  # Skip unparseable values
+                            if not isinstance(numeric_val, (int, float)):
+                                continue
+
+                            time_key = round(float(time_str), 6)
+                            if time_key not in time_keyframes:
+                                time_keyframes[time_key] = {'time': time_key}
+                            time_keyframes[time_key][axis] = numeric_val
+
+                if time_keyframes:
+                    keyframes = sorted(time_keyframes.values(), key=lambda k: k['time'])
+                    animation_bones[bone_name] = keyframes
+
+            if animation_bones:
+                fitting_results = easing_fitter_obj.fit_animation(animation_bones)
+                total_segments = sum(
+                    len(axis_result.segments)
+                    for bone_result in fitting_results.values()
+                    for axis_result in bone_result.values()
+                )
+                eased_count = sum(
+                    1
+                    for bone_result in fitting_results.values()
+                    for axis_result in bone_result.values()
+                    for seg in axis_result.segments
+                    if seg.easing_type != "linear"
+                )
+                easing_types = list(set(
+                    seg.easing_type
+                    for bone_result in fitting_results.values()
+                    for axis_result in bone_result.values()
+                    for seg in axis_result.segments
+                    if seg.easing_type != "linear"
+                ))
+
+                # Apply easing to the animation JSON (modifies in place)
+                anim_json = easing_fitter_obj.apply_easing_to_animation_json(
+                    anim_json, animation_bones
+                )
+
+                # Re-save the animation JSON with easing applied
+                anim_json_path = os.path.join(output_dir, "kirin.animation.json")
+                anim_json_str = json.dumps(anim_json, indent=2, ensure_ascii=False)
+                with open(anim_json_path, 'w') as f:
+                    f.write(anim_json_str)
+                print(f"      Animation JSON updated with easing: {anim_json_path}")
+
+                easing_result = {
+                    'eased_keyframe_count': eased_count,
+                    'easing_types': easing_types,
+                    'total_segments': total_segments,
+                    'fitting_results': fitting_results
+                }
+                print(f"      Keyframes with easing applied: {eased_count}")
+                print(f"      Easing functions detected: {', '.join(easing_types) or 'none (all linear)'}")
+                print(f"      Total segments analyzed: {total_segments}")
+            else:
+                print("      No animation bone data for easing fitting")
+        except Exception as e:
+            print(f"      Easing fitting error: {e}")
     else:
-        eased_anim = {}
         print("      No animation data to fit easing")
 
     # ========================================================================
     # Step 10: Separate animation layers
     # ========================================================================
     print(f"\n[10/15] Separating animation layers...")
-    from animation_layer_separator import AnimationLayerSeparator
-    layer_separator = AnimationLayerSeparator()
-    if anim_result.get('animation_json'):
-        layers = layer_separator.separate(anim_result['animation_json'], bone_mapping)
-        print(f"      Animation layers: {len(layers.get('layers', []))}")
-        for layer in layers.get('layers', []):
-            print(f"        - {layer.get('name', 'unknown')}: priority {layer.get('priority', 0)}")
+    layer_separator = AnimationLayerSeparator(bone_mapping)
+    layers_result = None
+    if anim_json:
+        layers_result = layer_separator.separate(anim_json, bone_mapping)
+        print(f"      Animation layers: {len(layers_result.layers)}")
+        for layer in layers_result.layers:
+            print(f"        - {layer.name}: type={layer.layer_type}, priority={layer.priority}, bones={len(layer.bone_names)}")
+        if layers_result.warnings:
+            for w in layers_result.warnings[:3]:
+                print(f"        Warning: {w}")
     else:
-        layers = {}
         print("      No animation data to separate into layers")
 
     # ========================================================================
     # Step 11: Detect animation events
     # ========================================================================
     print(f"\n[11/15] Detecting animation events...")
-    from keyframe_event_marker import KeyframeEventMarker
-    event_marker = KeyframeEventMarker()
-    if anim_result.get('animation_json'):
-        events = event_marker.detect(anim_result['animation_json'], model_java)
-        print(f"      Sound effects detected: {len(events.get('sound_effects', []))}")
-        print(f"      Particle effects detected: {len(events.get('particle_effects', []))}")
-        print(f"      Event markers: {len(events.get('event_markers', []))}")
+    event_marker = KeyframeEventMarker(bone_mapping)
+    events_result = None
+    if anim_json:
+        events_result = event_marker.detect(anim_json, model_java)
+        print(f"      Sound effects detected: {len(events_result.sound_effects)}")
+        print(f"      Particle effects detected: {len(events_result.particle_effects)}")
+        print(f"      Event markers: {len(events_result.event_markers)}")
     else:
-        events = {}
         print("      No animation data to detect events")
 
     # ========================================================================
     # Step 12: Detect dynamic visibility
     # ========================================================================
     print(f"\n[12/15] Detecting dynamic visibility...")
-    from dynamic_visibility_detector import DynamicVisibilityDetector
-    visibility_detector = DynamicVisibilityDetector()
+    visibility_detector = DynamicVisibilityDetector(bone_mapping)
     visibility_result = visibility_detector.detect(model_java, bone_mapping)
-    print(f"      Visibility rules detected: {len(visibility_result.get('visibility_rules', []))}")
-    for rule in visibility_result.get('visibility_rules', [])[:5]:
-        print(f"        - {rule.get('bone', 'unknown')}: {rule.get('condition', 'unknown')}")
+    print(f"      Visibility rules detected: {len(visibility_result.visibility_rules)}")
+    for rule in visibility_result.visibility_rules[:5]:
+        print(f"        - {rule.bone_name}: {rule.condition} ({rule.condition_type})")
+    if visibility_result.warnings:
+        for w in visibility_result.warnings[:3]:
+            print(f"        Warning: {w}")
 
     # ========================================================================
     # Step 13: Copy texture
@@ -255,20 +355,33 @@ def main():
         "textures", "entity", "monster", "kirin.png"
     )
     dst_texture = os.path.join(output_dir, "kirin.png")
-    shutil.copy2(src_texture, dst_texture)
-    print(f"      Texture copied: {dst_texture}")
+    if os.path.exists(src_texture):
+        shutil.copy2(src_texture, dst_texture)
+        print(f"      Texture copied: {dst_texture}")
+    else:
+        print(f"      WARNING: Texture not found at {src_texture}")
 
     # ========================================================================
     # Step 14: Generate SwingComponent utility
     # ========================================================================
     print(f"\n[14/15] Generating SwingComponent utility...")
-    if swing_result.get('swing_components'):
+    swing_components = swing_result.swing_components if swing_result else []
+    if swing_components:
         swing_util_path = os.path.join(output_dir, "KirinSwingComponents.java")
-        swing_util_code = swing_analyzer.generate_utility_class(swing_result)
+        # Use the internal method which takes component list
+        swing_util_code = swing_analyzer._generate_swing_utility(swing_components)
         with open(swing_util_path, 'w') as f:
             f.write(swing_util_code)
         print(f"      SwingComponent utility saved: {swing_util_path}")
-        print(f"      Swing components: {len(swing_result.get('swing_components', []))}")
+
+        # Also save hurt controller if detected
+        hurt_shakes = swing_result.hurt_shakes if swing_result else []
+        if hurt_shakes:
+            hurt_code = swing_analyzer._generate_hurt_controller(hurt_shakes)
+            hurt_path = os.path.join(output_dir, "KirinHurtController.java")
+            with open(hurt_path, 'w') as f:
+                f.write(hurt_code)
+            print(f"      Hurt controller saved: {hurt_path}")
     else:
         print("      No swing components to generate")
 
@@ -277,7 +390,7 @@ def main():
     # ========================================================================
     print(f"\n[15/15] Generating enhanced Java model...")
     _generate_geckolib_java(output_dir, bone_mapping, render_effects, swing_result,
-                            layers, events, visibility_result)
+                            layers_result, events_result, visibility_result)
 
     # ========================================================================
     # Optional: Run verification (enhanced)
@@ -305,17 +418,50 @@ def main():
         print(f"      Similarity: {report['similarity_score']*100:.2f}%")
         print(f"      Verified: {'PASS' if report['verified'] else 'FAIL'}")
 
-        # Enhanced verification: check render effects and swing components
-        if render_effects.get('render_types'):
-            print(f"      Render type overrides verified: {len(render_effects.get('render_types', []))}")
-        if swing_result.get('swing_components'):
-            print(f"      Swing components verified: {len(swing_result.get('swing_components', []))}")
+        # Run enhanced verification
+        bb_json = None
+        if output_mode in ("blockbench", "both"):
+            try:
+                with open(bb_geo_json_path, 'r') as f:
+                    bb_json = json.load(f)
+            except Exception:
+                pass
+
+        # Transform render_effects to verifier-expected format
+        # The verifier expects conditional_visibility as a dict, not a list
+        render_effect_dict = _to_dict_safe(render_effects)
+        if 'conditional_visibility' in render_effect_dict and isinstance(render_effect_dict['conditional_visibility'], list):
+            # Convert list of ConditionalVisibility dicts to a dict keyed by bone_var
+            cv_dict = {}
+            for cv in render_effect_dict['conditional_visibility']:
+                bone_var = cv.get('bone_var', 'unknown')
+                cv_dict[bone_var] = cv
+            render_effect_dict['conditional_visibility'] = cv_dict
+
+        # Add hurt_shake_bones for verifier
+        if swing_result and swing_result.hurt_shakes:
+            render_effect_dict['hurt_shake_bones'] = list(set(
+                bone_mapping.get(hs.bone_var, hs.bone_var)
+                for hs in swing_result.hurt_shakes
+            ))
+
+        full_report = verifier.verify_full(
+            bone_data, geo_json,
+            animation_json=anim_json,
+            blockbench_json=bb_json,
+            render_effect_result=render_effect_dict,
+            easing_results=easing_result,
+            swing_result=_to_dict_safe(swing_result),
+            animation_events=_to_dict_safe(events_result) if events_result else None
+        )
+        print(f"      Full verification score: {full_report.get('overall_score', 0)*100:.1f}%")
+        print(f"      Overall passed: {'YES' if full_report.get('overall_passed') else 'NO'}")
 
     # ========================================================================
     # Summary
     # ========================================================================
     print("\n" + "=" * 70)
-    print("  CONVERSION COMPLETE")
+    print("  CONVERSION COMPLETE (Layer 1 Enhanced)")
     print("=" * 70)
     print(f"\n  Output mode: {output_mode}")
     print(f"\n  Output files:")
@@ -327,12 +473,25 @@ def main():
             marker = " [Blockbench Preview]"
         elif f == "kirin.geo.json":
             marker = " [GeckoLib Game]"
-        print(f"    📄 {f} ({size:,} bytes){marker}")
+        elif f == "kirin.animation.json":
+            marker = " [Animation]"
+        elif f.endswith(".java"):
+            marker = " [Java Code]"
+        print(f"    {f} ({size:,} bytes){marker}")
 
     print(f"\n  Model Statistics:")
     print(f"    Total bones: {len(bones)}")
     print(f"    Total cubes: {total_cubes}")
     print(f"    Texture: {geo_json['model']['texture_width']}x{geo_json['model']['texture_height']}")
+
+    # Enhancement summary
+    print(f"\n  Layer 1 Enhancement Results:")
+    print(f"    Render Effects: emissive={render_effects.emissive.detected}, translucent={render_effects.translucency.detected}")
+    print(f"    Swing Physics: {len(swing_components)} components, {len(swing_result.gravity_inertia)} inertia, {len(swing_result.hurt_shakes)} hurt shakes")
+    print(f"    Animation Layers: {len(layers_result.layers) if layers_result else 0}")
+    print(f"    Keyframe Events: {len(events_result.event_markers) if events_result else 0}")
+    print(f"    Visibility Rules: {len(visibility_result.visibility_rules)}")
+    print(f"    Easing: {easing_result.get('eased_keyframe_count', 0)} non-linear segments")
 
     # Generate GeckoLib resource location info
     print(f"\n  GeckoLib Resource Locations:")
@@ -349,37 +508,52 @@ def main():
     return result
 
 
+def _to_dict_safe(obj):
+    """Convert a dataclass or nested dataclass to dict for JSON serialization."""
+    if obj is None:
+        return {}
+    if isinstance(obj, dict):
+        return {k: _to_dict_safe(v) for k, v in obj.items()}
+    if hasattr(obj, '__dataclass_fields__'):
+        import dataclasses
+        result = {}
+        for field_name in obj.__dataclass_fields__:
+            val = getattr(obj, field_name)
+            if hasattr(val, '__dataclass_fields__'):
+                result[field_name] = _to_dict_safe(val)
+            elif isinstance(val, dict):
+                result[field_name] = _to_dict_safe(val)
+            elif isinstance(val, list):
+                result[field_name] = [_to_dict_safe(item) for item in val]
+            else:
+                result[field_name] = val
+        return result
+    if isinstance(obj, list):
+        return [_to_dict_safe(item) for item in obj]
+    return obj
+
+
 def _generate_geckolib_java(output_dir: str, bone_mapping: dict,
-                          render_effects: dict = None,
-                          swing_result: dict = None,
-                          layers: dict = None,
-                          events: dict = None,
-                          visibility_result: dict = None):
+                          render_effects, swing_result,
+                          layers_result, events_result,
+                          visibility_result):
     """Generate an enhanced GeckoLib Java class for the Kirin entity.
 
     Includes optional enhancement code for:
       - Render type override (from render_effect_parser)
-      - Visibility code (from render_effect_parser)
+      - Visibility code (from render_effect_parser + dynamic_visibility_detector)
       - Swing component instantiations (from swing_analyzer)
       - Hurt controller registration (from swing_analyzer)
       - Animation layer code (from AnimationLayerSeparator)
       - Event markers info (from KeyframeEventMarker)
     """
-    render_effects = render_effects or {}
-    swing_result = swing_result or {}
-    layers = layers or {}
-    events = events or {}
-    visibility_result = visibility_result or {}
+    # Extract data from dataclass objects safely
+    swing_components = swing_result.swing_components if swing_result else []
+    hurt_shakes = swing_result.hurt_shakes if swing_result else []
 
     # Build render type override code
     render_type_code = ""
-    if render_effects.get('render_types'):
-        render_type_lines = []
-        for rt in render_effects['render_types']:
-            render_type_lines.append(
-                f"    // Render type: {rt.get('type', 'entity_translucent')}"
-            )
-        render_type_code = "\n".join(render_type_lines)
+    if render_effects and (render_effects.emissive.detected or render_effects.translucency.detected):
         render_type_code = (
             "\n    /**\n"
             "     * Render type override for custom rendering.\n"
@@ -387,69 +561,84 @@ def _generate_geckolib_java(output_dir: str, bone_mapping: dict,
             "     */\n"
             "    @Override\n"
             "    public RenderType getRenderType(KirinEntity animatable, ResourceLocation texture) {\n"
-            f"{render_type_code}\n"
-            "        return RenderType.entityTranslucent(texture);\n"
-            "    }\n"
         )
+        if render_effects.emissive.detected and render_effects.emissive.is_global:
+            render_type_code += "        return RenderType.eyes(texture);\n"
+        elif render_effects.translucency.detected and render_effects.translucency.is_global:
+            render_type_code += "        return RenderType.entityTranslucent(texture);\n"
+        else:
+            render_type_code += "        return super.getRenderType(animatable, texture);\n"
+        render_type_code += "    }\n"
 
     # Build visibility code
     visibility_code = ""
-    if render_effects.get('visibility_conditions') or visibility_result.get('visibility_rules'):
-        visibility_lines = ["\n    /**"]
-        visibility_lines.append("     * Conditional visibility for bones.")
-        visibility_lines.append("     * Generated from render effect and dynamic visibility analysis.")
-        visibility_lines.append("     */")
-        all_conditions = list(render_effects.get('visibility_conditions', []))
-        all_conditions.extend(visibility_result.get('visibility_rules', []))
-        for vc in all_conditions:
-            bone_name = vc.get('bone', 'unknown')
-            condition = vc.get('condition', 'true')
+    all_visibility_rules = []
+    if render_effects and render_effects.conditional_visibility:
+        all_visibility_rules.extend(render_effects.conditional_visibility)
+    if visibility_result and visibility_result.visibility_rules:
+        all_visibility_rules.extend(visibility_result.visibility_rules)
+
+    if all_visibility_rules:
+        visibility_lines = ["\n    // Conditional visibility for bones"]
+        for rule in all_visibility_rules:
+            bone_name = getattr(rule, 'bone_name', '') or getattr(rule, 'bone_var', '')
+            condition = getattr(rule, 'condition', 'true')
+            condition_type = getattr(rule, 'condition_type', 'custom')
             visibility_lines.append(
-                f"    // Bone: {bone_name} - visible when: {condition}"
+                f"    // Bone: {bone_name} - condition: {condition} (type: {condition_type})"
             )
         visibility_code = "\n".join(visibility_lines) + "\n"
 
     # Build swing component instantiations
     swing_code = ""
-    if swing_result.get('swing_components'):
+    if swing_components:
         swing_lines = ["\n    // Swing component instantiations"]
-        for sc in swing_result['swing_components']:
+        for i, sc in enumerate(swing_components):
+            bone_name = getattr(sc, 'bone_var', f'swing_{i}')
+            freq = getattr(sc, 'frequency', 1.0)
+            amp = getattr(sc, 'amplitude', 1.0)
+            axis = getattr(sc, 'axis', 'x')
+            inv = getattr(sc, 'invert', 1)
             swing_lines.append(
-                f"    private final SwingComponent {sc.get('name', 'swing')} = "
-                f"new SwingComponent({sc.get('frequency', 1.0)}f, {sc.get('amplitude', 1.0)}f);"
+                f"    private final SwingComponent {bone_name}Swing = "
+                f"new SwingComponent({freq}f, {amp}f, {inv}, 0.0f, 0.0f);"
             )
         swing_code = "\n".join(swing_lines) + "\n"
 
     # Build hurt controller registration
     hurt_code = ""
-    if swing_result.get('hurt_controllers'):
-        hurt_lines = ["\n    // Hurt controller registrations"]
-        for hc in swing_result['hurt_controllers']:
+    if hurt_shakes:
+        hurt_lines = ["\n    // Hurt shake detected - see KirinHurtController.java"]
+        for shake in hurt_shakes:
+            bone_name = getattr(shake, 'bone_var', 'unknown')
+            axis = getattr(shake, 'axis', 'x')
+            amplitude = getattr(shake, 'amplitude', 0.1)
             hurt_lines.append(
-                f"    // Hurt controller: {hc.get('name', 'hurt')} - "
-                f"intensity: {hc.get('intensity', 1.0)}"
+                f"    // Hurt shake: {bone_name}.{axis} amplitude={amplitude}"
             )
         hurt_code = "\n".join(hurt_lines) + "\n"
 
     # Build animation layer code
     layer_code = ""
-    if layers.get('layers'):
+    if layers_result and layers_result.layers:
         layer_lines = ["\n    // Animation layer registrations"]
-        for layer in layers['layers']:
+        for layer in layers_result.layers:
             layer_lines.append(
-                f"    // Layer: {layer.get('name', 'base')} - "
-                f"priority: {layer.get('priority', 0)}"
+                f"    // Layer: {layer.name} - type: {layer.layer_type}, "
+                f"priority: {layer.priority}, bones: {len(layer.bone_names)}"
             )
         layer_code = "\n".join(layer_lines) + "\n"
 
     # Build event markers info
     event_code = ""
-    if events.get('event_markers'):
+    if events_result and events_result.event_markers:
         event_lines = ["\n    // Keyframe event markers"]
-        for em in events['event_markers']:
+        for em in events_result.event_markers:
+            time_val = em.get('time', 0.0) if isinstance(em, dict) else getattr(em, 'time', 0.0)
+            etype = em.get('type', 'unknown') if isinstance(em, dict) else getattr(em, 'event_type', 'unknown')
+            ename = em.get('name', 'unnamed') if isinstance(em, dict) else getattr(em, 'name', 'unnamed')
             event_lines.append(
-                f"    // Event at {em.get('time', 0.0)}s: {em.get('type', 'unknown')} - "
-                f"{em.get('name', 'unnamed')}"
+                f"    // Event at {time_val:.3f}s: {etype} - {ename}"
             )
         event_code = "\n".join(event_lines) + "\n"
 

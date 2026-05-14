@@ -282,7 +282,7 @@ class EasingFitter:
             error_threshold: Maximum allowed error (degrees) before falling back to linear.
                              Default: 0.05°
         """
-        self.error_threshold = error_threshold or self.DEFAULT_ERROR_THRESHOLD
+        self.error_threshold = error_threshold if error_threshold is not None else self.DEFAULT_ERROR_THRESHOLD
 
     def fit_bone_axis(
         self,
@@ -307,6 +307,14 @@ class EasingFitter:
             return result
 
         # Extract (time, value) pairs
+        # Warn if some keyframes are missing the axis value (defaults to 0.0)
+        missing_count = sum(1 for kf in keyframes if axis not in kf)
+        if missing_count > 0 and missing_count < len(keyframes):
+            result.warnings.append(
+                f"Bone '{bone_name}' axis '{axis}': {missing_count}/{len(keyframes)} "
+                f"keyframes missing '{axis}' value (defaulting to 0.0). "
+                f"This may produce incorrect easing."
+            )
         points = [(kf['time'], kf.get(axis, 0.0)) for kf in keyframes]
 
         for i in range(len(points) - 1):
@@ -567,10 +575,14 @@ class EasingFitter:
                     # Apply easing to each keyframe
                     # In GeckoLib, easing is set per-keyframe-pair on the
                     # LATER keyframe (it defines how we arrive at that keyframe)
+                    # segment[i] represents the interval from keyframe[i] to keyframe[i+1]
+                    # so the easing should be stored on keyframe[i+1]
                     sorted_times = sorted(axis_data.keys(), key=float)
                     for i, time_key in enumerate(sorted_times):
-                        if i < len(axis_result.segments):
-                            segment = axis_result.segments[i]
+                        # The first keyframe (i=0) has no incoming segment
+                        # segment[i-1] is the segment arriving at keyframe[i]
+                        if i > 0 and (i - 1) < len(axis_result.segments):
+                            segment = axis_result.segments[i - 1]
                             if segment.easing_type != "linear":
                                 # Store easing in the keyframe metadata
                                 # GeckoLib format uses "easing" as a key

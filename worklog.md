@@ -486,3 +486,38 @@ Stage Summary:
 - Verification suite confirms: UV valid, hierarchy preserved, Y-offset correct, BB format valid
 - Frontend updated with 7 tabs including Verify and Architecture tabs
 - Project ready for production use
+---
+Task ID: L1-1
+Agent: Main Agent
+Task: Layer 1 Visual & Animation Fidelity Enhancement - Complete Implementation
+
+Work Log:
+- Created 3 new modules: animation_layer_separator.py, keyframe_event_marker.py, dynamic_visibility_detector.py
+- Fixed run_kirin.py API mismatches (dataclass vs dict, method signatures)
+- Updated frontend with new "Enhance" tab showing all 6 enhancement module results
+- Ran full 15-step pipeline successfully: 142 bones, 141 cubes, 39 animated bones, 15 easing segments
+- Conducted 15 rounds of continuous review and iteration
+- Fixed 16 bugs across all rounds:
+  - Critical: SwingComponent.compute() limbSwingAmount squared, inverted visibility logic, easing applied to wrong keyframe, easing never applied to output JSON, unbalanced Java braces
+  - Medium: _to_dict_safe recursion, verifier list/dict mismatch, error_threshold=0.0, duplicate events, duplicate method names, O(n²) keyframe building
+  - Minor: redundant imports, unused variables, None-input guards
+
+Stage Summary:
+- All 12 Layer 1 Enhancement tasks implemented:
+  1. Emissive detection (GlStateManager.disableLighting) ✓
+  2. Translucency detection (blend modes) ✓
+  3. Render order extraction ✓
+  4. Conditional visibility (isInvisible, isChild, hurtTime) ✓
+  5. Dynamic UV detection (warning-only) ✓
+  6. Easing type auto-fitting (15/78 segments non-linear) ✓
+  7. Animation layer separation (base/overlay/additive) ✓
+  8. Keyframe event marking (sound, particle, custom) ✓
+  9. Dynamic bone visibility (setHidden, scale) ✓
+  10. Tail/ear swing physics encapsulation (SwingComponent) ✓
+  11. Gravity/inertia preservation ✓
+  12. Hurt shake extraction (independent controller) ✓
+- New modules: render_effect_parser.py, easing_fitter.py, swing_analyzer.py, animation_layer_separator.py, keyframe_event_marker.py, dynamic_visibility_detector.py
+- Pipeline runs end-to-end with all 15 steps completing successfully
+- Frontend updated with "Enhance" tab and pipeline badges for all 6 new modules
+- Lint clean, dev server running, all files synced to db/ and public/converted/
+- 15 rounds of review completed with 16 bugs fixed
