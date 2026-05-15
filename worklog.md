@@ -552,3 +552,45 @@ Stage Summary:
 - Kirin conversion produces: animation.srparasites.kirin.idle (managed name)
 - AnimationNames.java, animation_naming.json, overlay/particle hints generated
 - Zero regressions: 846/846 UV checks still pass, all verification checks pass
+
+---
+Task ID: bugfix-bbmodel-phase
+Agent: Main Agent
+Task: Fix runtime TypeError, add Blockbench .bbmodel debug output, verify conversion correctness
+
+Work Log:
+- Fixed TypeError: Cannot read properties of undefined (reading 'bones') in page.tsx
+  - Root cause: Kirin animation key was 'animation.srparasites.kirin.idle' but code hardcoded 'animation.model.idle'
+  - Added animKey field to EntityConfig interface
+  - Replaced all hardcoded 'animation.model.idle' references with config.animKey
+- Analyzed existing Kirin conversion output for correctness:
+  - Coordinate conversion math verified: convert_model_pos(0, -77, -16) = (0, 77, 16) ✓
+  - Cube origin formula verified: convert_model_cube_origin(-9.5, -3, -5, 19, 24, 10) = (-9.5, -21, -5) ✓
+  - Multi-axis rotation verified: mainbody (rx=25°, rz=180°) correctly decomposes to [-25°, 0°, -180°] ✓
+  - Expression parser correctly handles (float)Math.PI and (float)(-Math.PI) ✓
+  - All 39 animated bone names match geo.json bone names ✓
+  - Animation format: format_version 1.8.0, 6.2832s loop, 15 easing segments ✓
+- Created bbmodel_generator.py - Blockbench .bbmodel project file generator:
+  - Converts geo.json + animation.json + texture PNG into complete .bbmodel
+  - UV format conversion: {uv:[u,v], uv_size:[w,h]} → {uv:[u1,v1,u2,v2], texture:0}
+  - Bone hierarchy → recursive outliner with element UUID references
+  - Texture embedding as base64 data URI for portable verification
+  - Animation conversion: per-axis channels → merged per-bone keyframes with easing
+  - Generates 141 elements, 142 bones, 1 animation, 1 embedded texture
+- Re-ran full conversion pipeline for both Kirin and Heblu entities
+- Generated .bbmodel files for both entities (398KB Kirin, 1.1MB Heblu)
+- Updated frontend page.tsx:
+  - Added bbmodel field to EntityConfig.files
+  - Added .bbmodel download button (amber accent) in Additional Reference Files section
+  - Added .bbmodel download button in main download section
+  - Added Blockbench debug tip callout
+  - Updated resourcePaths to include bbmodel entry
+  - Fixed all animation key references to use config.animKey
+
+Stage Summary:
+- Runtime TypeError fixed (animation key mismatch between Kirin and Heblu)
+- bbmodel_generator.py created for Blockbench debug output
+- .bbmodel files generated for Kirin (398KB) and Heblu (1.1MB) with embedded textures
+- Frontend updated with .bbmodel download support and Blockbench debug tips
+- All conversion math verified correct: coordinates, rotations, UV, mirror handling
+- Lint clean, dev server running without errors

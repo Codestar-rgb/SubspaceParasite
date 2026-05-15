@@ -58,6 +58,7 @@ interface EntityConfig {
     anim: string;
     mapping: string;
     texture: string;
+    bbmodel: string;
   };
   resourcePaths: {
     geo: string;
@@ -87,6 +88,7 @@ const ENTITY_CONFIGS: Record<EntityKey, EntityConfig> = {
       anim: "/converted/kirin.animation.json",
       mapping: "/converted/kirin_bone_mapping.json",
       texture: "/converted/kirin.png",
+      bbmodel: "/converted/kirin_debug.bbmodel",
     },
     resourcePaths: {
       geo: `assets/${MOD_ID}/geo/entity/kirin.geo.json`,
@@ -112,6 +114,7 @@ const ENTITY_CONFIGS: Record<EntityKey, EntityConfig> = {
       anim: "/converted/heblu.animation.json",
       mapping: "/converted/heblu_bone_mapping.json",
       texture: "/converted/heblu.png",
+      bbmodel: "/converted/heblu_debug.bbmodel",
     },
     resourcePaths: {
       geo: `assets/${MOD_ID}/geo/entity/heblu.geo.json`,
@@ -318,6 +321,7 @@ export default function ConverterPage() {
     { key: "geo", label: "Model (.geo.json)", path: config.resourcePaths.geo, url: config.files.geo, file: `${config.key}.geo.json` },
     { key: "anim", label: "Animation (.animation.json)", path: config.resourcePaths.anim, url: config.files.anim, file: `${config.key}.animation.json` },
     { key: "tex", label: "Texture (.png)", path: config.resourcePaths.texture, url: config.files.texture, file: `${config.key}.png` },
+    ...(config.files.bbmodel ? [{ key: "bbmodel", label: "Blockbench Project (.bbmodel)", path: "(open in Blockbench)", url: config.files.bbmodel, file: `${config.key}_debug.bbmodel` }] : []),
   ];
 
   // ─── Bone Tree Renderer ─────────────────────────────────────────────────
@@ -577,7 +581,7 @@ export default function ConverterPage() {
             </div>
 
             {/* Download All */}
-            <div className="flex justify-center">
+            <div className="flex flex-col items-center gap-2">
               <Button
                 size="lg"
                 className="gap-2"
@@ -588,8 +592,19 @@ export default function ConverterPage() {
                 }}
               >
                 <Download className="h-5 w-5" />
-                Download All 3 Files
+                Download Game Files (3)
               </Button>
+              {config.files.bbmodel && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-2 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+                  onClick={() => downloadFile(config.files.bbmodel, `${config.key}_debug.bbmodel`)}
+                >
+                  <Download className="h-4 w-4" />
+                  Download Blockbench Project (.bbmodel)
+                </Button>
+              )}
             </div>
 
             {/* Deployment Guide */}
@@ -780,7 +795,7 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                 <CardTitle className="text-sm">Additional Reference Files</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <Button
                     variant="outline"
                     size="sm"
@@ -797,7 +812,7 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                     onClick={() => downloadFile(`/converted/${config.key}_bb.geo.json`, `${config.key}_bb.geo.json`)}
                   >
                     <Download className="h-3.5 w-3.5" />
-                    Blockbench Preview Format
+                    Blockbench Preview (.geo.json)
                   </Button>
                   <Button
                     variant="outline"
@@ -808,7 +823,26 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                     <Download className="h-3.5 w-3.5" />
                     Java Model Template
                   </Button>
+                  {config.files.bbmodel && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="justify-start gap-2 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
+                      onClick={() => downloadFile(config.files.bbmodel, `${config.key}_debug.bbmodel`)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Blockbench Project (.bbmodel)
+                    </Button>
+                  )}
                 </div>
+                {config.files.bbmodel && (
+                  <div className="mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      <strong>Debug Tip:</strong> Download the .bbmodel file and drag it into Blockbench to visually verify the model,
+                      UV mapping, and animation. The texture is embedded for easy verification on any machine.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
