@@ -836,11 +836,22 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                   )}
                 </div>
                 {config.files.bbmodel && (
-                  <div className="mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
-                    <p className="text-xs text-amber-700 dark:text-amber-300">
-                      <strong>Debug Tip:</strong> Download the .bbmodel file and drag it into Blockbench to visually verify the model,
-                      UV mapping, and animation. The texture is embedded for easy verification on any machine.
-                    </p>
+                  <div className="mt-3 space-y-2">
+                    <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        <strong>Debug Tip:</strong> Download the .bbmodel file and drag it into Blockbench to visually verify the model,
+                        UV mapping, and animation. The texture is embedded for easy verification on any machine.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 border-sky-300 dark:border-sky-700 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-950"
+                      onClick={() => downloadFile("/converted/test_hierarchical.bbmodel", "test_hierarchical.bbmodel")}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      🔬 Test Model (.bbmodel) — 2-bone hierarchy for coordinate verification
+                    </Button>
                   </div>
                 )}
               </CardContent>
