@@ -718,3 +718,32 @@ Stage Summary:
 - Both .bbmodel files regenerated and deployed to public/converted/
 - Coordinates remain hierarchical relative (bone-local for elements, parent-local for pivots)
 - "bedrock" format should properly handle bone hierarchy positioning
+---
+Task ID: bbmodel-hybrid-fix
+Agent: Main Agent
+Task: Fix .bbmodel display using confirmed hybrid coordinate approach (abs elements + rel bone pivots)
+
+Work Log:
+- Created 8 systematic test .bbmodel files (Round 1 + Round 2) for user to test in Blockbench
+- Round 1: 4 variants with root at [0,0,0] — confirmed absolute element positions are required (B/D correct)
+- Round 2: 4 variants with root at [0,10,0] and 45° rotation — confirmed all absolute-element variants work (E/F/G/H)
+- Root cause of previous "scattered" issue: absolute bone pivots in outliner get double-accumulated by Blockbench
+  - Blockbench accumulates outliner pivots hierarchically: parent_pivot + child_pivot = child_world_pivot
+  - With absolute pivots, mainbody at [0,77,16] accumulated as root[0,24,0]+mainbody[0,77,16]=[0,101,16] → wrong rotation center
+  - With 93 rotated bones having wrong rotation centers → cubes fly apart → "scattered"
+- Root cause of "stacked/mirrored" issue: relative element positions not translated by Blockbench
+  - Blockbench positions elements at their absolute from/to, does NOT translate by bone pivot
+  - With bone-local from/to near [0,0,0] → all cubes stack near origin
+- Correct approach (hybrid, confirmed by test E/G):
+  - Element from/to: ABSOLUTE world space (abs_pivot + cube_origin)
+  - Element origin: ABSOLUTE world space (abs_pivot, rotation center for the cube)
+  - Bone pivot in outliner: RELATIVE to parent (same as geo.json)
+  - model_format: "bedrock"
+- Updated bbmodel_generator.py with this hybrid approach
+- Regenerated kirin_debug.bbmodel and heblu_debug.bbmodel
+
+Stage Summary:
+- .bbmodel coordinate system definitively resolved through empirical testing
+- Hybrid approach: absolute elements + relative bone pivots
+- Both .bbmodel files regenerated and deployed
+- Kirin: 141 elements, Heblu: 356 elements, format=bedrock
