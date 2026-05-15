@@ -133,7 +133,7 @@ class BBModelGenerator:
         bbmodel = {
             "meta": {
                 "format_version": "4.10",
-                "model_format": "free",
+                "model_format": "bedrock",
                 "model_identifier": short_name,
                 "creation_time": now,
                 "modification_time": now,

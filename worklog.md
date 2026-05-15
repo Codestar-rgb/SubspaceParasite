@@ -693,3 +693,28 @@ Stage Summary:
 - Model should assemble properly in Blockbench (no more scattered pieces)
 - model_format="free" retained from previous fix (not block model)
 - Both Kirin (141 elements) and Heblu (356 elements) regenerated and deployed
+---
+Task ID: bbmodel-bedrock-format
+Agent: Main Agent
+Task: Fix .bbmodel scattered/mirrored display - switch from "free" to "bedrock" model_format
+
+Work Log:
+- Analyzed the issue: "free" format doesn't properly apply bone hierarchy position transforms
+  - With absolute coords: elements at correct positions but bone pivots double-counted → scattered
+  - With relative coords: elements in bone-local space but free format doesn't translate them → stacked near origin
+  - Bone rotations (like -180° Z) still applied → causes mirroring effect
+- Root cause: Blockbench "free" format doesn't implement standard 3D hierarchy positioning for elements
+  - "free" only applies rotation transforms, not pivot translation, to elements within a bone
+  - This is different from "bedrock" format which properly implements the full hierarchy (translate + rotate)
+- Changed model_format from "free" to "bedrock" in bbmodel_generator.py
+  - "bedrock" format explicitly uses left-hand Y-up coordinate system (matches GeckoLib)
+  - Properly supports bone hierarchy with relative pivots and element positioning
+  - Elements in bone-local space, bone pivots in parent-relative space
+- Regenerated both kirin_debug.bbmodel and heblu_debug.bbmodel with "bedrock" format
+- Created test_hierarchical.bbmodel for user to verify coordinate behavior
+
+Stage Summary:
+- model_format changed from "free" to "bedrock" in bbmodel_generator.py
+- Both .bbmodel files regenerated and deployed to public/converted/
+- Coordinates remain hierarchical relative (bone-local for elements, parent-local for pivots)
+- "bedrock" format should properly handle bone hierarchy positioning
