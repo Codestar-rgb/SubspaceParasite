@@ -102,14 +102,22 @@ class BBModelGenerator:
                 element_uuids[(bone_name, cube_idx)] = self._uuid()
 
         # ------------------------------------------------------------------
+        # Phase 1.5: Compute absolute pivots for all bones
+        # ------------------------------------------------------------------
+        # In geo.json, bone pivots are relative to their parent.
+        # Blockbench's .bbmodel Free format expects absolute model-space
+        # coordinates for both element from/to and bone pivots.
+        abs_pivots = self._compute_absolute_pivots(bones)
+
+        # ------------------------------------------------------------------
         # Phase 2: Build elements (cubes) list
         # ------------------------------------------------------------------
-        elements = self._build_elements(bones, element_uuids)
+        elements = self._build_elements(bones, element_uuids, abs_pivots)
 
         # ------------------------------------------------------------------
         # Phase 3: Build outliner (bone hierarchy)
         # ------------------------------------------------------------------
-        outliner = self._build_outliner(bones, bone_uuids, element_uuids)
+        outliner = self._build_outliner(bones, bone_uuids, element_uuids, abs_pivots)
 
         # ------------------------------------------------------------------
         # Phase 4: Build textures list
@@ -129,6 +137,7 @@ class BBModelGenerator:
         bbmodel = {
             "meta": {
                 "format_version": "4.10",
+                "model_format": "free",
                 "model_identifier": short_name,
                 "creation_time": now,
                 "modification_time": now,
@@ -138,7 +147,7 @@ class BBModelGenerator:
             "name": short_name,
             "geometry_name": model_identifier,
             "model_identifier": short_name,
-            "visible_box": [1, -1, 0],
+            "visible_box": [80, -50, 5],
             "variable_placeholders": "",
             "variable_placeholder_buttons": [],
             "resolution": {
@@ -154,6 +163,67 @@ class BBModelGenerator:
         return bbmodel
 
     # ========================================================================
+    # Absolute Pivot Computation
+    # ========================================================================
+
+    @staticmethod
+    def _compute_absolute_pivots(bones: list) -> Dict[str, list]:
+        """
+        Compute absolute model-space pivots for all bones.
+
+        In geo.json, bone pivots are relative to their parent bone.
+        Blockbench's .bbmodel Free format expects absolute model-space
+        coordinates for both element from/to and bone pivots in the outliner.
+
+        This method walks the bone hierarchy and accumulates relative pivots
+        to compute the absolute position of each bone in model space.
+
+        Returns:
+            Dict mapping bone_name -> [abs_x, abs_y, abs_z]
+        """
+        # Build lookup maps
+        bone_map: Dict[str, dict] = {}
+        for bone in bones:
+            bone_map[bone["name"]] = bone
+
+        # Build parent -> children mapping
+        children_map: Dict[str, list] = {}
+        root_bones: list = []
+
+        for bone in bones:
+            bone_name = bone["name"]
+            parent_name = bone.get("parent")
+            if parent_name is None:
+                root_bones.append(bone_name)
+            else:
+                if parent_name not in children_map:
+                    children_map[parent_name] = []
+                children_map[parent_name].append(bone_name)
+
+        abs_pivots: Dict[str, list] = {}
+
+        def _accumulate(bone_name: str, parent_abs: list) -> None:
+            """Recursively accumulate absolute pivots."""
+            bone = bone_map[bone_name]
+            rel_pivot = bone.get("pivot", [0.0, 0.0, 0.0])
+            abs_x = parent_abs[0] + float(rel_pivot[0])
+            abs_y = parent_abs[1] + float(rel_pivot[1])
+            abs_z = parent_abs[2] + float(rel_pivot[2])
+            abs_pivots[bone_name] = [abs_x, abs_y, abs_z]
+            for child_name in children_map.get(bone_name, []):
+                _accumulate(child_name, [abs_x, abs_y, abs_z])
+
+        # Start from root-level bones
+        for bone_name in root_bones:
+            bone = bone_map[bone_name]
+            pivot = bone.get("pivot", [0.0, 0.0, 0.0])
+            abs_pivots[bone_name] = [float(pivot[0]), float(pivot[1]), float(pivot[2])]
+            for child_name in children_map.get(bone_name, []):
+                _accumulate(child_name, abs_pivots[bone_name])
+
+        return abs_pivots
+
+    # ========================================================================
     # Elements (Cubes) Builder
     # ========================================================================
 
@@ -161,28 +231,33 @@ class BBModelGenerator:
         self,
         bones: list,
         element_uuids: Dict[Tuple[str, int], str],
+        abs_pivots: Dict[str, list],
     ) -> list:
         """
         Build the flat elements list from all bones' cubes.
 
         In geo.json, each cube has:
-          - origin: [x, y, z]  (minimum corner)
+          - origin: [x, y, z]  (minimum corner, relative to bone's pivot)
           - size: [w, h, d]
           - uv: { face: { uv: [u, v], uv_size: [w, h] }, ... }
           - mirror: bool (optional)
 
-        In .bbmodel, each element has:
-          - from: [x, y, z]  (minimum corner, same as origin)
-          - to: [x+w, y+h, z+d]  (maximum corner)
-          - origin: [px, py, pz]  (bone pivot in local space, for rotation)
+        In .bbmodel Free format, each element has:
+          - from: [x, y, z]  (minimum corner in ABSOLUTE model space)
+          - to: [x+w, y+h, z+d]  (maximum corner in ABSOLUTE model space)
+          - origin: [px, py, pz]  (bone pivot in ABSOLUTE model space, for rotation)
           - faces: { face: { uv: [u1, v1, u2, v2], texture: 0 }, ... }
           - mirror_uv: bool
+
+        CRITICAL: Blockbench Free format uses absolute model-space coordinates.
+        The cube's geo.json origin is relative to the bone's pivot, so we must
+        add the bone's absolute pivot to get the absolute from/to coordinates.
         """
         elements = []
 
         for bone in bones:
             bone_name = bone["name"]
-            bone_pivot = bone.get("pivot", [0.0, 0.0, 0.0])
+            bone_abs_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
 
             for cube_idx, cube in enumerate(bone.get("cubes", [])):
                 elem_uuid = element_uuids[(bone_name, cube_idx)]
@@ -191,12 +266,18 @@ class BBModelGenerator:
                 inflate = cube.get("inflate", 0.0)
                 mirror = cube.get("mirror", False)
 
-                # Calculate from/to (min/max corners)
-                from_pos = [float(origin[0]), float(origin[1]), float(origin[2])]
+                # Calculate from/to in ABSOLUTE model space
+                # geo.json cube origin is relative to bone's pivot,
+                # so add the bone's absolute pivot to get absolute coords
+                from_pos = [
+                    float(bone_abs_pivot[0]) + float(origin[0]),
+                    float(bone_abs_pivot[1]) + float(origin[1]),
+                    float(bone_abs_pivot[2]) + float(origin[2]),
+                ]
                 to_pos = [
-                    float(origin[0]) + float(size[0]),
-                    float(origin[1]) + float(size[1]),
-                    float(origin[2]) + float(size[2]),
+                    float(bone_abs_pivot[0]) + float(origin[0]) + float(size[0]),
+                    float(bone_abs_pivot[1]) + float(origin[1]) + float(size[1]),
+                    float(bone_abs_pivot[2]) + float(origin[2]) + float(size[2]),
                 ]
 
                 # Build faces with UV conversion
@@ -214,7 +295,7 @@ class BBModelGenerator:
                     "inflate": float(inflate),
                     "mirror_uv": mirror,
                     "rotation": [0.0, 0.0, 0.0],
-                    "origin": [float(bone_pivot[0]), float(bone_pivot[1]), float(bone_pivot[2])],
+                    "origin": [float(bone_abs_pivot[0]), float(bone_abs_pivot[1]), float(bone_abs_pivot[2])],
                     "uv_offset": [0, 0],
                     "faces": faces,
                 }
@@ -266,6 +347,7 @@ class BBModelGenerator:
         bones: list,
         bone_uuids: Dict[str, str],
         element_uuids: Dict[Tuple[str, int], str],
+        abs_pivots: Dict[str, list],
     ) -> list:
         """
         Build the outliner (bone hierarchy) from the flat bone list.
@@ -275,6 +357,10 @@ class BBModelGenerator:
           - Branch entries are bone group objects with name, uuid, pivot, rotation, children
 
         Bone parent relationships from geo.json define the tree structure.
+
+        CRITICAL: In .bbmodel Free format, bone pivots are in ABSOLUTE model space,
+        NOT relative to the parent. Blockbench uses absolute coordinates internally
+        and handles the parent-child transform chain during rendering.
         """
         # Build lookup: bone_name -> bone data
         bone_map: Dict[str, dict] = {}
@@ -303,8 +389,10 @@ class BBModelGenerator:
             """Build a single bone group entry for the outliner."""
             bone = bone_map[bone_name]
             bone_uid = bone_uuids[bone_name]
-            pivot = bone.get("pivot", [0.0, 0.0, 0.0])
             rotation = bone.get("rotation", [0.0, 0.0, 0.0])
+
+            # Use ABSOLUTE pivot for .bbmodel Free format
+            abs_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
 
             children = []
 
@@ -320,7 +408,7 @@ class BBModelGenerator:
             entry = {
                 "name": bone_name,
                 "uuid": bone_uid,
-                "pivot": [float(pivot[0]), float(pivot[1]), float(pivot[2])],
+                "pivot": [float(abs_pivot[0]), float(abs_pivot[1]), float(abs_pivot[2])],
                 "rotation": [float(rotation[0]), float(rotation[1]), float(rotation[2])],
             }
 

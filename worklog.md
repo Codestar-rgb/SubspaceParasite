@@ -638,3 +638,31 @@ Stage Summary:
 - 6 regression tests created in tests/test_hierarchy.py, all passing
 - Kirin mainbody pivot corrected from [0, 77, 16] to [0, 53, 16]
 - All output files regenerated and synced to db/, public/converted/, converter/output/
+---
+Task ID: bbmodel-format-fix
+Agent: Main Agent
+Task: Fix .bbmodel file opening as block model in Blockbench (方块模型形式)
+
+Work Log:
+- Diagnosed root cause: .bbmodel meta section was missing `"model_format": "free"` property
+  - Without this, Blockbench defaults to "java_block" format (Java Edition block model)
+  - Block model limits coordinates to 0-16, doesn't support per-face UV, shows model incorrectly
+- Added `"model_format": "free"` to meta section in bbmodel_generator.py
+  - This tells Blockbench to treat the file as a Free/GeckoLib entity model
+- Fixed coordinate system: .bbmodel Free format uses ABSOLUTE model-space coordinates
+  - Previously, element from/to were in bone-local space (relative to bone pivot)
+  - Previously, outliner bone pivots were relative to parent (from geo.json)
+  - Both should be absolute model-space for Blockbench Free format
+- Added _compute_absolute_pivots() method to compute absolute pivots by walking hierarchy
+- Updated _build_elements() to use absolute pivots for from/to and origin
+- Updated _build_outliner() to use absolute pivots for bone pivot entries
+- Increased visible_box from [1, -1, 0] to [80, -50, 5] for large entity visibility
+- Regenerated kirin_debug.bbmodel and heblu_debug.bbmodel
+- Copied updated files to public/converted/
+
+Stage Summary:
+- .bbmodel now opens as GeckoLib "Free" entity model in Blockbench (not block model)
+- Element coordinates are absolute model-space (e.g., cube at [-0.5, 76.5, 15.5] not [-0.5, -0.5, -0.5])
+- Outliner bone pivots are absolute (e.g., mainbody at [0.0, 77.0, 16.0] not [0.0, 53.0, 16.0])
+- visible_box expanded for proper viewport display
+- Both Kirin (141 elements) and Heblu (356 elements) .bbmodel files regenerated
