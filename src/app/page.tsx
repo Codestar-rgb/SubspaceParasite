@@ -845,25 +845,20 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                     </div>
                     <div className="space-y-1.5">
                       <p className="text-xs font-medium text-muted-foreground">
-                        🔬 Round 2 — 根骨骼在[0,10,0]，子骨骼在[5,10,0]有45°旋转。
-                        正确: 蓝块[0,10,0]，红块[5,10,0]旋转45°
+                        🔬 Round 3 — 模拟Kirin旋转骨骼! root[0,24,0] + mainbody[-25,0,-180°] + bodym[-38,0,-180°]
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_E_mixed_absElem_relPivot.bbmodel", "test_E_mixed.bbmodel")}>
-                          <Download className="h-3 w-3" /> E: 元素绝对+骨骼相对
+                          onClick={() => downloadFile("/converted/test_I_bedrock_bonelocal_rot.bbmodel", "test_I.bbmodel")}>
+                          <Download className="h-3 w-3" /> I: bedrock+骨骼本地+相对pivot
                         </Button>
                         <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_F_absElem_absPivot.bbmodel", "test_F_absAll.bbmodel")}>
-                          <Download className="h-3 w-3" /> F: 元素绝对+骨骼绝对
+                          onClick={() => downloadFile("/converted/test_J_bedrock_absolute_rot.bbmodel", "test_J.bbmodel")}>
+                          <Download className="h-3 w-3" /> J: bedrock+绝对元素+相对pivot
                         </Button>
                         <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_G_free_mixed.bbmodel", "test_G_free_mixed.bbmodel")}>
-                          <Download className="h-3 w-3" /> G: free+元素绝对+骨骼相对
-                        </Button>
-                        <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_H_free_absAll.bbmodel", "test_H_free_absAll.bbmodel")}>
-                          <Download className="h-3 w-3" /> H: free+全部绝对
+                          onClick={() => downloadFile("/converted/test_K_free_bonelocal_rot.bbmodel", "test_K.bbmodel")}>
+                          <Download className="h-3 w-3" /> K: free+骨骼本地+相对pivot
                         </Button>
                       </div>
                     </div>
