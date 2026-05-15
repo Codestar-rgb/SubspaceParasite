@@ -666,3 +666,30 @@ Stage Summary:
 - Outliner bone pivots are absolute (e.g., mainbody at [0.0, 77.0, 16.0] not [0.0, 53.0, 16.0])
 - visible_box expanded for proper viewport display
 - Both Kirin (141 elements) and Heblu (356 elements) .bbmodel files regenerated
+---
+Task ID: bbmodel-scattered-fix
+Agent: Main Agent
+Task: Fix .bbmodel scattered model issue - pieces appear scattered instead of assembled
+
+Work Log:
+- Diagnosed root cause: previous fix changed all coordinates to ABSOLUTE model-space, but Blockbench .bbmodel uses HIERARCHICAL RELATIVE coordinates
+  - Element from/to must be in BONE-LOCAL space (relative to bone pivot)
+  - Bone pivot must be in PARENT-LOCAL space (relative to parent bone)
+  - Using absolute coords caused double-counting in Blockbench's transform chain
+- Removed _compute_absolute_pivots() method (no longer needed)
+- Updated _build_elements(): from/to = geo.json cube origin/size directly (already bone-local)
+- Updated _build_elements(): element origin = [0, 0, 0] (bone pivot in bone-local space)
+- Updated _build_outliner(): bone pivot = geo.json pivot directly (already parent-local)
+- Regenerated kirin_debug.bbmodel and heblu_debug.bbmodel
+- Verified coordinates:
+  - root pivot: [0, 24, 0] ✓
+  - mainbody pivot: [0, 53, 16] (relative to root) ✓
+  - bodym pivot: [0, 0, 0] (relative to mainbody) ✓
+  - bodym cube from=[-9.5, -21, -5] (relative to bodym pivot) ✓
+  - World position chain: root(0,24,0) + mainbody(0,53,16) + bodym(0,0,0) + cube(-9.5,-21,-5) = correct
+
+Stage Summary:
+- .bbmodel now uses correct hierarchical relative coordinates
+- Model should assemble properly in Blockbench (no more scattered pieces)
+- model_format="free" retained from previous fix (not block model)
+- Both Kirin (141 elements) and Heblu (356 elements) regenerated and deployed
