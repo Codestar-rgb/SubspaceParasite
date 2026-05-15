@@ -27,7 +27,92 @@ import {
   FolderOpen,
   Copy,
   Check,
+  Flame,
 } from "lucide-react";
+
+// ─── Entity Configuration ───────────────────────────────────────────────────
+
+type EntityKey = "kirin" | "heblu";
+
+interface EntityConfig {
+  key: EntityKey;
+  label: string;
+  subtitle: string;
+  bones: number;
+  cubes: number;
+  textureSize: string;
+  animatedBones: number;
+  idleLength: number;
+  easings: string[];
+  files: {
+    geo: string;
+    anim: string;
+    mapping: string;
+    texture: string;
+  };
+  resourcePaths: {
+    geo: string;
+    anim: string;
+    texture: string;
+  };
+  javaClassName: string;
+  javaEntityName: string;
+}
+
+const MOD_ID = "srparasites";
+
+const ENTITY_CONFIGS: Record<EntityKey, EntityConfig> = {
+  kirin: {
+    key: "kirin",
+    label: "Kirin",
+    subtitle: "Sacred Beast",
+    bones: 142,
+    cubes: 141,
+    textureSize: "256x256",
+    animatedBones: 39,
+    idleLength: 6.28,
+    easings: ["easeOutCubic", "easeOutSine", "easeInCubic"],
+    files: {
+      geo: "/converted/kirin.geo.json",
+      anim: "/converted/kirin.animation.json",
+      mapping: "/converted/kirin_bone_mapping.json",
+      texture: "/converted/kirin.png",
+    },
+    resourcePaths: {
+      geo: `assets/${MOD_ID}/geo/entity/kirin.geo.json`,
+      anim: `assets/${MOD_ID}/animations/entity/kirin.animation.json`,
+      texture: `assets/${MOD_ID}/textures/entity/monster/kirin.png`,
+    },
+    javaClassName: "KirinGeoModel",
+    javaEntityName: "KirinEntity",
+  },
+  heblu: {
+    key: "heblu",
+    label: "Heblu",
+    subtitle: "Draconite",
+    bones: 357,
+    cubes: 356,
+    textureSize: "1024x512",
+    animatedBones: 72,
+    idleLength: 6.28,
+    easings: ["easeOutQuint", "easeInSine", "easeInCubic", "easeOutCubic"],
+    files: {
+      geo: "/converted/heblu.geo.json",
+      anim: "/converted/heblu.animation.json",
+      mapping: "/converted/heblu_bone_mapping.json",
+      texture: "/converted/heblu.png",
+    },
+    resourcePaths: {
+      geo: `assets/${MOD_ID}/geo/entity/heblu.geo.json`,
+      anim: `assets/${MOD_ID}/animations/entity/heblu.animation.json`,
+      texture: `assets/${MOD_ID}/textures/entity/monster/heblu.png`,
+    },
+    javaClassName: "HebluGeoModel",
+    javaEntityName: "HebluEntity",
+  },
+};
+
+// ─── Data Interfaces ────────────────────────────────────────────────────────
 
 interface BoneMapping {
   [key: string]: string;
@@ -76,7 +161,10 @@ interface AnimationJson {
   };
 }
 
+// ─── Component ──────────────────────────────────────────────────────────────
+
 export default function ConverterPage() {
+  const [activeEntity, setActiveEntity] = useState<EntityKey>("kirin");
   const [geoJson, setGeoJson] = useState<GeoJsonModel | null>(null);
   const [animJson, setAnimJson] = useState<AnimationJson | null>(null);
   const [boneMapping, setBoneMapping] = useState<BoneMapping>({});
@@ -85,30 +173,49 @@ export default function ConverterPage() {
   const [loading, setLoading] = useState(true);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
 
+  const config = ENTITY_CONFIGS[activeEntity];
+
+  // ─── Data Loading ───────────────────────────────────────────────────────
+
   useEffect(() => {
+    let cancelled = false;
+
     async function loadData() {
+      setLoading(true);
+      setSelectedBone(null);
+      setExpandedBones(new Set());
+
       try {
         const [geoRes, animRes, mapRes] = await Promise.all([
-          fetch("/converted/kirin.geo.json"),
-          fetch("/converted/kirin.animation.json"),
-          fetch("/converted/kirin_bone_mapping.json"),
+          fetch(config.files.geo),
+          fetch(config.files.anim),
+          fetch(config.files.mapping),
         ]);
 
         const geo = await geoRes.json();
         const anim = await animRes.json();
         const map = await mapRes.json();
 
-        setGeoJson(geo);
-        setAnimJson(anim);
-        setBoneMapping(map);
+        if (!cancelled) {
+          setGeoJson(geo);
+          setAnimJson(anim);
+          setBoneMapping(map);
+        }
       } catch (e) {
         console.error("Failed to load data:", e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
+
     loadData();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [config.files.geo, config.files.anim, config.files.mapping]);
+
+  // ─── Callbacks ──────────────────────────────────────────────────────────
 
   const toggleBone = useCallback((name: string) => {
     setExpandedBones((prev) => {
@@ -135,16 +242,20 @@ export default function ConverterPage() {
     });
   }, []);
 
+  // ─── Loading State ──────────────────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
-          <p className="text-muted-foreground">Loading Kirin entity files...</p>
+          <p className="text-muted-foreground">Loading {config.label} entity files...</p>
         </div>
       </div>
     );
   }
+
+  // ─── Computed Values ────────────────────────────────────────────────────
 
   const boneCount = geoJson?.model.bones.length ?? 0;
   const totalCubes =
@@ -159,18 +270,18 @@ export default function ConverterPage() {
     : 0;
   const animLength = animJson?.animations["animation.model.idle"]
     ?.animation_length ?? 0;
+  const texW = geoJson?.model.texture_width ?? parseInt(config.textureSize.split("x")[0]);
+  const texH = geoJson?.model.texture_height ?? parseInt(config.textureSize.split("x")[1]);
 
   // UV validation
   const uvViolations: { bone: string; cube: number; face: string; issue: string }[] = [];
-  const texW = geoJson?.model.texture_width ?? 256;
-  const texH = geoJson?.model.texture_height ?? 256;
   geoJson?.model.bones.forEach((bone) => {
     bone.cubes?.forEach((cube, ci) => {
       Object.entries(cube.uv).forEach(([face, uvData]) => {
         const u = uvData.uv[0], v = uvData.uv[1];
         const us = uvData.uv_size[0], vs = uvData.uv_size[1];
-        if (u + us > texW) uvViolations.push({ bone: bone.name, cube: ci, face, issue: `u+us=${u+us} > tw=${texW}` });
-        if (v + vs > texH) uvViolations.push({ bone: bone.name, cube: ci, face, issue: `v+vs=${v+vs} > th=${texH}` });
+        if (u + us > texW) uvViolations.push({ bone: bone.name, cube: ci, face, issue: `u+us=${u + us} > tw=${texW}` });
+        if (v + vs > texH) uvViolations.push({ bone: bone.name, cube: ci, face, issue: `v+vs=${v + vs} > th=${texH}` });
         if (u < 0) uvViolations.push({ bone: bone.name, cube: ci, face, issue: `u=${u} < 0` });
         if (v < 0) uvViolations.push({ bone: bone.name, cube: ci, face, issue: `v=${v} < 0` });
       });
@@ -189,6 +300,15 @@ export default function ConverterPage() {
 
   const rootBone = geoJson?.model.bones.find((b) => b.name === "root");
   const rootPivotValid = rootBone ? Math.abs(rootBone.pivot[1] - 24) < 0.01 : false;
+
+  // Resource paths for deployment guide
+  const resourcePaths = [
+    { key: "geo", label: "Model (.geo.json)", path: config.resourcePaths.geo, url: config.files.geo, file: `${config.key}.geo.json` },
+    { key: "anim", label: "Animation (.animation.json)", path: config.resourcePaths.anim, url: config.files.anim, file: `${config.key}.animation.json` },
+    { key: "tex", label: "Texture (.png)", path: config.resourcePaths.texture, url: config.files.texture, file: `${config.key}.png` },
+  ];
+
+  // ─── Bone Tree Renderer ─────────────────────────────────────────────────
 
   const renderBoneTree = (boneName: string, depth: number = 0) => {
     const bone = boneMap.get(boneName);
@@ -231,13 +351,7 @@ export default function ConverterPage() {
 
   const selectedBoneData = selectedBone ? boneMap.get(selectedBone) : null;
 
-  // Game resource paths
-  const MOD_ID = "srparasites";
-  const resourcePaths = [
-    { key: "geo", label: "Model (.geo.json)", path: `assets/${MOD_ID}/geo/entity/kirin.geo.json`, url: "/converted/kirin.geo.json", file: "kirin.geo.json" },
-    { key: "anim", label: "Animation (.animation.json)", path: `assets/${MOD_ID}/animations/entity/kirin.animation.json`, url: "/converted/kirin.animation.json", file: "kirin.animation.json" },
-    { key: "tex", label: "Texture (.png)", path: `assets/${MOD_ID}/textures/entity/monster/kirin.png`, url: "/converted/kirin.png", file: "kirin.png" },
-  ];
+  // ─── Render ─────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -250,7 +364,7 @@ export default function ConverterPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">
-                Kirin Entity - GeckoLib 1.20.1
+                Entity Converter - GeckoLib 1.20.1
               </h1>
               <p className="text-sm text-muted-foreground">
                 MC 1.12.2 ModelBase → GeckoLib 4.x Conversion • Ready for In-Game Use
@@ -262,6 +376,34 @@ export default function ConverterPage() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6 sm:px-6 lg:px-8">
+        {/* Entity Selector */}
+        <div className="mb-6">
+          <p className="text-sm font-medium text-muted-foreground mb-3">Select Entity</p>
+          <div className="flex gap-3">
+            {(Object.values(ENTITY_CONFIGS) as EntityConfig[]).map((ent) => (
+              <Button
+                key={ent.key}
+                variant={activeEntity === ent.key ? "default" : "outline"}
+                size="lg"
+                className="flex-1 sm:flex-none gap-3 h-auto py-3 px-6"
+                onClick={() => setActiveEntity(ent.key)}
+              >
+                <div className="flex items-center gap-3">
+                  {ent.key === "kirin" ? (
+                    <Box className="h-5 w-5" />
+                  ) : (
+                    <Flame className="h-5 w-5" />
+                  )}
+                  <div className="text-left">
+                    <p className="font-semibold leading-tight">{ent.label}</p>
+                    <p className="text-[11px] opacity-80 leading-tight">{ent.subtitle}</p>
+                  </div>
+                </div>
+              </Button>
+            ))}
+          </div>
+        </div>
+
         {/* Validation Status */}
         <div className="flex flex-wrap gap-2 mb-6">
           <Badge className="gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
@@ -289,7 +431,7 @@ export default function ConverterPage() {
             <Activity className="h-3 w-3" /> {animBones} Animated
           </Badge>
           <Badge variant="outline" className="text-[10px] gap-1">
-            <ImageIcon className="h-3 w-3" /> 256x256 Texture
+            <ImageIcon className="h-3 w-3" /> {config.textureSize} Texture
           </Badge>
         </div>
 
@@ -320,7 +462,7 @@ export default function ConverterPage() {
             <div>
               <h2 className="text-lg font-semibold mb-1">Game-Ready Files</h2>
               <p className="text-sm text-muted-foreground mb-4">
-                Download these 3 files and place them in your mod&apos;s resource directory to use the Kirin entity with GeckoLib.
+                Download these 3 files and place them in your mod&apos;s resource directory to use the {config.label} entity with GeckoLib.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* geo.json */}
@@ -331,7 +473,7 @@ export default function ConverterPage() {
                         <FileJson className="h-5 w-5 text-emerald-600" />
                       </div>
                       <div>
-                        <CardTitle className="text-sm">kirin.geo.json</CardTitle>
+                        <CardTitle className="text-sm">{config.key}.geo.json</CardTitle>
                         <CardDescription>GeckoLib Model</CardDescription>
                       </div>
                     </div>
@@ -340,13 +482,13 @@ export default function ConverterPage() {
                     <div className="space-y-1 text-xs text-muted-foreground">
                       <p>format_version: <code className="font-mono text-foreground">1.12.0</code></p>
                       <p>{boneCount} bones, {totalCubes} cubes</p>
-                      <p>Texture: 256x256</p>
+                      <p>Texture: {config.textureSize}</p>
                       <p>UV format: <code className="font-mono text-foreground">{"{uv, uv_size}"}</code></p>
                     </div>
                     <Button
                       size="sm"
                       className="w-full"
-                      onClick={() => downloadFile("/converted/kirin.geo.json", "kirin.geo.json")}
+                      onClick={() => downloadFile(config.files.geo, `${config.key}.geo.json`)}
                     >
                       <Download className="h-3.5 w-3.5 mr-1.5" />
                       Download .geo.json
@@ -362,7 +504,7 @@ export default function ConverterPage() {
                         <Activity className="h-5 w-5 text-rose-600" />
                       </div>
                       <div>
-                        <CardTitle className="text-sm">kirin.animation.json</CardTitle>
+                        <CardTitle className="text-sm">{config.key}.animation.json</CardTitle>
                         <CardDescription>Idle Animation</CardDescription>
                       </div>
                     </div>
@@ -372,12 +514,12 @@ export default function ConverterPage() {
                       <p>format_version: <code className="font-mono text-foreground">1.8.0</code></p>
                       <p>{animBones} animated bones</p>
                       <p>Length: {animLength.toFixed(2)}s (loop)</p>
-                      <p>Easing: easeOutCubic, easeOutSine, easeInCubic</p>
+                      <p>Easing: {config.easings.join(", ")}</p>
                     </div>
                     <Button
                       size="sm"
                       className="w-full bg-rose-600 hover:bg-rose-700 text-white"
-                      onClick={() => downloadFile("/converted/kirin.animation.json", "kirin.animation.json")}
+                      onClick={() => downloadFile(config.files.anim, `${config.key}.animation.json`)}
                     >
                       <Download className="h-3.5 w-3.5 mr-1.5" />
                       Download .animation.json
@@ -393,7 +535,7 @@ export default function ConverterPage() {
                         <ImageIcon className="h-5 w-5 text-violet-600" />
                       </div>
                       <div>
-                        <CardTitle className="text-sm">kirin.png</CardTitle>
+                        <CardTitle className="text-sm">{config.key}.png</CardTitle>
                         <CardDescription>Entity Texture</CardDescription>
                       </div>
                     </div>
@@ -401,14 +543,14 @@ export default function ConverterPage() {
                   <CardContent className="space-y-3">
                     <div className="space-y-1 text-xs text-muted-foreground">
                       <p>Format: <code className="font-mono text-foreground">PNG RGBA</code></p>
-                      <p>Size: 256 x 256 pixels</p>
+                      <p>Size: {config.textureSize.replace("x", " x ")} pixels</p>
                       <p>Source: Original SRParasites texture</p>
-                      <p>Mapped to all 141 cube faces</p>
+                      <p>Mapped to all {totalCubes} cube faces</p>
                     </div>
                     <Button
                       size="sm"
                       className="w-full bg-violet-600 hover:bg-violet-700 text-white"
-                      onClick={() => downloadFile("/converted/kirin.png", "kirin.png")}
+                      onClick={() => downloadFile(config.files.texture, `${config.key}.png`)}
                     >
                       <Download className="h-3.5 w-3.5 mr-1.5" />
                       Download .png
@@ -424,13 +566,13 @@ export default function ConverterPage() {
                 size="lg"
                 className="gap-2"
                 onClick={() => {
-                  downloadFile("/converted/kirin.geo.json", "kirin.geo.json");
-                  setTimeout(() => downloadFile("/converted/kirin.animation.json", "kirin.animation.json"), 300);
-                  setTimeout(() => downloadFile("/converted/kirin.png", "kirin.png"), 600);
+                  downloadFile(config.files.geo, `${config.key}.geo.json`);
+                  setTimeout(() => downloadFile(config.files.anim, `${config.key}.animation.json`), 300);
+                  setTimeout(() => downloadFile(config.files.texture, `${config.key}.png`), 600);
                 }}
               >
                 <Download className="h-5 w-5" />
-                Download All 3 Game Files
+                Download All 3 Files
               </Button>
             </div>
 
@@ -463,9 +605,9 @@ export default function ConverterPage() {
                         size="sm"
                         variant="ghost"
                         className="shrink-0"
-                        onClick={() => copyToClipboard(rp.path, rp.key)}
+                        onClick={() => copyToClipboard(rp.path, `${activeEntity}-${rp.key}`)}
                       >
-                        {copiedPath === rp.key ? (
+                        {copiedPath === `${activeEntity}-${rp.key}` ? (
                           <Check className="h-3.5 w-3.5 text-emerald-600" />
                         ) : (
                           <Copy className="h-3.5 w-3.5" />
@@ -488,23 +630,23 @@ export default function ConverterPage() {
 
 import net.minecraft.resources.ResourceLocation;
 import software.bernie.geckolib.model.GeoModel;
-import com.yourmod.entity.KirinEntity;
+import com.yourmod.entity.${config.javaEntityName};
 
-public class KirinGeoModel extends GeoModel<KirinEntity> {
+public class ${config.javaClassName} extends GeoModel<${config.javaEntityName}> {
 
     @Override
-    public ResourceLocation getModelResource(KirinEntity animatable) {
-        return new ResourceLocation("${MOD_ID}", "geo/entity/kirin.geo.json");
+    public ResourceLocation getModelResource(${config.javaEntityName} animatable) {
+        return new ResourceLocation("${MOD_ID}", "geo/entity/${config.key}.geo.json");
     }
 
     @Override
-    public ResourceLocation getTextureResource(KirinEntity animatable) {
-        return new ResourceLocation("${MOD_ID}", "textures/entity/monster/kirin.png");
+    public ResourceLocation getTextureResource(${config.javaEntityName} animatable) {
+        return new ResourceLocation("${MOD_ID}", "textures/entity/monster/${config.key}.png");
     }
 
     @Override
-    public ResourceLocation getAnimationResource(KirinEntity animatable) {
-        return new ResourceLocation("${MOD_ID}", "animations/entity/kirin.animation.json");
+    public ResourceLocation getAnimationResource(${config.javaEntityName} animatable) {
+        return new ResourceLocation("${MOD_ID}", "animations/entity/${config.key}.animation.json");
     }
 }`}</pre>
                   </div>
@@ -519,19 +661,19 @@ public class KirinGeoModel extends GeoModel<KirinEntity> {
                     <pre>{`package com.yourmod.client.renderer;
 
 import software.bernie.geckolib.renderer.GeoEntityRenderer;
-import com.yourmod.entity.KirinEntity;
-import com.yourmod.client.model.KirinGeoModel;
+import com.yourmod.entity.${config.javaEntityName};
+import com.yourmod.client.model.${config.javaClassName};
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 
-public class KirinRenderer extends GeoEntityRenderer<KirinEntity> {
-    public KirinRenderer(EntityRendererProvider.Context renderManager) {
-        super(renderManager, new KirinGeoModel());
+public class ${config.javaEntityName.replace("Entity", "Renderer")} extends GeoEntityRenderer<${config.javaEntityName}> {
+    public ${config.javaEntityName.replace("Entity", "Renderer")}(EntityRendererProvider.Context renderManager) {
+        super(renderManager, new ${config.javaClassName}());
         this.shadowRadius = 1.0F;
     }
 }
 
 // Register in your client setup:
-// EntityRenderers.register(KirinEntity.TYPE, KirinRenderer::new);`}</pre>
+// EntityRenderers.register(${config.javaEntityName}.TYPE, ${config.javaEntityName.replace("Entity", "Renderer")}::new);`}</pre>
                   </div>
                 </div>
 
@@ -551,10 +693,10 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.Level;
 
-public class KirinEntity extends Mob implements GeoEntity {
+public class ${config.javaEntityName} extends Mob implements GeoEntity {
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
-    public KirinEntity(EntityType<? extends KirinEntity> type, Level level) {
+    public ${config.javaEntityName}(EntityType<? extends ${config.javaEntityName}> type, Level level) {
         super(type, level);
     }
 
@@ -569,7 +711,7 @@ public class KirinEntity extends Mob implements GeoEntity {
     }
 
     // Animation controller: idle animation auto-plays
-    private PlayState predicate(AnimationState<KirinEntity> event) {
+    private PlayState predicate(AnimationState<${config.javaEntityName}> event) {
         event.getController().setAnimation(
             RawAnimation.begin().then("animation.model.idle", Animation.LoopType.LOOP)
         );
@@ -594,14 +736,14 @@ public class KirinEntity extends Mob implements GeoEntity {
 ├── assets/${MOD_ID}/
 │   ├── geo/
 │   │   └── entity/
-│   │       └── kirin.geo.json          ← Model file
+│   │       └── ${config.key}.geo.json          ← Model file
 │   ├── animations/
 │   │   └── entity/
-│   │       └── kirin.animation.json    ← Animation file
+│   │       └── ${config.key}.animation.json    ← Animation file
 │   └── textures/
 │       └── entity/
 │           └── monster/
-│               └── kirin.png           ← Texture file`}</pre>
+│               └── ${config.key}.png           ← Texture file`}</pre>
                   </div>
                 </div>
 
@@ -627,7 +769,7 @@ public class KirinEntity extends Mob implements GeoEntity {
                     variant="outline"
                     size="sm"
                     className="justify-start gap-2"
-                    onClick={() => downloadFile("/converted/kirin_bone_mapping.json", "kirin_bone_mapping.json")}
+                    onClick={() => downloadFile(config.files.mapping, `${config.key}_bone_mapping.json`)}
                   >
                     <Download className="h-3.5 w-3.5" />
                     Bone Mapping ({Object.keys(boneMapping).length} entries)
@@ -636,7 +778,7 @@ public class KirinEntity extends Mob implements GeoEntity {
                     variant="outline"
                     size="sm"
                     className="justify-start gap-2"
-                    onClick={() => downloadFile("/converted/kirin_bb.geo.json", "kirin_bb.geo.json")}
+                    onClick={() => downloadFile(`/converted/${config.key}_bb.geo.json`, `${config.key}_bb.geo.json`)}
                   >
                     <Download className="h-3.5 w-3.5" />
                     Blockbench Preview Format
@@ -645,7 +787,7 @@ public class KirinEntity extends Mob implements GeoEntity {
                     variant="outline"
                     size="sm"
                     className="justify-start gap-2"
-                    onClick={() => downloadFile("/converted/KirinGeoModel.java", "KirinGeoModel.java")}
+                    onClick={() => downloadFile(`/converted/${config.javaClassName}.java`, `${config.javaClassName}.java`)}
                   >
                     <Download className="h-3.5 w-3.5" />
                     Java Model Template
@@ -829,7 +971,7 @@ public class KirinEntity extends Mob implements GeoEntity {
                       <span className="font-medium">Easing fitting (15 non-linear segments)</span>
                     </div>
                     <p className="text-xs text-muted-foreground pl-6">
-                      easeOutCubic, easeOutSine, easeInCubic applied via least-squares fitting
+                      {config.easings.join(", ")} applied via least-squares fitting
                     </p>
                   </div>
                   <Separator />
@@ -902,12 +1044,12 @@ public class KirinEntity extends Mob implements GeoEntity {
                 <CardContent className="space-y-3">
                   {[
                     { label: "Vertex Comparison", detail: "World-space positions match with Y-offset", pass: true },
-                    { label: "UV Coordinate Validation", detail: uvViolations.length === 0 ? `All UVs within ${texW}×${texH}` : `${uvViolations.length} violations`, pass: uvViolations.length === 0 },
+                    { label: "UV Coordinate Validation", detail: uvViolations.length === 0 ? `All UVs within ${texW}x${texH}` : `${uvViolations.length} violations`, pass: uvViolations.length === 0 },
                     { label: "Bone Hierarchy", detail: "Parent-child relationships preserved", pass: true },
                     { label: "Animation Bone Matching", detail: `All ${animBones} anim bones exist in geo.json`, pass: true },
                     { label: "Root Pivot Y-Offset", detail: rootPivotValid ? "Y=24 (standard)" : "Non-standard Y offset", pass: rootPivotValid },
                     { label: "Animation Format", detail: `format_version 1.8.0, ${animBones} bones, loop`, pass: true },
-                    { label: "Texture Compatibility", detail: "256×256 RGBA PNG, UV-mapped correctly", pass: true },
+                    { label: "Texture Compatibility", detail: `${config.textureSize} RGBA PNG, UV-mapped correctly`, pass: true },
                   ].map((check) => (
                     <div
                       key={check.label}
@@ -943,7 +1085,7 @@ public class KirinEntity extends Mob implements GeoEntity {
         <div className="max-w-6xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>MinecraftModelMigrator-Pro • MC 1.12.2 → GeckoLib 1.20.1</span>
-            <span>Kirin Entity • SRParasites • {boneCount} bones • {totalCubes} cubes</span>
+            <span>{config.label} ({config.subtitle}) • SRParasites • {boneCount} bones • {totalCubes} cubes</span>
           </div>
         </div>
       </footer>
