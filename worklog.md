@@ -747,3 +747,38 @@ Stage Summary:
 - Hybrid approach: absolute elements + relative bone pivots
 - Both .bbmodel files regenerated and deployed
 - Kirin: 141 elements, Heblu: 356 elements, format=bedrock
+---
+Task ID: bbmodel-xflip-fix
+Agent: Main Agent
+Task: Fix .bbmodel scattered model - apply Blockbench X-axis coordinate flip
+
+Work Log:
+- Read Blockbench source code from GitHub (bedrock.js, cube.js, group.js)
+- Discovered the ROOT CAUSE: Blockbench uses X-FLIPPED coordinates internally!
+  - From parseCube: base_cube.from[0] = -(s.origin[0] + s.size[0])
+  - From parseCube: base_cube.origin[0] *= -1
+  - From parseBone: group.origin[0] *= -1
+  - From parseBone: group.rotation[axis] *= -1 (for axis != 2)
+  - From bone positioning: bone.position = group.origin - parent.origin
+- Understood Blockbench's full rendering pipeline:
+  1. Cube vertices built as: vertex = (from/to) - cube.origin
+  2. Cube mesh placed in bone group's Three.js mesh
+  3. Bone mesh positioned at: group.origin - parent.origin (relative)
+  4. Bone mesh rotated by group.rotation
+- Applied coordinate transformations in bbmodel_generator.py:
+  - Element from[0] = -(geo_from_x + size_x)  (X flip + offset)
+  - Element to[0] = -geo_from_x  (X flip)
+  - Element origin[0] = -abs_pivot_x  (X flip)
+  - Bone pivot[0] = -geo_pivot_x  (X flip)
+  - Bone rotation: X and Y components negated, Z unchanged
+- Verified: jointURAX(geo=[12,-11,-3]) → bb=[-12,-11,-3], jointULAX(geo=[-12,-11,-3]) → bb=[12,-11,-3]
+  (Left/Right correctly swapped)
+- Regenerated both kirin_debug.bbmodel and heblu_debug.bbmodel
+
+Stage Summary:
+- ROOT CAUSE found: Blockbench's .bbmodel uses X-flipped coordinate system
+- All coordinates now properly transformed: X flipped, rotation X/Y flipped
+- This was the reason for ALL previous display issues:
+  - "镜像" = X not flipped → model appears mirror-imaged
+  - "打散" = X not flipped + wrong rotation → cubes fly to wrong positions
+- Both .bbmodel files regenerated and deployed
