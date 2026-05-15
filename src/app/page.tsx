@@ -843,15 +843,27 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                         UV mapping, and animation. The texture is embedded for easy verification on any machine.
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-2 border-sky-300 dark:border-sky-700 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-950"
-                      onClick={() => downloadFile("/converted/test_hierarchical.bbmodel", "test_hierarchical.bbmodel")}
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      🔬 Test Model (.bbmodel) — 2-bone hierarchy for coordinate verification
-                    </Button>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-muted-foreground">🔬 Coordinate System Test — 4 variants, find which shows 2 cubes at [0,0,0] &amp; [5,0,0]</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
+                          onClick={() => downloadFile("/converted/test_A_bedrock_relative.bbmodel", "test_A_bedrock_relative.bbmodel")}>
+                          <Download className="h-3 w-3" /> A: bedrock+相对
+                        </Button>
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
+                          onClick={() => downloadFile("/converted/test_B_bedrock_absolute.bbmodel", "test_B_bedrock_absolute.bbmodel")}>
+                          <Download className="h-3 w-3" /> B: bedrock+绝对
+                        </Button>
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
+                          onClick={() => downloadFile("/converted/test_C_free_relative.bbmodel", "test_C_free_relative.bbmodel")}>
+                          <Download className="h-3 w-3" /> C: free+相对
+                        </Button>
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
+                          onClick={() => downloadFile("/converted/test_D_free_absolute.bbmodel", "test_D_free_absolute.bbmodel")}>
+                          <Download className="h-3 w-3" /> D: free+绝对
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </CardContent>
