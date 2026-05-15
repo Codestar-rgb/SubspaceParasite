@@ -844,23 +844,26 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                       </p>
                     </div>
                     <div className="space-y-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">🔬 Coordinate System Test — 4 variants, find which shows 2 cubes at [0,0,0] &amp; [5,0,0]</p>
+                      <p className="text-xs font-medium text-muted-foreground">
+                        🔬 Round 2 — 根骨骼在[0,10,0]，子骨骼在[5,10,0]有45°旋转。
+                        正确: 蓝块[0,10,0]，红块[5,10,0]旋转45°
+                      </p>
                       <div className="flex flex-wrap gap-2">
                         <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_A_bedrock_relative.bbmodel", "test_A_bedrock_relative.bbmodel")}>
-                          <Download className="h-3 w-3" /> A: bedrock+相对
+                          onClick={() => downloadFile("/converted/test_E_mixed_absElem_relPivot.bbmodel", "test_E_mixed.bbmodel")}>
+                          <Download className="h-3 w-3" /> E: 元素绝对+骨骼相对
                         </Button>
                         <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_B_bedrock_absolute.bbmodel", "test_B_bedrock_absolute.bbmodel")}>
-                          <Download className="h-3 w-3" /> B: bedrock+绝对
+                          onClick={() => downloadFile("/converted/test_F_absElem_absPivot.bbmodel", "test_F_absAll.bbmodel")}>
+                          <Download className="h-3 w-3" /> F: 元素绝对+骨骼绝对
                         </Button>
                         <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_C_free_relative.bbmodel", "test_C_free_relative.bbmodel")}>
-                          <Download className="h-3 w-3" /> C: free+相对
+                          onClick={() => downloadFile("/converted/test_G_free_mixed.bbmodel", "test_G_free_mixed.bbmodel")}>
+                          <Download className="h-3 w-3" /> G: free+元素绝对+骨骼相对
                         </Button>
                         <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_D_free_absolute.bbmodel", "test_D_free_absolute.bbmodel")}>
-                          <Download className="h-3 w-3" /> D: free+绝对
+                          onClick={() => downloadFile("/converted/test_H_free_absAll.bbmodel", "test_H_free_absAll.bbmodel")}>
+                          <Download className="h-3 w-3" /> H: free+全部绝对
                         </Button>
                       </div>
                     </div>
