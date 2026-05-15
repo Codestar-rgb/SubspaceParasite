@@ -837,30 +837,12 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                 </div>
                 {config.files.bbmodel && (
                   <div className="mt-3 space-y-2">
-                    <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
-                      <p className="text-xs text-amber-700 dark:text-amber-300">
-                        <strong>Debug Tip:</strong> Download the .bbmodel file and drag it into Blockbench to visually verify the model,
-                        UV mapping, and animation. The texture is embedded for easy verification on any machine.
+                    <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
+                      <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                        <strong>✅ Fixed:</strong> .bbmodel now uses correct bone-local element coordinates with relative bone pivots.
+                        Download and drag into Blockbench to verify the model assembly, UV mapping, and animation playback.
+                        The texture is embedded for easy verification on any machine.
                       </p>
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">
-                        🔬 Round 3 — 模拟Kirin旋转骨骼! root[0,24,0] + mainbody[-25,0,-180°] + bodym[-38,0,-180°]
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_I_bedrock_bonelocal_rot.bbmodel", "test_I.bbmodel")}>
-                          <Download className="h-3 w-3" /> I: bedrock+骨骼本地+相对pivot
-                        </Button>
-                        <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_J_bedrock_absolute_rot.bbmodel", "test_J.bbmodel")}>
-                          <Download className="h-3 w-3" /> J: bedrock+绝对元素+相对pivot
-                        </Button>
-                        <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7"
-                          onClick={() => downloadFile("/converted/test_K_free_bonelocal_rot.bbmodel", "test_K.bbmodel")}>
-                          <Download className="h-3 w-3" /> K: free+骨骼本地+相对pivot
-                        </Button>
-                      </div>
                     </div>
                   </div>
                 )}

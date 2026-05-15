@@ -102,20 +102,20 @@ class BBModelGenerator:
                 element_uuids[(bone_name, cube_idx)] = self._uuid()
 
         # ------------------------------------------------------------------
-        # Phase 1.5: Compute absolute pivots for element positioning
-        # ------------------------------------------------------------------
-        # Blockbench .bbmodel requires ABSOLUTE world-space for element from/to
-        # and element origin (rotation center), but RELATIVE (parent-local) for
-        # bone pivots in the outliner. This hybrid approach was confirmed by
-        # empirical testing (test E/G showed correct results).
-        abs_pivots = self._compute_absolute_pivots(bones)
-
-        # ------------------------------------------------------------------
         # Phase 2: Build elements (cubes) list
         # ------------------------------------------------------------------
-        # Element from/to in ABSOLUTE world space
-        # Element origin = absolute bone pivot (rotation center)
-        elements = self._build_elements(bones, element_uuids, abs_pivots)
+        # Blockbench bedrock format uses BONE-LOCAL coordinates for elements:
+        #   - Element from/to: relative to the bone's own pivot
+        #   - Element origin:  [0, 0, 0] (the bone's pivot IS the rotation center)
+        #   - Bone pivots in outliner: relative to parent bone (from geo.json)
+        #
+        # This matches the geo.json convention exactly: cube origins are already
+        # in bone-local space, and bone pivots are already relative to parent.
+        #
+        # Coordinate X-flip: Blockbench's internal system for bedrock models has
+        # the X axis flipped relative to geo.json. This is applied to both
+        # element from/to and bone pivots.
+        elements = self._build_elements(bones, element_uuids)
 
         # ------------------------------------------------------------------
         # Phase 3: Build outliner (bone hierarchy)
@@ -166,57 +166,7 @@ class BBModelGenerator:
 
         return bbmodel
 
-    # ========================================================================
-    # Absolute Pivot Computation
-    # ========================================================================
 
-    @staticmethod
-    def _compute_absolute_pivots(bones: list) -> Dict[str, list]:
-        """
-        Compute absolute world-space pivots for all bones by walking the hierarchy.
-
-        In geo.json, bone pivots are relative to their parent bone.
-        We accumulate them to get each bone's world position.
-
-        Returns:
-            Dict mapping bone_name -> [abs_x, abs_y, abs_z]
-        """
-        bone_map: Dict[str, dict] = {b["name"]: b for b in bones}
-
-        children_map: Dict[str, list] = {}
-        root_bones: list = []
-
-        for bone in bones:
-            bone_name = bone["name"]
-            parent_name = bone.get("parent")
-            if parent_name is None:
-                root_bones.append(bone_name)
-            else:
-                children_map.setdefault(parent_name, []).append(bone_name)
-
-        abs_pivots: Dict[str, list] = {}
-
-        def _accumulate(bone_name: str, parent_abs: list) -> None:
-            bone = bone_map[bone_name]
-            rel_pivot = bone.get("pivot", [0.0, 0.0, 0.0])
-            abs_piv = [
-                parent_abs[0] + float(rel_pivot[0]),
-                parent_abs[1] + float(rel_pivot[1]),
-                parent_abs[2] + float(rel_pivot[2]),
-            ]
-            abs_pivots[bone_name] = abs_piv
-            for child_name in children_map.get(bone_name, []):
-                _accumulate(child_name, abs_piv)
-
-        for bone_name in root_bones:
-            bone = bone_map[bone_name]
-            pivot = bone.get("pivot", [0.0, 0.0, 0.0])
-            abs_piv = [float(pivot[0]), float(pivot[1]), float(pivot[2])]
-            abs_pivots[bone_name] = abs_piv
-            for child_name in children_map.get(bone_name, []):
-                _accumulate(child_name, abs_piv)
-
-        return abs_pivots
 
     # ========================================================================
     # Elements (Cubes) Builder
@@ -226,7 +176,6 @@ class BBModelGenerator:
         self,
         bones: list,
         element_uuids: Dict[Tuple[str, int], str],
-        abs_pivots: Dict[str, list],
     ) -> list:
         """
         Build the flat elements list from all bones' cubes.
@@ -235,28 +184,26 @@ class BBModelGenerator:
           - origin: [x, y, z]  (minimum corner, relative to bone's pivot)
           - size: [w, h, d]
 
-        In .bbmodel, each element has:
-          - from: [x, y, z]  (minimum corner in Blockbench internal coordinates)
-          - to: [x+w, y+h, z+d]  (maximum corner in Blockbench internal coordinates)
-          - origin: [px, py, pz]  (rotation center in Blockbench internal coordinates)
+        In .bbmodel (bedrock format), each element has:
+          - from: [x, y, z]  (minimum corner in BONE-LOCAL space)
+          - to: [x+w, y+h, z+d]  (maximum corner in BONE-LOCAL space)
+          - origin: [0, 0, 0]  (rotation center = bone's own pivot, at origin in bone-local)
 
-        CRITICAL: Blockbench uses a DIFFERENT coordinate system than geo.json!
-        From Blockbench source code (bedrock.js parseCube/compileCube):
-          - X axis is FLIPPED: bb_x = -(geo_x + size_x) for from, bb_x = -geo_x for origin
-          - Y axis is the same
-          - Z axis is the same
-        Bone group pivots also have X flipped: bb_pivot_x = -geo_pivot_x
+        CRITICAL: Blockbench bedrock format uses BONE-LOCAL coordinates for elements.
+        The bone's pivot is the rotation center for all its cubes. In bone-local
+        space, the pivot is at [0, 0, 0]. The bone's position in the model is
+        defined by the outliner's hierarchical pivot/rotation chain.
 
-        Vertex rendering (from cube.js):
-          vertex = (from/to) - cube.origin
-        Then placed in bone mesh which is at:
-          bone.position = group.origin - parent.origin
+        Coordinate X-flip: Blockbench's internal system for bedrock models has
+        the X axis flipped relative to geo.json:
+          - bb_from_x = -(geo_origin_x + size_x)
+          - bb_to_x = -geo_origin_x
+        This is based on Blockbench source code (bedrock.js parseCube/compileCube).
         """
         elements = []
 
         for bone in bones:
             bone_name = bone["name"]
-            bone_abs_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
 
             for cube_idx, cube in enumerate(bone.get("cubes", [])):
                 elem_uuid = element_uuids[(bone_name, cube_idx)]
@@ -265,33 +212,25 @@ class BBModelGenerator:
                 inflate = cube.get("inflate", 0.0)
                 mirror = cube.get("mirror", False)
 
-                # Compute world-space from/to in GEO.JSON coordinates
-                geo_from_x = float(bone_abs_pivot[0]) + float(origin[0])
-                geo_from_y = float(bone_abs_pivot[1]) + float(origin[1])
-                geo_from_z = float(bone_abs_pivot[2]) + float(origin[2])
-                geo_to_x = geo_from_x + float(size[0])
-                geo_to_y = geo_from_y + float(size[1])
-                geo_to_z = geo_from_z + float(size[2])
-
-                # Convert to Blockbench internal coordinates (X flip)
-                # From Blockbench source: base_cube.from[0] = -(s.origin[0] + s.size[0])
-                # Which means: bb_from_x = -(geo_from_x + size_x)
-                # And: bb_to_x = bb_from_x + size_x = -geo_from_x
+                # Use bone-local coordinates directly from geo.json
+                # (cube origin is already relative to bone's pivot)
+                # Apply X-flip for Blockbench bedrock format:
+                #   bb_from_x = -(origin_x + size_x)
+                #   bb_to_x = -origin_x
                 from_pos = [
-                    -(geo_from_x + float(size[0])),  # X flip
-                    geo_from_y,                        # Y same
-                    geo_from_z,                        # Z same
+                    -(float(origin[0]) + float(size[0])),  # X flip
+                    float(origin[1]),                       # Y same
+                    float(origin[2]),                       # Z same
                 ]
                 to_pos = [
-                    -geo_from_x,                       # = -(from_x) = -(geo_from_x), after X flip
-                    geo_to_y,                          # Y same
-                    geo_to_z,                          # Z same
+                    -float(origin[0]),                       # X flip
+                    float(origin[1]) + float(size[1]),       # Y same
+                    float(origin[2]) + float(size[2]),       # Z same
                 ]
 
-                # Cube origin = rotation center = bone pivot, also X-flipped
-                bb_origin_x = -float(bone_abs_pivot[0])
-                bb_origin_y = float(bone_abs_pivot[1])
-                bb_origin_z = float(bone_abs_pivot[2])
+                # Cube origin = rotation center = [0, 0, 0] in bone-local space
+                # (The bone's pivot IS the rotation center; in bone-local coords it's at origin)
+                bb_origin = [0.0, 0.0, 0.0]
 
                 # Build faces with UV conversion
                 faces = self._convert_faces(cube.get("uv", {}))
@@ -308,7 +247,7 @@ class BBModelGenerator:
                     "inflate": float(inflate),
                     "mirror_uv": mirror,
                     "rotation": [0.0, 0.0, 0.0],
-                    "origin": [bb_origin_x, bb_origin_y, bb_origin_z],
+                    "origin": bb_origin,
                     "uv_offset": [0, 0],
                     "faces": faces,
                 }

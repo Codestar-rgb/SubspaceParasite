@@ -782,3 +782,33 @@ Stage Summary:
   - "镜像" = X not flipped → model appears mirror-imaged
   - "打散" = X not flipped + wrong rotation → cubes fly to wrong positions
 - Both .bbmodel files regenerated and deployed
+
+---
+Task ID: bbmodel-bonelocal-fix
+Agent: Main Agent
+Task: Fix .bbmodel coordinate scheme - switch from absolute to bone-local element coordinates
+
+Work Log:
+- Diagnosed root cause: bbmodel_generator.py was using ABSOLUTE world-space coordinates for element from/to/origin, but Blockbench's bedrock format requires BONE-LOCAL coordinates
+- With absolute coordinates, Blockbench's hierarchical transform chain double-counts bone positions (applies bone pivot translation on top of already-absolute element positions), causing "scattered" model
+- Fixed _build_elements() method:
+  - Element from/to: now uses geo.json cube origin/size directly (bone-local space) with X-flip for bedrock format
+  - Element origin: [0, 0, 0] (bone's own pivot is rotation center; in bone-local space it's at origin)
+  - Removed dependency on _compute_absolute_pivots() for element positioning
+- Removed _compute_absolute_pivots() method entirely (no longer needed)
+- Outliner (bone hierarchy) unchanged: uses geo.json pivots directly (relative to parent) with X-flip
+- Verified key bone data in generated bbmodel:
+  - root: pivot=[0, 24, 0] ✓
+  - mainbody: pivot=[0, 53, 16] (relative to root, was incorrectly [0, 77, 16] absolute before) ✓
+  - bodym: pivot=[0, 0, 0] (relative to mainbody) ✓
+  - jointURAX: pivot=[-12, -11, -3] (relative to mainbody, X-flipped from geo [12,-11,-3]) ✓
+- Regenerated kirin.bbmodel (141 elements) and heblu_debug.bbmodel (356 elements)
+- Deployed to public/converted/
+- Updated frontend: removed Round 3 test file buttons, added "Fixed" status tip
+- Lint clean, dev server running
+
+Stage Summary:
+- .bbmodel coordinate scheme fixed: bone-local elements + relative bone pivots + bedrock format
+- Both Kirin and Heblu .bbmodel files regenerated and deployed
+- Frontend updated with fixed status notification
+- Previous test files (I/J/K) are obsolete; the main bbmodel download now uses the correct coordinate scheme
