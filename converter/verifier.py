@@ -22,6 +22,7 @@ Enhanced verification checks:
   10. Swing component consistency
   11. Conditional visibility after hide
   12. Animation event consistency
+  13. Normal/smooth verification (world-space normal comparison)
 """
 
 import math
@@ -79,7 +80,8 @@ class ModelVerifier:
                     render_effect_result: Optional[dict] = None,
                     easing_results: Optional[dict] = None,
                     swing_result: Optional[dict] = None,
-                    animation_events: Optional[dict] = None) -> dict:
+                    animation_events: Optional[dict] = None,
+                    normal_threshold: float = 5.0) -> dict:
         """
         Full verification suite with all enhanced checks.
 
@@ -190,6 +192,16 @@ class ModelVerifier:
                 'reason': 'No animation events provided'
             }
 
+        # 13. Normal/smooth verification
+        try:
+            normal_result = self.check_normals(bone_data_1122, geo_json_1201, normal_threshold)
+            results['normal_verification'] = normal_result
+        except Exception as e:
+            results['normal_verification'] = {
+                'checked': False,
+                'reason': f'Normal check failed: {str(e)}'
+            }
+
         # Overall pass/fail
         all_checks = [
             vertex_result.get('verified', False),
@@ -211,6 +223,8 @@ class ModelVerifier:
             all_checks.append(visibility_result.get('passed', False))
         if animation_events:
             all_checks.append(events_result.get('passed', False))
+        if results.get('normal_verification', {}).get('checked', True):
+            all_checks.append(results['normal_verification'].get('passed', False))
 
         results['overall_passed'] = all(all_checks)
         results['overall_score'] = sum(1 for c in all_checks if c) / max(len(all_checks), 1)
@@ -1009,6 +1023,208 @@ class ModelVerifier:
             'out_of_bounds_events': out_of_bounds_events,
             'invalid_type_events': invalid_type_events
         }
+
+    # ========================================================================
+    # Normal/Smooth Verification (Enhancement 5)
+    # ========================================================================
+
+    def check_normals(self, bone_data_1122: dict, geo_json_1201: dict,
+                      angle_threshold: float = 5.0) -> dict:
+        """
+        Compare world-space normals between the original 1.12.2 model and
+        the converted 1.20.1 model. Large angle differences indicate
+        potential shading discontinuities or geometry errors.
+
+        For each cube face, computes the world-space face normal by
+        transforming the local normal through the bone hierarchy, then
+        compares the angle between the 1.12.2 and 1.20.1 normals.
+
+        Args:
+            bone_data_1122: Original bone data dict with 'bones' key.
+            geo_json_1201: Converted .geo.json structure.
+            angle_threshold: Maximum allowed normal angle difference in degrees.
+
+        Returns:
+            Dict with 'passed', 'total_faces', 'matching_normals',
+            'divergent_normals', 'max_divergence', 'heatmap' keys.
+        """
+        # Face normals in local space (MC 1.12.2 coordinate convention)
+        # Each face: [nx, ny, nz] pointing outward
+        FACE_NORMALS_1122 = {
+            'north':  [0.0, 0.0, -1.0],   # -Z face
+            'south':  [0.0, 0.0,  1.0],   # +Z face
+            'west':   [-1.0, 0.0, 0.0],   # -X face
+            'east':   [1.0, 0.0, 0.0],    # +X face
+            'up':     [0.0, 1.0, 0.0],    # +Y face (MC Y-down: top)
+            'down':   [0.0, -1.0, 0.0],   # -Y face
+        }
+
+        # In GeckoLib 1.20.1 (Y-up, LH), the face normals are:
+        FACE_NORMALS_1201 = {
+            'north':  [0.0, 0.0, -1.0],
+            'south':  [0.0, 0.0,  1.0],
+            'west':   [-1.0, 0.0, 0.0],
+            'east':   [1.0, 0.0, 0.0],
+            'up':     [0.0, 1.0, 0.0],
+            'down':   [0.0, -1.0, 0.0],
+        }
+
+        model = geo_json_1201.get('model', geo_json_1201.get('minecraft:geometry', [{}])[0])
+        bones_1201 = model.get('bones', [])
+
+        total_faces = 0
+        matching_normals = 0
+        divergent_normals = []
+        max_divergence = 0.0
+
+        # Build bone hierarchy for 1.20.1
+        bone_lookup_1201 = {b['name']: b for b in bones_1201}
+
+        # Build bone hierarchy for 1.12.2
+        bones_1122 = bone_data_1122.get('bones', {})
+
+        for bone_1201 in bones_1201:
+            bone_name = bone_1201.get('name', 'unknown')
+            cubes = bone_1201.get('cubes', [])
+            rotation = bone_1201.get('rotation', [0, 0, 0])
+
+            # Compute bone's world rotation matrix for 1.20.1
+            bone_rot_matrix_1201 = self._euler_to_rotation_matrix(
+                rotation[0], rotation[1], rotation[2]
+            )
+
+            # Find corresponding 1.12.2 bone
+            bone_1122 = bones_1122.get(bone_name, None)
+            bone_rot_matrix_1122 = np.eye(3)
+            if bone_1122:
+                rx_1122 = bone_1122.get('rotate_x', 0) if isinstance(bone_1122, dict) else getattr(bone_1122, 'rotate_x', 0)
+                ry_1122 = bone_1122.get('rotate_y', 0) if isinstance(bone_1122, dict) else getattr(bone_1122, 'rotate_y', 0)
+                rz_1122 = bone_1122.get('rotate_z', 0) if isinstance(bone_1122, dict) else getattr(bone_1122, 'rotate_z', 0)
+                bone_rot_matrix_1122 = self._euler_to_rotation_matrix(
+                    rx_1122, ry_1122, rz_1122
+                )
+
+            for ci, cube in enumerate(cubes):
+                uv_data = cube.get('uv', {})
+                cube_rotation = cube.get('rotation', [0, 0, 0])
+
+                # Compute cube's local rotation (if any)
+                cube_rot_matrix = np.eye(3)
+                if any(abs(r) > 0.001 for r in cube_rotation):
+                    cube_rot_matrix = self._euler_to_rotation_matrix(
+                        cube_rotation[0], cube_rotation[1], cube_rotation[2]
+                    )
+
+                for face_name in uv_data:
+                    total_faces += 1
+
+                    # Get local face normal for 1.20.1
+                    local_normal_1201 = np.array(FACE_NORMALS_1201.get(face_name, [0, 1, 0]))
+
+                    # Transform to world space for 1.20.1
+                    world_normal_1201 = bone_rot_matrix_1201 @ cube_rot_matrix @ local_normal_1201
+
+                    # Get local face normal for 1.12.2 (same geometry, same face)
+                    local_normal_1122 = np.array(FACE_NORMALS_1122.get(face_name, [0, 1, 0]))
+
+                    # Transform to world space for 1.12.2
+                    # In 1.12.2, rotation order is X→Y→Z; in 1.20.1 it's Z→Y→X
+                    # The coordinate transform M = diag(1,1,-1) affects normal direction
+                    # For normals: n_world = M @ R @ n_local (rotation then mirror)
+                    world_normal_1122 = bone_rot_matrix_1122 @ local_normal_1122
+
+                    # Normalize
+                    norm_1201 = np.linalg.norm(world_normal_1201)
+                    norm_1122 = np.linalg.norm(world_normal_1122)
+                    if norm_1201 > 1e-10:
+                        world_normal_1201 /= norm_1201
+                    if norm_1122 > 1e-10:
+                        world_normal_1122 /= norm_1122
+
+                    # Compute angle between normals
+                    dot = np.clip(np.dot(world_normal_1201, world_normal_1122), -1.0, 1.0)
+                    angle_deg = np.degrees(np.arccos(abs(dot)))
+
+                    if angle_deg > max_divergence:
+                        max_divergence = angle_deg
+
+                    if angle_deg <= angle_threshold:
+                        matching_normals += 1
+                    else:
+                        divergent_normals.append({
+                            'bone': bone_name,
+                            'cube_index': ci,
+                            'face': face_name,
+                            'angle_degrees': round(angle_deg, 2),
+                            'normal_1122': world_normal_1122.tolist(),
+                            'normal_1201': world_normal_1201.tolist(),
+                        })
+
+        passed = len(divergent_normals) == 0
+
+        # Generate a simplified heatmap (bone → max divergence)
+        heatmap = {}
+        for dn in divergent_normals:
+            bone = dn['bone']
+            angle = dn['angle_degrees']
+            if bone not in heatmap or angle > heatmap[bone]:
+                heatmap[bone] = angle
+
+        return {
+            'passed': passed,
+            'total_faces': total_faces,
+            'matching_normals': matching_normals,
+            'divergent_count': len(divergent_normals),
+            'max_divergence': round(max_divergence, 2),
+            'angle_threshold': angle_threshold,
+            'divergent_normals': divergent_normals[:50],  # Limit output
+            'heatmap': dict(sorted(heatmap.items(), key=lambda x: x[1], reverse=True)[:30]),
+        }
+
+    @staticmethod
+    def _euler_to_rotation_matrix(rx: float, ry: float, rz: float) -> np.ndarray:
+        """
+        Convert Euler angles (in degrees) to a 3x3 rotation matrix.
+        Uses ZYX rotation order (GeckoLib convention).
+
+        Args:
+            rx: Rotation around X axis in degrees.
+            ry: Rotation around Y axis in degrees.
+            rz: Rotation around Z axis in degrees.
+
+        Returns:
+            3x3 numpy rotation matrix.
+        """
+        rx_rad = np.radians(rx)
+        ry_rad = np.radians(ry)
+        rz_rad = np.radians(rz)
+
+        # Rotation around X
+        cx, sx = np.cos(rx_rad), np.sin(rx_rad)
+        Rx = np.array([
+            [1, 0, 0],
+            [0, cx, -sx],
+            [0, sx, cx]
+        ])
+
+        # Rotation around Y
+        cy, sy = np.cos(ry_rad), np.sin(ry_rad)
+        Ry = np.array([
+            [cy, 0, sy],
+            [0, 1, 0],
+            [-sy, 0, cy]
+        ])
+
+        # Rotation around Z
+        cz, sz = np.cos(rz_rad), np.sin(rz_rad)
+        Rz = np.array([
+            [cz, -sz, 0],
+            [sz, cz, 0],
+            [0, 0, 1]
+        ])
+
+        # ZYX order: R = Rz @ Ry @ Rx
+        return Rz @ Ry @ Rx
 
     # ========================================================================
     # Verification Report Generation

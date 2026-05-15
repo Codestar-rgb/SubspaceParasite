@@ -521,3 +521,34 @@ Stage Summary:
 - Frontend updated with "Enhance" tab and pipeline badges for all 6 new modules
 - Lint clean, dev server running, all files synced to db/ and public/converted/
 - 15 rounds of review completed with 16 bugs fixed
+---
+Task ID: layer1-deep-enhancements
+Agent: Main Agent
+Task: Implement 6 Layer 1 Deep Enhancements for MinecraftModelMigrator-Pro
+
+Work Log:
+- Created 6 new enhancement modules in converter/enhancements/layer1_deep/
+- overlay_detector.py: Detects LayerRenderer, hurtTime overlays, color tints, multi-texture, RenderType switches
+- firstperson_detector.py: Detects ItemRenderer, held item bones, display presets, first-person arm rendering
+- particle_detector.py: Detects spawnParticle calls, maps to 1.20.1 particle types, generates particle_hints.json
+- sound_keyframe_filler.py: Auto-fills sound keyframes from playSound calls, maps MC 1.12.2 → 1.20.1 sound paths
+- animation_naming_manager.py: Manages animation naming convention (animation.namespace.entity.action), conflict resolution, AnimationNames constant interface generation
+- animation_reference_validator.py: Validates animation reference integrity (missing/orphaned animations, name mismatches)
+- Updated verifier.py: Added check_normals() method for world-space normal comparison and heatmap generation
+- Updated verify_full() to include normal verification as check #13
+- Updated java_controller.java.j2 template to use AnimationNames constants
+- Updated run_kirin.py pipeline from 15 to 21 steps with all 6 new enhancement steps
+- Added --animation-naming-config CLI argument for custom naming configuration
+- Updated frontend page.tsx with new "Enhance" tab showing all 6 enhancement analysis panels
+- All modules pass smoke tests and Kirin conversion pipeline runs successfully
+- Animation naming correctly produces: animation.srparasites.kirin.idle
+- AnimationNames.java interface generated with KIRIN_IDLE constant
+
+Stage Summary:
+- 6 new Python modules in converter/enhancements/layer1_deep/ (all with type annotations and docstrings)
+- verifier.py extended with check_normals() and _euler_to_rotation_matrix()
+- Pipeline expanded to 21 steps (was 15)
+- Frontend now has 5 tabs (was 4): Game Files, Model, Animation, Verify, Enhance
+- Kirin conversion produces: animation.srparasites.kirin.idle (managed name)
+- AnimationNames.java, animation_naming.json, overlay/particle hints generated
+- Zero regressions: 846/846 UV checks still pass, all verification checks pass

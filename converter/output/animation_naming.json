@@ -1,0 +1,17 @@
+{
+  "namespace": "srparasites",
+  "entity_name": "kirin",
+  "overrides": {
+    "idle": "idle",
+    "walk": "walk",
+    "attack": "attack",
+    "hurt": "hurt",
+    "death": "death"
+  },
+  "layer_prefixes": {
+    "base": "",
+    "overlay": "overlay_",
+    "additive": "add_"
+  },
+  "_comment": "Override auto-derived action names by mapping original → preferred"
+}

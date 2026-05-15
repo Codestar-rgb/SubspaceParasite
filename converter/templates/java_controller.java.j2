@@ -12,10 +12,12 @@
     - controller_name: str            Controller name (e.g. "kirinController")
     - transition_length: float        Default transition length in ticks
     - states: list                    List of animation state dicts
+    - use_animation_names: bool       Whether to use AnimationNames constants (default: true)
 
   Each state dict has:
     - name: str                       State name (e.g. "idle", "walk", "attack")
     - animation_name: str             GeckoLib animation name (e.g. "animation.model.idle")
+    - animation_constant: str         AnimationNames constant name (e.g. "KIRIN_IDLE")
     - condition: str                  Java boolean expression for triggering this state
     - priority: int                   Priority (higher = checked first)
     - transition_length: float        Transition duration in ticks (optional, uses default)
@@ -49,7 +51,12 @@
 // Auto-generated AnimationController for {{ entity_class }}
 // Class B: State Machine Animation
 // Place this in your {{ class_name }} or entity registration code.
+{% if use_animation_names is not defined %}{% set use_animation_names = true %}{% endif %}
+{% if use_animation_names %}
+// Uses AnimationNames constants for consistent animation referencing
+import com.example.{{ package_name | default('srparasites') }}.client.animation.AnimationNames;
 
+{% endif %}
 AnimationController<{{ entity_class }}> {{ controller_name }} =
     new AnimationController<{{ entity_class }}>(this, "{{ controller_name }}", {{ transition_length }}f, event -> {
         {{ entity_class }} animatable = event.getAnimatable();
@@ -59,11 +66,11 @@ AnimationController<{{ entity_class }}> {{ controller_name }} =
         if ({{ state.condition }}) {
 {% if state.is_looping %}
             event.getController().setAnimation(
-                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.LOOP)
+                RawAnimation.begin().then({% if use_animation_names and state.animation_constant %}AnimationNames.{{ state.animation_constant }}{% else %}"{{ state.animation_name }}"{% endif %}, Animation.LoopType.LOOP)
             );
 {% else %}
             event.getController().setAnimation(
-                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.PLAY_ONCE)
+                RawAnimation.begin().then({% if use_animation_names and state.animation_constant %}AnimationNames.{{ state.animation_constant }}{% else %}"{{ state.animation_name }}"{% endif %}, Animation.LoopType.PLAY_ONCE)
             );
 {% endif %}
             return PlayState.CONTINUE;
@@ -96,11 +103,11 @@ AnimationController<{{ entity_class }}> {{ layer.controller_name }} =
         if ({{ state.condition }}) {
 {% if state.is_looping %}
             event.getController().setAnimation(
-                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.LOOP)
+                RawAnimation.begin().then({% if use_animation_names and state.animation_constant %}AnimationNames.{{ state.animation_constant }}{% else %}"{{ state.animation_name }}"{% endif %}, Animation.LoopType.LOOP)
             );
 {% else %}
             event.getController().setAnimation(
-                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.PLAY_ONCE)
+                RawAnimation.begin().then({% if use_animation_names and state.animation_constant %}AnimationNames.{{ state.animation_constant }}{% else %}"{{ state.animation_name }}"{% endif %}, Animation.LoopType.PLAY_ONCE)
             );
 {% endif %}
             return PlayState.CONTINUE;
@@ -136,11 +143,11 @@ AnimationController<{{ entity_class }}> {{ overlay.name }} =
         if ({{ state.condition }}) {
 {% if state.is_looping %}
             event.getController().setAnimation(
-                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.LOOP)
+                RawAnimation.begin().then({% if use_animation_names and state.animation_constant %}AnimationNames.{{ state.animation_constant }}{% else %}"{{ state.animation_name }}"{% endif %}, Animation.LoopType.LOOP)
             );
 {% else %}
             event.getController().setAnimation(
-                RawAnimation.begin().then("{{ state.animation_name }}", Animation.LoopType.PLAY_ONCE)
+                RawAnimation.begin().then({% if use_animation_names and state.animation_constant %}AnimationNames.{{ state.animation_constant }}{% else %}"{{ state.animation_name }}"{% endif %}, Animation.LoopType.PLAY_ONCE)
             );
 {% endif %}
             return PlayState.CONTINUE;

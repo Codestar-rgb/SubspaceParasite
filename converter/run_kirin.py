@@ -39,6 +39,14 @@ from animation_layer_separator import AnimationLayerSeparator
 from keyframe_event_marker import KeyframeEventMarker
 from dynamic_visibility_detector import DynamicVisibilityDetector
 
+# Layer 1 Deep Enhancements
+from enhancements.layer1_deep.overlay_detector import OverlayDetector
+from enhancements.layer1_deep.firstperson_detector import FirstPersonDetector
+from enhancements.layer1_deep.particle_detector import ParticleDetector
+from enhancements.layer1_deep.sound_keyframe_filler import SoundKeyframeFiller
+from enhancements.layer1_deep.animation_naming_manager import AnimationNamingManager
+from enhancements.layer1_deep.animation_reference_validator import AnimationReferenceValidator
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -61,6 +69,12 @@ def main():
         "--verify",
         action="store_true",
         help="Run vertex verification after conversion"
+    )
+    parser.add_argument(
+        "--animation-naming-config",
+        type=str,
+        default=None,
+        help="Path to custom animation_naming.json config file"
     )
     args = parser.parse_args()
 
@@ -346,9 +360,170 @@ def main():
             print(f"        Warning: {w}")
 
     # ========================================================================
-    # Step 13: Copy texture
+    # Step 13: Overlay detection (Layer 1 Deep Enhancement #1)
     # ========================================================================
-    print(f"\n[13/15] Copying texture...")
+    print(f"\n[13/21] Detecting multi-layer texture overlays...")
+    overlay_detector = OverlayDetector(bone_mapping)
+    overlay_result = overlay_detector.detect(model_java, model_java)
+    print(f"      Overlay layers detected: {len(overlay_result.overlay_layers)}")
+    print(f"      Has overlay: {overlay_result.has_overlay}")
+    for layer in overlay_result.overlay_layers:
+        print(f"        - {layer.name}: type={layer.layer_type}, trigger={layer.trigger_condition}")
+    if overlay_result.merge_hints:
+        print(f"      Merge hints: {len(overlay_result.merge_hints)}")
+        for hint in overlay_result.merge_hints[:3]:
+            print(f"        - [{hint.priority}] {hint.description[:80]}")
+
+    # ========================================================================
+    # Step 14: First-person handheld detection (Layer 1 Deep Enhancement #2)
+    # ========================================================================
+    print(f"\n[14/21] Detecting first-person handheld transforms...")
+    firstperson_detector = FirstPersonDetector(bone_mapping)
+    firstperson_result = firstperson_detector.detect(model_java, model_java)
+    print(f"      Has held item: {firstperson_result.has_held_item}")
+    print(f"      Held item bones: {len(firstperson_result.held_item_bones)}")
+    for hb in firstperson_result.held_item_bones:
+        print(f"        - {hb.bone_name}: {hb.item_type}")
+    if firstperson_result.first_person_hints:
+        print(f"      First-person hints: {len(firstperson_result.first_person_hints)}")
+
+    # ========================================================================
+    # Step 15: Particle mounting point detection (Layer 1 Deep Enhancement #3)
+    # ========================================================================
+    print(f"\n[15/21] Detecting particle mounting points...")
+    particle_detector = ParticleDetector(bone_mapping)
+    particle_result = particle_detector.detect(model_java, model_java)
+    print(f"      Particle mount points: {len(particle_result.mount_points)}")
+    print(f"      Has particles: {particle_result.has_particles}")
+    for mp in particle_result.mount_points[:5]:
+        print(f"        - {mp.name}: type={mp.particle_type}, bone={mp.bone_name}")
+
+    # ========================================================================
+    # Step 16: Sound keyframe auto-fill (Layer 1 Deep Enhancement #4)
+    # ========================================================================
+    print(f"\n[16/21] Auto-filling sound keyframes...")
+    anim_length = 6.28
+    if anim_json:
+        for anim_name, anim_data in anim_json.get('animations', {}).items():
+            anim_length = anim_data.get('animation_length', 6.28)
+            break
+    sound_filler = SoundKeyframeFiller(bone_mapping)
+    sound_result = sound_filler.detect(model_java, model_java, "", anim_length)
+    print(f"      Sound keyframes: {len(sound_result.sound_keyframes)}")
+    print(f"      Has sounds: {sound_result.has_sounds}")
+    for kf in sound_result.sound_keyframes[:5]:
+        print(f"        - t={kf.time:.2f}s: {kf.effect} (from {kf.original_sound})")
+
+    # ========================================================================
+    # Step 17: Animation naming management (Layer 1 Deep Enhancement #6)
+    # ========================================================================
+    print(f"\n[17/21] Managing animation naming...")
+    naming_config_path = args.animation_naming_config
+    if not naming_config_path:
+        default_config = os.path.join(output_dir, "animation_naming.json")
+        if os.path.exists(default_config):
+            naming_config_path = default_config
+    naming_manager = AnimationNamingManager(
+        namespace="srparasites",
+        entity_name="kirin",
+        config_path=naming_config_path
+    )
+    # Build animation sources from the converted animation
+    animation_sources = []
+    if anim_json:
+        for anim_name, anim_data in anim_json.get('animations', {}).items():
+            # Derive action name from the animation name
+            action_name = anim_name.split('.')[-1] if '.' in anim_name else anim_name
+            is_looping = anim_data.get('loop', 'loop') == 'loop'
+            animation_sources.append({
+                'method_name': f'setRotationAngles{action_name.capitalize()}',
+                'state_condition': '',
+                'is_looping': is_looping,
+                'animation_class': 'A1',
+                'animation_data': anim_data,
+            })
+    naming_result = naming_manager.manage(
+        animation_sources,
+        layer_info=[
+            {
+                'name': layer.name,
+                'layer_type': layer.layer_type,
+                'priority': layer.priority,
+                'bone_names': layer.bone_names,
+                'animation_names': getattr(layer, 'animation_names', []),
+            }
+            for layer in (layers_result.layers if layers_result else [])
+        ]
+    )
+    print(f"      Named animations: {len(naming_result.entries)}")
+    print(f"      Naming conflicts: {len(naming_result.conflicts)}")
+    for entry in naming_result.entries:
+        print(f"        - {entry.animation_name} (from {entry.source_method}, rule={entry.derivation_rule})")
+    if naming_result.conflicts:
+        for conflict in naming_result.conflicts:
+            print(f"        Conflict: {conflict.conflicting_name} → {conflict.resolution}")
+
+    # Update animation JSON with managed names
+    if anim_json and naming_result.entries:
+        anim_json = naming_manager.update_animation_json_names(anim_json, naming_result)
+        # Re-save with updated names
+        anim_json_path = os.path.join(output_dir, "kirin.animation.json")
+        anim_json_str = json.dumps(anim_json, indent=2, ensure_ascii=False)
+        with open(anim_json_path, 'w') as f:
+            f.write(anim_json_str)
+        print(f"      Animation JSON updated with managed names")
+
+    # Save AnimationNames Java interface
+    anim_names_path = os.path.join(output_dir, "AnimationNames.java")
+    with open(anim_names_path, 'w') as f:
+        f.write(naming_result.java_interface_code)
+    print(f"      AnimationNames interface saved: {anim_names_path}")
+
+    # Save animation naming config template
+    naming_config_output = os.path.join(output_dir, "animation_naming.json")
+    naming_manager.save_config_template(naming_config_output)
+    print(f"      Animation naming config saved: {naming_config_output}")
+
+    # ========================================================================
+    # Step 18: Animation reference validation (Layer 1 Deep Enhancement #6)
+    # ========================================================================
+    print(f"\n[18/21] Validating animation references...")
+    ref_validator = AnimationReferenceValidator(namespace="srparasites")
+    ref_result = ref_validator.validate(
+        animation_json=anim_json or {},
+        controller_refs=[
+            {
+                'controller_name': 'kirinController',
+                'animation_names': [entry.animation_name for entry in naming_result.entries],
+                'priority': 0,
+            }
+        ],
+        naming_constants=[
+            {'constant_name': c.constant_name, 'animation_name': c.animation_name}
+            for c in naming_result.constants
+        ],
+        layer_info=[
+            {
+                'name': layer.name,
+                'layer_type': layer.layer_type,
+                'priority': layer.priority,
+                'animation_names': getattr(layer, 'animation_names', []),
+            }
+            for layer in (layers_result.layers if layers_result else [])
+        ] if layers_result else None
+    )
+    print(f"      Reference validation: {'PASS' if ref_result.passed else 'FAIL'}")
+    print(f"      Total animations: {ref_result.total_animations}")
+    print(f"      Missing animations: {len(ref_result.missing_animations)}")
+    print(f"      Orphaned animations: {len(ref_result.orphaned_animations)}")
+    if ref_result.all_issues:
+        for issue in ref_result.all_issues[:5]:
+            print(f"        [{issue.severity}] {issue.detail[:80]}")
+
+    # ========================================================================
+    # Step 19: Copy texture + save overlay/particle hints
+    # ========================================================================
+    print(f"\n[19/21] Copying texture and saving hint files...")
     src_texture = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "..", "jar_extract", "assets", "srparasites",
@@ -361,10 +536,43 @@ def main():
     else:
         print(f"      WARNING: Texture not found at {src_texture}")
 
+    # Save particle hints JSON
+    if particle_result.has_particles:
+        particle_hints_path = os.path.join(output_dir, "kirin_particle_hints.json")
+        particle_hints_json = particle_detector.to_particle_hints_json(particle_result)
+        with open(particle_hints_path, 'w') as f:
+            json.dump(particle_hints_json, f, indent=2, ensure_ascii=False)
+        print(f"      Particle hints saved: {particle_hints_path}")
+
+    # Save overlay hints JSON
+    if overlay_result.has_overlay:
+        overlay_hints_path = os.path.join(output_dir, "kirin_overlay_hints.json")
+        overlay_data = {
+            'overlay_layers': [
+                {
+                    'name': layer.name,
+                    'layer_type': layer.layer_type,
+                    'trigger_condition': layer.trigger_condition,
+                    'color_rgba': list(layer.color_rgba) if layer.color_rgba else None,
+                    'texture_path': layer.texture_path,
+                    'render_pass': layer.render_pass,
+                }
+                for layer in overlay_result.overlay_layers
+            ],
+            'color_settings': overlay_result.color_settings,
+            'merge_hints': [
+                {'hint_type': h.hint_type, 'description': h.description, 'priority': h.priority}
+                for h in overlay_result.merge_hints
+            ],
+        }
+        with open(overlay_hints_path, 'w') as f:
+            json.dump(overlay_data, f, indent=2, ensure_ascii=False)
+        print(f"      Overlay hints saved: {overlay_hints_path}")
+
     # ========================================================================
-    # Step 14: Generate SwingComponent utility
+    # Step 20: Generate SwingComponent utility + AnimationNames interface
     # ========================================================================
-    print(f"\n[14/15] Generating SwingComponent utility...")
+    print(f"\n[20/21] Generating SwingComponent utility...")
     swing_components = swing_result.swing_components if swing_result else []
     if swing_components:
         swing_util_path = os.path.join(output_dir, "KirinSwingComponents.java")
@@ -386,11 +594,12 @@ def main():
         print("      No swing components to generate")
 
     # ========================================================================
-    # Step 15: Generate enhanced Java model
+    # Step 21: Generate enhanced Java model
     # ========================================================================
-    print(f"\n[15/15] Generating enhanced Java model...")
+    print(f"\n[21/21] Generating enhanced Java model...")
     _generate_geckolib_java(output_dir, bone_mapping, render_effects, swing_result,
-                            layers_result, events_result, visibility_result)
+                            layers_result, events_result, visibility_result,
+                            overlay_result, firstperson_result, naming_result)
 
     # ========================================================================
     # Optional: Run verification (enhanced)
@@ -536,7 +745,10 @@ def _to_dict_safe(obj):
 def _generate_geckolib_java(output_dir: str, bone_mapping: dict,
                           render_effects, swing_result,
                           layers_result, events_result,
-                          visibility_result):
+                          visibility_result,
+                          overlay_result=None,
+                          firstperson_result=None,
+                          naming_result=None):
     """Generate an enhanced GeckoLib Java class for the Kirin entity.
 
     Includes optional enhancement code for:
@@ -546,6 +758,9 @@ def _generate_geckolib_java(output_dir: str, bone_mapping: dict,
       - Hurt controller registration (from swing_analyzer)
       - Animation layer code (from AnimationLayerSeparator)
       - Event markers info (from KeyframeEventMarker)
+      - Overlay code (from OverlayDetector)
+      - Held item code (from FirstPersonDetector)
+      - Animation naming constants (from AnimationNamingManager)
     """
     # Extract data from dataclass objects safely
     swing_components = swing_result.swing_components if swing_result else []
