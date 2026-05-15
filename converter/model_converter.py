@@ -84,6 +84,10 @@ class BoneData:
     children: List[str] = field(default_factory=list)  # child var names
     parent: Optional[str] = None  # parent var name
     mirror: bool = False
+    # Absolute pivot in MC 1.12.2 coordinate space (computed after parsing)
+    abs_pivot_x: Optional[float] = None
+    abs_pivot_y: Optional[float] = None
+    abs_pivot_z: Optional[float] = None
 
 
 class ModelConverter:
@@ -345,6 +349,146 @@ class ModelConverter:
                 if dfs(var_name):
                     raise ValueError("Circular reference detected in bone hierarchy!")
 
+    def _compute_absolute_pivots(self) -> None:
+        """
+        Compute absolute pivot positions in MC 1.12.2 coordinate space for all bones.
+
+        In MC 1.12.2 ModelRenderer rendering:
+          - For top-level bones (no parent): setRotationPoint is ABSOLUTE (relative
+            to model origin at entity center-top in Y-down space)
+          - For child bones: setRotationPoint is RELATIVE to the parent's coordinate
+            space (after parent's translation and rotation are applied)
+
+        However, computing the true absolute position of a child bone requires
+        applying the parent's rotation to the child's relative offset:
+          child_abs = parent_abs + R_parent * child_relative
+
+        Since M_model is a pure linear transformation (no translation), relative
+        offsets transform correctly: M_model * child_relative gives the correct
+        relative pivot in the new system. The absolute pivot is only needed for
+        the make_pivots_relative step to handle the root bone offset.
+
+        For simplicity, we compute absolute pivots using ONLY the translation
+        accumulation (ignoring parent rotation), because:
+          1. The relative pivot in GeckoLib format is simply convert_model_pos(srp)
+             (proven by the M_model similarity transform analysis)
+          2. We only need absolute pivots to handle the root.pivot subtraction
+             for top-level bones
+          3. For child bones, the relative pivot from convert_model_pos is already
+             correct, so the make_pivots_relative step will be a no-op
+        """
+        # For top-level bones, absolute pivot = setRotationPoint (already absolute)
+        # For child bones, we accumulate through hierarchy
+        # Note: We compute absolute pivots using simple addition (no rotation),
+        # because the final relative pivot is computed correctly via convert_model_pos.
+        # The absolute pivot is only used for the root-offset subtraction.
+
+        def _compute_abs(var_name: str, parent_abs: tuple) -> None:
+            """Recursively compute absolute pivots."""
+            bone = self.bones[var_name]
+            # In MC 1.12.2, child's setRotationPoint is relative to parent's
+            # rotated space. For pivot relative-to-parent calculation, we need
+            # the absolute position. We store the absolute pivot by accumulating.
+            # NOTE: This is a simplified absolute pivot that ignores parent rotation.
+            # The true absolute position requires applying parent's rotation matrix.
+            # However, for the make_pivots_relative step, we use the CONVERTED
+            # absolute pivots (via convert_model_pos), where the math works out
+            # correctly because M_model is linear.
+            bone.abs_pivot_x = parent_abs[0] + bone.pivot_x
+            bone.abs_pivot_y = parent_abs[1] + bone.pivot_y
+            bone.abs_pivot_z = parent_abs[2] + bone.pivot_z
+            for child_var in bone.children:
+                _compute_abs(child_var, (bone.abs_pivot_x, bone.abs_pivot_y, bone.abs_pivot_z))
+
+        # Start from top-level bones (no parent)
+        for var_name, bone in self.bones.items():
+            if bone.parent is None:
+                # Top-level bone: setRotationPoint IS the absolute position
+                bone.abs_pivot_x = bone.pivot_x
+                bone.abs_pivot_y = bone.pivot_y
+                bone.abs_pivot_z = bone.pivot_z
+                for child_var in bone.children:
+                    _compute_abs(child_var, (bone.pivot_x, bone.pivot_y, bone.pivot_z))
+
+    def _make_pivots_relative(self, bones_output: list) -> None:
+        """
+        Make all bone pivots relative to their parent's coordinate system.
+
+        In GeckoLib format, each bone's pivot must be relative to its parent:
+          - For bones with parent="root": pivot is relative to root.pivot
+          - For bones with other parents: pivot is relative to parent's pivot
+
+        This function adjusts the pivot values that were computed by _convert_bone
+        (which uses convert_model_pos on setRotationPoint values). For child bones,
+        convert_model_pos already gives the correct relative pivot (because M_model
+        is linear). For top-level bones, the pivot needs to be adjusted by
+        subtracting root.pivot.
+
+        The approach:
+          1. Build a name→index map for bones_output
+          2. For each non-root bone, compute the correct relative pivot:
+             - Convert the bone's absolute MC pivot to new system: abs_new = convert_model_pos(abs)
+             - Find the parent's absolute MC pivot, convert it: parent_abs_new = convert_model_pos(parent_abs)
+             - Relative pivot = abs_new - parent_abs_new
+          3. Special case: parent="root" → parent_abs_new = root.pivot
+        """
+        # Build name → index and name → bone_output maps
+        bone_map = {}
+        for i, bone_out in enumerate(bones_output):
+            bone_map[bone_out["name"]] = bone_out
+
+        # Build reverse bone_mapping: bone_name → java_var_name
+        name_to_var = {}
+        for var_name, bone_name in self.bone_mapping.items():
+            name_to_var[bone_name] = var_name
+
+        # For each bone, compute the correct relative pivot
+        for bone_out in bones_output:
+            if bone_out["name"] == "root":
+                continue  # Root bone pivot stays as-is
+
+            bone_name = bone_out["name"]
+            parent_name = bone_out.get("parent", "root")
+
+            # Find the java var name for this bone
+            var_name = name_to_var.get(bone_name, bone_name)
+            bone_data = self.bones.get(var_name)
+
+            if bone_data is None or bone_data.abs_pivot_x is None:
+                continue  # Skip if no absolute pivot data
+
+            # Convert this bone's absolute MC pivot to new system
+            abs_new = convert_model_pos(
+                bone_data.abs_pivot_x,
+                bone_data.abs_pivot_y,
+                bone_data.abs_pivot_z
+            )
+
+            if parent_name == "root":
+                # Parent is root: relative pivot = abs_new - root.pivot
+                parent_abs_new = tuple(self.ROOT_BONE_PIVOT)
+            else:
+                # Parent is another bone: find its absolute pivot
+                parent_var = name_to_var.get(parent_name, parent_name)
+                parent_data = self.bones.get(parent_var)
+                if parent_data is None or parent_data.abs_pivot_x is None:
+                    continue  # Skip if parent data not available
+                parent_abs_new = convert_model_pos(
+                    parent_data.abs_pivot_x,
+                    parent_data.abs_pivot_y,
+                    parent_data.abs_pivot_z
+                )
+
+            # Compute relative pivot
+            rel_pivot = (
+                abs_new[0] - parent_abs_new[0],
+                abs_new[1] - parent_abs_new[1],
+                abs_new[2] - parent_abs_new[2]
+            )
+
+            # Update the bone's pivot
+            bone_out["pivot"] = [round(v, 4) for v in rel_pivot]
+
     @staticmethod
     def _parse_java_float(s: str) -> float:
         """Parse a Java float literal (handles f/F suffix, hex, etc.)."""
@@ -493,12 +637,18 @@ class ModelConverter:
           - Cube origin: convert_model_cube_origin(ox, oy, oz, w, h, d) = (ox, -(oy+h), -(oz+d))
           - Cube size: convert_model_cube_size(w, h, d) = (w, h, d)
 
-        Root bone pivot is [0, 24, 0]: places the "top of entity" at 24 pixels
-        above feet in GeckoLib's Y-up system. All top-level bones become children
-        of root, so their pivots are RELATIVE to root at (0,24,0). With
-        convert_model_pos giving (px, -py, -pz), a bone at (0,0,0) in 1.12.2
-        gets pivot (0,0,0) relative to root, which is world position (0,24,0) =
-        top of entity. Correct!
+        PIVOT RELATIVE-TO-PARENT FIX:
+          In MC 1.12.2 ModelRenderer, setRotationPoint(x, y, z) is:
+            - For top-level bones (no parent): ABSOLUTE relative to model origin
+            - For child bones: RELATIVE to parent's rotated coordinate space
+
+          After M_model conversion, a child bone's relative offset transforms
+          correctly via convert_model_pos (because M_model is linear, no translation).
+          However, for TOP-LEVEL bones that become children of root, their
+          converted pivot must be made RELATIVE to root.pivot = [0, 24, 0].
+
+          We compute absolute pivots for ALL bones by walking the hierarchy,
+          then make them relative to their parent's absolute pivot.
 
         Args:
             java_source: The decompiled 1.12.2 ModelBase Java source code
@@ -516,6 +666,9 @@ class ModelConverter:
         # Detect cycles
         self._detect_cycles()
 
+        # Step 1: Compute absolute pivots in MC 1.12.2 coordinate space
+        self._compute_absolute_pivots()
+
         # Build the .geo.json structure
         bones_output = []
 
@@ -525,12 +678,6 @@ class ModelConverter:
             "pivot": list(self.ROOT_BONE_PIVOT)
         }
         bones_output.append(root_bone)
-
-        # Find top-level bones (no parent)
-        top_level_bones = [
-            var_name for var_name, bone in self.bones.items()
-            if bone.parent is None
-        ]
 
         # Process all bones
         for var_name, bone in self.bones.items():
@@ -544,6 +691,9 @@ class ModelConverter:
                 else:
                     bone_output["parent"] = "root"
             bones_output.append(bone_output)
+
+        # Step 2: Make all pivots relative to parent
+        self._make_pivots_relative(bones_output)
 
         geo_json = {
             "format_version": "1.12.0",

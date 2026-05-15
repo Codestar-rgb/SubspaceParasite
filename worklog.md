@@ -594,3 +594,47 @@ Stage Summary:
 - Frontend updated with .bbmodel download support and Blockbench debug tips
 - All conversion math verified correct: coordinates, rotations, UV, mirror handling
 - Lint clean, dev server running without errors
+
+---
+Task ID: pivot-relative-fix
+Agent: Main Agent
+Task: Fix systematic bone stacking bug - child bones stack near parent due to non-relative pivots
+
+Work Log:
+- Diagnosed root cause: top-level bones (parent=root) had absolute pivots instead of relative to root.pivot
+- In MC 1.12.2, setRotationPoint for top-level bones IS absolute (relative to model origin)
+- In GeckoLib, bone.pivot must be relative to parent's coordinate system
+- Root bone pivot [0, 24, 0] was NOT being subtracted from top-level bone pivots
+- Example: mainbody pivot was [0, 77, 16] but should be [0, 53, 16] (relative to root)
+- For child bones, setRotationPoint is already relative to parent's rotated space
+- Since M_model is linear (no translation), convert_model_pos correctly transforms relative offsets
+- Mathematical proof: M * (parent + R * child_rel) = M * parent + (M*R*M^-1) * (M * child_rel)
+  → child.pivot = M * child_rel = convert_model_pos(srp) regardless of parent rotation
+- Added abs_pivot_x/y/z fields to BoneData dataclass
+- Added _compute_absolute_pivots() method: walks hierarchy accumulating pivot positions
+- Added _make_pivots_relative() method: for each bone, computes rel_pivot = abs_new - parent_abs_new
+  - For parent=root: parent_abs_new = ROOT_BONE_PIVOT = [0, 24, 0]
+  - For other parents: parent_abs_new = convert_model_pos(parent_abs_pivot)
+- For child bones, the relative pivot computation is a no-op (gives same result as _convert_bone)
+- Only top-level bones are actually changed by _make_pivots_relative
+- Created tests/test_hierarchy.py with 6 regression tests:
+  1. test_simple_parent_child - 2-bone hierarchy with world position verification
+  2. test_kirin_key_bones - spot-check mainbody, bodym, jointURAX, jointULAX pivots
+  3. test_symmetric_bones - left/right bones have X-mirror pivots
+  4. test_animation_binding - all 39 animation bone names exist in geo.json
+  5. test_root_pivot_offset - top-level bones are relative to root.pivot
+  6. test_deep_hierarchy - 3-level hierarchy (root→parent→child→grandchild)
+- All 6 tests pass
+- Regenerated all Kirin output files: geo.json, bb.geo.json, animation.json, bbmodel
+- mainbody pivot: [0, 77, 16] → [0, 53, 16] (FIXED)
+- All other bone pivots unchanged (already correct)
+- Did NOT modify core_math.py as required
+- Cube origin logic verified correct: no extra offset subtraction needed
+
+Stage Summary:
+- Fixed systematic pivot stacking bug in model_converter.py
+- Root cause: top-level bone pivots were absolute, not relative to root.pivot
+- Added _compute_absolute_pivots() and _make_pivots_relative() methods
+- 6 regression tests created in tests/test_hierarchy.py, all passing
+- Kirin mainbody pivot corrected from [0, 77, 16] to [0, 53, 16]
+- All output files regenerated and synced to db/, public/converted/, converter/output/
