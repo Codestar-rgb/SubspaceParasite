@@ -15,6 +15,27 @@ Format Reference:
   - Elements:   Cubes with "from"/"to" (min/max corners) and "origin" (pivot)
   - Textures:   Embedded as base64 data URIs
   - Animations: Keyframes grouped per bone with channel/data_points structure
+
+CRITICAL: Coordinate System for .bbmodel
+=========================================
+  .bbmodel is Blockbench's INTERNAL format. It is the direct serialization of
+  Blockbench's in-memory scene graph. Blockbench does NOT apply any coordinate
+  conversion when reading/writing .bbmodel files.
+
+  This is different from .geo.json import/export, where Blockbench applies
+  X-flip to cube positions (parseCube/compileCube) and negates X/Y rotation
+  (parseBone/compileBone).
+
+  Therefore, when generating .bbmodel DIRECTLY from geo.json data:
+
+    DO NOT apply X-flip to element positions (from/to).
+    DO NOT apply X-flip to bone pivots (origin).
+    DO apply X/Y rotation negation: [-rx, -ry, rz]
+      (Blockbench internally uses different rotation sign conventions)
+
+  Bone pivots (origin) in .bbmodel are RELATIVE to the parent bone, matching
+  the geo.json convention. Blockbench adds child mesh to parent mesh in Three.js,
+  so the child's position (origin) is automatically relative to the parent.
 """
 
 import base64
@@ -102,31 +123,23 @@ class BBModelGenerator:
                 element_uuids[(bone_name, cube_idx)] = self._uuid()
 
         # ------------------------------------------------------------------
-        # Phase 1.5: Compute absolute pivots for outliner bone positioning
-        # ------------------------------------------------------------------
-        # Blockbench .bbmodel uses ABSOLUTE world-space for bone pivots in the
-        # outliner. Blockbench internally computes relative positions via:
-        #   mesh.position = group.origin - parent.origin
-        # Therefore, the pivot stored in .bbmodel must be absolute, so the
-        # subtraction yields the correct relative offset.
-        abs_pivots = self._compute_absolute_pivots(bones)
-
-        # ------------------------------------------------------------------
         # Phase 2: Build elements (cubes) list
         # ------------------------------------------------------------------
-        # Elements use BONE-LOCAL coordinates:
-        #   - Element from/to: relative to the bone's own pivot
-        #   - Element origin:  [0, 0, 0] (the bone's pivot IS the rotation center)
+        # Elements use BONE-LOCAL coordinates directly from geo.json:
+        #   - Element from/to: cube origin and origin+size (NO X-flip!)
+        #   - Element origin:  [0, 0, 0] (rotation center = bone's own pivot)
         #
-        # Coordinate X-flip: Blockbench's internal system for bedrock models has
-        # the X axis flipped relative to geo.json. Applied to element from/to.
+        # CRITICAL: Do NOT apply X-flip! .bbmodel is Blockbench's internal
+        # format and does NOT go through the .geo.json import path that
+        # applies X-flip. Applying X-flip here causes mirrored stacking.
         elements = self._build_elements(bones, element_uuids)
 
         # ------------------------------------------------------------------
         # Phase 3: Build outliner (bone hierarchy)
         # ------------------------------------------------------------------
-        # Bone pivots in ABSOLUTE world-space (with X-flip for Blockbench)
-        outliner = self._build_outliner(bones, bone_uuids, element_uuids, abs_pivots)
+        # Bone pivots (origin) are RELATIVE to parent bone, directly from
+        # geo.json. No X-flip. The field name in .bbmodel is "origin".
+        outliner = self._build_outliner(bones, bone_uuids, element_uuids)
 
         # ------------------------------------------------------------------
         # Phase 4: Build textures list
@@ -172,61 +185,6 @@ class BBModelGenerator:
         return bbmodel
 
     # ========================================================================
-    # Absolute Pivot Computation
-    # ========================================================================
-
-    @staticmethod
-    def _compute_absolute_pivots(bones: list) -> Dict[str, list]:
-        """
-        Compute absolute world-space pivots for all bones by walking the hierarchy.
-
-        In geo.json, bone pivots are relative to their parent bone.
-        We accumulate them to get each bone's world position.
-
-        Blockbench .bbmodel requires ABSOLUTE pivots because it internally
-        computes relative positions via: mesh.position = group.origin - parent.origin
-
-        Returns:
-            Dict mapping bone_name -> [abs_x, abs_y, abs_z]
-        """
-        bone_map: Dict[str, dict] = {b["name"]: b for b in bones}
-
-        children_map: Dict[str, list] = {}
-        root_bones: list = []
-
-        for bone in bones:
-            bone_name = bone["name"]
-            parent_name = bone.get("parent")
-            if parent_name is None:
-                root_bones.append(bone_name)
-            else:
-                children_map.setdefault(parent_name, []).append(bone_name)
-
-        abs_pivots: Dict[str, list] = {}
-
-        def _accumulate(bone_name: str, parent_abs: list) -> None:
-            bone = bone_map[bone_name]
-            rel_pivot = bone.get("pivot", [0.0, 0.0, 0.0])
-            abs_piv = [
-                parent_abs[0] + float(rel_pivot[0]),
-                parent_abs[1] + float(rel_pivot[1]),
-                parent_abs[2] + float(rel_pivot[2]),
-            ]
-            abs_pivots[bone_name] = abs_piv
-            for child_name in children_map.get(bone_name, []):
-                _accumulate(child_name, abs_piv)
-
-        for bone_name in root_bones:
-            bone = bone_map[bone_name]
-            pivot = bone.get("pivot", [0.0, 0.0, 0.0])
-            abs_piv = [float(pivot[0]), float(pivot[1]), float(pivot[2])]
-            abs_pivots[bone_name] = abs_piv
-            for child_name in children_map.get(bone_name, []):
-                _accumulate(child_name, abs_piv)
-
-        return abs_pivots
-
-    # ========================================================================
     # Elements (Cubes) Builder
     # ========================================================================
 
@@ -242,21 +200,15 @@ class BBModelGenerator:
           - origin: [x, y, z]  (minimum corner, relative to bone's pivot)
           - size: [w, h, d]
 
-        In .bbmodel (bedrock format), each element has:
-          - from: [x, y, z]  (minimum corner in BONE-LOCAL space)
-          - to: [x+w, y+h, z+d]  (maximum corner in BONE-LOCAL space)
-          - origin: [0, 0, 0]  (rotation center = bone's own pivot, at origin in bone-local)
+        In .bbmodel, each element has:
+          - from: [x, y, z]  (minimum corner in BONE-LOCAL space, NO X-flip)
+          - to: [x+w, y+h, z+d]  (maximum corner in BONE-LOCAL space, NO X-flip)
+          - origin: [0, 0, 0]  (rotation center = bone's own pivot)
 
-        CRITICAL: Blockbench bedrock format uses BONE-LOCAL coordinates for elements.
-        The bone's pivot is the rotation center for all its cubes. In bone-local
-        space, the pivot is at [0, 0, 0]. The bone's position in the model is
-        defined by the outliner's hierarchical pivot/rotation chain.
-
-        Coordinate X-flip: Blockbench's internal system for bedrock models has
-        the X axis flipped relative to geo.json:
-          - bb_from_x = -(geo_origin_x + size_x)
-          - bb_to_x = -geo_origin_x
-        This is based on Blockbench source code (bedrock.js parseCube/compileCube).
+        CRITICAL: Do NOT apply X-flip to element positions!
+        .bbmodel is Blockbench's internal format. The X-flip only happens
+        during .geo.json import (parseCube/compileCube), not during .bbmodel
+        read/write. Applying X-flip here causes mirrored/stacked models.
         """
         elements = []
 
@@ -270,20 +222,18 @@ class BBModelGenerator:
                 inflate = cube.get("inflate", 0.0)
                 mirror = cube.get("mirror", False)
 
-                # Use bone-local coordinates directly from geo.json
-                # (cube origin is already relative to bone's pivot)
-                # Apply X-flip for Blockbench bedrock format:
-                #   bb_from_x = -(origin_x + size_x)
-                #   bb_to_x = -origin_x
+                # Direct mapping from geo.json cube coordinates to .bbmodel.
+                # NO X-flip! .bbmodel uses the same coordinate orientation as
+                # geo.json for element positions.
                 from_pos = [
-                    -(float(origin[0]) + float(size[0])),  # X flip
-                    float(origin[1]),                       # Y same
-                    float(origin[2]),                       # Z same
+                    float(origin[0]),                       # X: direct
+                    float(origin[1]),                       # Y: direct
+                    float(origin[2]),                       # Z: direct
                 ]
                 to_pos = [
-                    -float(origin[0]),                       # X flip
-                    float(origin[1]) + float(size[1]),       # Y same
-                    float(origin[2]) + float(size[2]),       # Z same
+                    float(origin[0]) + float(size[0]),      # X: direct
+                    float(origin[1]) + float(size[1]),      # Y: direct
+                    float(origin[2]) + float(size[2]),      # Z: direct
                 ]
 
                 # Cube origin = rotation center = [0, 0, 0] in bone-local space
@@ -357,27 +307,35 @@ class BBModelGenerator:
         bones: list,
         bone_uuids: Dict[str, str],
         element_uuids: Dict[Tuple[str, int], str],
-        abs_pivots: Dict[str, list],
     ) -> list:
         """
         Build the outliner (bone hierarchy) from the flat bone list.
 
         The outliner is a tree structure where:
           - Leaf entries are element UUID strings (references to elements)
-          - Branch entries are bone group objects with name, uuid, pivot, rotation, children
+          - Branch entries are bone group objects with name, uuid, origin, rotation, children
 
         Bone parent relationships from geo.json define the tree structure.
 
-        CRITICAL: .bbmodel bone pivots must be ABSOLUTE world-space coordinates.
-        Blockbench internally computes relative positions via:
-          mesh.position = group.origin - parent.origin
-        Therefore, the pivot stored in .bbmodel must be absolute, so the
-        subtraction yields the correct relative offset.
+        CRITICAL COORDINATE RULES for .bbmodel bone groups:
 
-        Example:
-          root pivot [0,24,0], mainbody pivot [0,53,16] (relative in geo.json)
-          Absolute mainbody pivot = [0,77,16]
-          Blockbench computes: [0,77,16] - [0,24,0] = [0,53,16] ✓
+        1. The field name is "origin" (NOT "pivot") — this is Blockbench's
+           internal field name for bone group pivot points.
+
+        2. The origin values are RELATIVE to the parent bone, matching the
+           geo.json convention. Blockbench adds child mesh to parent mesh
+           in Three.js, so the child's position (origin) is automatically
+           relative to the parent.
+
+        3. NO X-flip on origin values. .bbmodel is Blockbench's internal
+           format — X-flip only happens during .geo.json import, not during
+           .bbmodel read/write.
+
+        4. Rotation X and Y are negated: [-rx, -ry, rz]. This conversion
+           IS needed because Blockbench's internal rotation conventions
+           differ from geo.json (different Euler angle sign conventions).
+           From Blockbench source (parseBone):
+             group.rotation.forEach((br, axis) => { if (axis !== 2) group.rotation[axis] *= -1 })
         """
         # Build lookup: bone_name -> bone data
         bone_map: Dict[str, dict] = {}
@@ -419,24 +377,25 @@ class BBModelGenerator:
             for child_name in children_map.get(bone_name, []):
                 children.append(build_bone_entry(child_name))
 
-            # Use ABSOLUTE pivot with X-flipped for Blockbench coordinate system
-            # Blockbench computes relative position via: child.origin - parent.origin
-            # So we must provide absolute world-space pivots.
-            abs_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
-            bb_pivot_x = -float(abs_pivot[0])  # X flip
-            bb_pivot_y = float(abs_pivot[1])
-            bb_pivot_z = float(abs_pivot[2])
+            # Use RELATIVE pivot directly from geo.json, NO X-flip.
+            # The geo.json already has relative pivots (thanks to
+            # _make_pivots_relative in model_converter.py).
+            pivot = bone.get("pivot", [0.0, 0.0, 0.0])
+            bb_origin_x = float(pivot[0])   # NO X-flip!
+            bb_origin_y = float(pivot[1])    # Direct
+            bb_origin_z = float(pivot[2])    # Direct
 
-            # Rotation also needs X/Y flip for Blockbench
-            # From Blockbench source: group.rotation.forEach((br, axis) => { if (axis !== 2) group.rotation[axis] *= -1 })
-            bb_rot_x = -float(rotation[0])
-            bb_rot_y = -float(rotation[1])
-            bb_rot_z = float(rotation[2])
+            # Rotation: negate X and Y for Blockbench internal convention.
+            # This IS needed — it's not a position flip but a rotation sign
+            # convention difference between geo.json and Blockbench internal.
+            bb_rot_x = -float(rotation[0])   # X negated
+            bb_rot_y = -float(rotation[1])   # Y negated
+            bb_rot_z = float(rotation[2])    # Z preserved
 
             entry = {
                 "name": bone_name,
                 "uuid": bone_uid,
-                "pivot": [bb_pivot_x, bb_pivot_y, bb_pivot_z],
+                "origin": [bb_origin_x, bb_origin_y, bb_origin_z],  # "origin", NOT "pivot"
                 "rotation": [bb_rot_x, bb_rot_y, bb_rot_z],
             }
 
