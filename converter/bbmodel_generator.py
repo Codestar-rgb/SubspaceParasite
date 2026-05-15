@@ -102,26 +102,31 @@ class BBModelGenerator:
                 element_uuids[(bone_name, cube_idx)] = self._uuid()
 
         # ------------------------------------------------------------------
+        # Phase 1.5: Compute absolute pivots for outliner bone positioning
+        # ------------------------------------------------------------------
+        # Blockbench .bbmodel uses ABSOLUTE world-space for bone pivots in the
+        # outliner. Blockbench internally computes relative positions via:
+        #   mesh.position = group.origin - parent.origin
+        # Therefore, the pivot stored in .bbmodel must be absolute, so the
+        # subtraction yields the correct relative offset.
+        abs_pivots = self._compute_absolute_pivots(bones)
+
+        # ------------------------------------------------------------------
         # Phase 2: Build elements (cubes) list
         # ------------------------------------------------------------------
-        # Blockbench bedrock format uses BONE-LOCAL coordinates for elements:
+        # Elements use BONE-LOCAL coordinates:
         #   - Element from/to: relative to the bone's own pivot
         #   - Element origin:  [0, 0, 0] (the bone's pivot IS the rotation center)
-        #   - Bone pivots in outliner: relative to parent bone (from geo.json)
-        #
-        # This matches the geo.json convention exactly: cube origins are already
-        # in bone-local space, and bone pivots are already relative to parent.
         #
         # Coordinate X-flip: Blockbench's internal system for bedrock models has
-        # the X axis flipped relative to geo.json. This is applied to both
-        # element from/to and bone pivots.
+        # the X axis flipped relative to geo.json. Applied to element from/to.
         elements = self._build_elements(bones, element_uuids)
 
         # ------------------------------------------------------------------
         # Phase 3: Build outliner (bone hierarchy)
         # ------------------------------------------------------------------
-        # Bone pivot in PARENT-LOCAL space (relative to parent) — same as geo.json
-        outliner = self._build_outliner(bones, bone_uuids, element_uuids)
+        # Bone pivots in ABSOLUTE world-space (with X-flip for Blockbench)
+        outliner = self._build_outliner(bones, bone_uuids, element_uuids, abs_pivots)
 
         # ------------------------------------------------------------------
         # Phase 4: Build textures list
@@ -166,7 +171,60 @@ class BBModelGenerator:
 
         return bbmodel
 
+    # ========================================================================
+    # Absolute Pivot Computation
+    # ========================================================================
 
+    @staticmethod
+    def _compute_absolute_pivots(bones: list) -> Dict[str, list]:
+        """
+        Compute absolute world-space pivots for all bones by walking the hierarchy.
+
+        In geo.json, bone pivots are relative to their parent bone.
+        We accumulate them to get each bone's world position.
+
+        Blockbench .bbmodel requires ABSOLUTE pivots because it internally
+        computes relative positions via: mesh.position = group.origin - parent.origin
+
+        Returns:
+            Dict mapping bone_name -> [abs_x, abs_y, abs_z]
+        """
+        bone_map: Dict[str, dict] = {b["name"]: b for b in bones}
+
+        children_map: Dict[str, list] = {}
+        root_bones: list = []
+
+        for bone in bones:
+            bone_name = bone["name"]
+            parent_name = bone.get("parent")
+            if parent_name is None:
+                root_bones.append(bone_name)
+            else:
+                children_map.setdefault(parent_name, []).append(bone_name)
+
+        abs_pivots: Dict[str, list] = {}
+
+        def _accumulate(bone_name: str, parent_abs: list) -> None:
+            bone = bone_map[bone_name]
+            rel_pivot = bone.get("pivot", [0.0, 0.0, 0.0])
+            abs_piv = [
+                parent_abs[0] + float(rel_pivot[0]),
+                parent_abs[1] + float(rel_pivot[1]),
+                parent_abs[2] + float(rel_pivot[2]),
+            ]
+            abs_pivots[bone_name] = abs_piv
+            for child_name in children_map.get(bone_name, []):
+                _accumulate(child_name, abs_piv)
+
+        for bone_name in root_bones:
+            bone = bone_map[bone_name]
+            pivot = bone.get("pivot", [0.0, 0.0, 0.0])
+            abs_piv = [float(pivot[0]), float(pivot[1]), float(pivot[2])]
+            abs_pivots[bone_name] = abs_piv
+            for child_name in children_map.get(bone_name, []):
+                _accumulate(child_name, abs_piv)
+
+        return abs_pivots
 
     # ========================================================================
     # Elements (Cubes) Builder
@@ -299,6 +357,7 @@ class BBModelGenerator:
         bones: list,
         bone_uuids: Dict[str, str],
         element_uuids: Dict[Tuple[str, int], str],
+        abs_pivots: Dict[str, list],
     ) -> list:
         """
         Build the outliner (bone hierarchy) from the flat bone list.
@@ -309,17 +368,16 @@ class BBModelGenerator:
 
         Bone parent relationships from geo.json define the tree structure.
 
-        CRITICAL: .bbmodel uses HIERARCHICAL relative coordinates.
-        Bone pivots are in PARENT-LOCAL space (relative to parent bone's pivot).
-        This matches geo.json's pivot convention exactly, so we can use
-        the geo.json pivot values directly.
+        CRITICAL: .bbmodel bone pivots must be ABSOLUTE world-space coordinates.
+        Blockbench internally computes relative positions via:
+          mesh.position = group.origin - parent.origin
+        Therefore, the pivot stored in .bbmodel must be absolute, so the
+        subtraction yields the correct relative offset.
 
-        Blockbench's rendering pipeline:
-          1. Translate to bone pivot (in parent space)
-          2. Apply bone rotation
-          3. Children are positioned in this transformed space
-        This means using relative pivots produces correct world positions:
-          world_pos = root_pivot + child_pivot + ... + element_from
+        Example:
+          root pivot [0,24,0], mainbody pivot [0,53,16] (relative in geo.json)
+          Absolute mainbody pivot = [0,77,16]
+          Blockbench computes: [0,77,16] - [0,24,0] = [0,53,16] ✓
         """
         # Build lookup: bone_name -> bone data
         bone_map: Dict[str, dict] = {}
@@ -348,7 +406,6 @@ class BBModelGenerator:
             """Build a single bone group entry for the outliner."""
             bone = bone_map[bone_name]
             bone_uid = bone_uuids[bone_name]
-            pivot = bone.get("pivot", [0.0, 0.0, 0.0])
             rotation = bone.get("rotation", [0.0, 0.0, 0.0])
 
             children = []
@@ -362,11 +419,13 @@ class BBModelGenerator:
             for child_name in children_map.get(bone_name, []):
                 children.append(build_bone_entry(child_name))
 
-            # Use PARENT-LOCAL pivot with X-flipped for Blockbench coordinate system
-            # From Blockbench source: group.origin[0] *= -1 (parseBone)
-            bb_pivot_x = -float(pivot[0])
-            bb_pivot_y = float(pivot[1])
-            bb_pivot_z = float(pivot[2])
+            # Use ABSOLUTE pivot with X-flipped for Blockbench coordinate system
+            # Blockbench computes relative position via: child.origin - parent.origin
+            # So we must provide absolute world-space pivots.
+            abs_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
+            bb_pivot_x = -float(abs_pivot[0])  # X flip
+            bb_pivot_y = float(abs_pivot[1])
+            bb_pivot_z = float(abs_pivot[2])
 
             # Rotation also needs X/Y flip for Blockbench
             # From Blockbench source: group.rotation.forEach((br, axis) => { if (axis !== 2) group.rotation[axis] *= -1 })

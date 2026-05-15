@@ -812,3 +812,33 @@ Stage Summary:
 - Both Kirin and Heblu .bbmodel files regenerated and deployed
 - Frontend updated with fixed status notification
 - Previous test files (I/J/K) are obsolete; the main bbmodel download now uses the correct coordinate scheme
+
+---
+Task ID: bbmodel-absolute-pivots-fix
+Agent: Main Agent
+Task: Fix .bbmodel bone pivots - must use ABSOLUTE coordinates, not relative
+
+Work Log:
+- Diagnosed root cause: Blockbench internally computes bone positions via mesh.position = group.origin - parent.origin
+  This means .bbmodel pivot values must be ABSOLUTE world-space, not relative to parent
+- With relative pivots: mainbody at [0,53,16] - root at [0,24,0] = [0,29,16] (WRONG, should be [0,53,16])
+- With absolute pivots: mainbody at [0,77,16] - root at [0,24,0] = [0,53,16] (CORRECT)
+- Re-added _compute_absolute_pivots() method (was removed in previous commit)
+- Updated _build_outliner() to accept and use abs_pivots parameter
+- build_bone_entry() now uses abs_pivots[bone_name] instead of bone.get("pivot")
+- Elements remain in bone-local space (correct, no change needed)
+- Element origin remains [0,0,0] (correct, no change needed)
+- X-flip still applied to both absolute pivots and element from/to
+- Rotation X/Y flip still applied
+- Verified key bone pivots in generated bbmodel:
+  - root: [0, 24, 0] ✓
+  - mainbody: [0, 77, 16] ✓ (absolute = root + geo_relative)
+  - bodym: [0, 77, 16] ✓ (absolute = mainbody_abs + geo_relative[0,0,0])
+  - jointURAX: [-12, 66, 13] ✓ (absolute with X-flip)
+- Regenerated and deployed kirin_debug.bbmodel and heblu_debug.bbmodel
+
+Stage Summary:
+- .bbmodel coordinate scheme now: bone-local elements + ABSOLUTE bone pivots + bedrock format
+- This is the "hybrid" approach: elements relative to bone, pivots in world space
+- Blockbench will compute relative bone positions internally via subtraction
+- Previous "mirrored/stacked" issue should be resolved
