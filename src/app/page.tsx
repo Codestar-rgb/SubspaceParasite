@@ -66,6 +66,7 @@ interface EntityConfig {
   };
   javaClassName: string;
   javaEntityName: string;
+  animKey: string;
 }
 
 const MOD_ID = "srparasites";
@@ -94,6 +95,7 @@ const ENTITY_CONFIGS: Record<EntityKey, EntityConfig> = {
     },
     javaClassName: "KirinGeoModel",
     javaEntityName: "KirinEntity",
+    animKey: "animation.srparasites.kirin.idle",
   },
   heblu: {
     key: "heblu",
@@ -118,6 +120,7 @@ const ENTITY_CONFIGS: Record<EntityKey, EntityConfig> = {
     },
     javaClassName: "HebluGeoModel",
     javaEntityName: "HebluEntity",
+    animKey: "animation.model.idle",
   },
 };
 
@@ -274,10 +277,10 @@ export default function ConverterPage() {
     ) ?? 0;
   const animBones = animJson
     ? Object.keys(
-        animJson.animations["animation.model.idle"]?.bones ?? {}
+        animJson.animations[config.animKey]?.bones ?? {}
       ).length
     : 0;
-  const animLength = animJson?.animations["animation.model.idle"]
+  const animLength = animJson?.animations[config.animKey]
     ?.animation_length ?? 0;
   const texW = geoJson?.model.texture_width ?? parseInt(config.textureSize.split("x")[0]);
   const texH = geoJson?.model.texture_height ?? parseInt(config.textureSize.split("x")[1]);
@@ -726,7 +729,7 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
     // Animation controller: idle animation auto-plays
     private PlayState predicate(AnimationState<${config.javaEntityName}> event) {
         event.getController().setAnimation(
-            RawAnimation.begin().then("animation.model.idle", Animation.LoopType.LOOP)
+            RawAnimation.begin().then("${config.animKey}", Animation.LoopType.LOOP)
         );
         return PlayState.CONTINUE;
     }
@@ -764,7 +767,7 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                   <p className="text-xs text-amber-700 dark:text-amber-300">
                     <strong>Important:</strong> The <code className="font-mono">ResourceLocation</code> namespace must match your mod ID.
                     If your mod ID is not &quot;srparasites&quot;, update the namespace in both the Java class
-                    and the resource directory structure. The animation name <code className="font-mono">animation.model.idle</code> must
+                    and the resource directory structure. The animation name <code className="font-mono">{config.animKey}</code> must
                     match exactly as defined in the .animation.json file.
                   </p>
                 </div>
@@ -919,9 +922,9 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="max-h-[500px] overflow-y-auto">
-                  {animJson &&
+                  {animJson && animJson.animations[config.animKey] &&
                     Object.entries(
-                      animJson.animations["animation.model.idle"].bones
+                      animJson.animations[config.animKey].bones ?? {}
                     ).map(([boneName, boneAnim]) => (
                       <div key={boneName} className="py-2 border-b last:border-0">
                         <p className="font-mono text-xs font-medium mb-1">{boneName}</p>
@@ -990,9 +993,9 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                   <Separator />
                   <div className="p-3 rounded-lg bg-muted/50 border">
                     <p className="text-xs font-medium mb-1">Animation identifier in .animation.json:</p>
-                    <code className="font-mono text-xs">animation.model.idle</code>
+                    <code className="font-mono text-xs">{config.animKey}</code>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Use this name in your AnimationController: <code className="font-mono">RawAnimation.begin().then(&quot;animation.model.idle&quot;, LOOP)</code>
+                      Use this name in your AnimationController: <code className="font-mono">RawAnimation.begin().then(&quot;{config.animKey}&quot;, LOOP)</code>
                     </p>
                   </div>
                 </CardContent>
