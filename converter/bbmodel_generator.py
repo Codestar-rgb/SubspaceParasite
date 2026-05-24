@@ -18,44 +18,41 @@ Format Reference:
 
 CRITICAL: Coordinate System for .bbmodel
 =========================================
-  .bbmodel is Blockbench's INTERNAL format. It is the direct serialization of
-  Blockbench's in-memory scene graph. Blockbench does NOT apply any coordinate
-  conversion when reading/writing .bbmodel files.
+  .bbmodel uses ABSOLUTE world-space coordinates for element positions and
+  bone pivots (origin). This is different from geo.json which uses
+  bone-local (relative to parent) coordinates.
 
-  This is different from .geo.json import/export, where Blockbench applies
-  X-flip to cube positions (parseCube/compileCube) and negates X/Y rotation
-  (parseBone/compileBone).
+  Element from/to: ABSOLUTE world position (bone-local origin + absolute pivot)
+  Element origin:  ABSOLUTE pivot of the bone (rotation center)
+  Group origin:    ABSOLUTE pivot of the bone
 
-  Therefore, when generating .bbmodel DIRECTLY from geo.json data:
+  Absolute Pivot Computation:
+    - Root: abs_pivot = root.pivot = [0, 24, 0]
+    - Direct children of root: abs_pivot = root.pivot + child.pivot + [0, 24, 0]
+      (The +24 Y offset corrects for the Y_OFFSET subtraction in our geo.json
+       relative pivots caused by _make_pivots_relative() in model_converter.py)
+    - Deeper descendants: abs_pivot = parent_abs_pivot + child.pivot
 
-    DO NOT apply X-flip to element positions (from/to).
-    DO NOT apply X-flip to bone pivots (origin).
-    DO apply X/Y rotation negation: [-rx, -ry, rz]
-      (Blockbench internally uses different rotation sign conventions)
-
-  RH→LH Coordinate Corrections (applied in this generator):
-    1. North↔South UV Face Swap: The M_model = diag(1,-1,-1) Z-flip maps
-       north_RH → south_LH and south_RH → north_LH, so UV data assigned to
+  RH->LH Coordinate Corrections (applied in this generator):
+    1. North<->South UV Face Swap: The M_model = diag(1,-1,-1) Z-flip maps
+       north_RH -> south_LH and south_RH -> north_LH, so UV data assigned to
        'north' in RH must be moved to 'south' in LH, and vice versa.
        West/East and Up/Down face UVs are NOT swapped.
     2. Geometric X-Mirror for mirrored cubes: When mirror=true, MC 1.12.2
        applies scale(-1,1,1) which mirrors both geometry and UV around the
        bone pivot (X=0 in bone-local space). The geometric mirror (negating
-       from/to X coordinates) must be applied in addition to setting
-       mirror_uv=true, otherwise mirrored cubes overlap with non-mirrored
-       cubes causing a "stacking" visual disorder.
-    3. West↔East UV Swap for mirrored cubes: After the geometric X-mirror,
+       from/to X coordinates relative to absolute pivot) must be applied in
+       addition to setting mirror_uv=true.
+    3. West<->East UV Swap for mirrored cubes: After the geometric X-mirror,
        the face at -X (west) was originally at +X (east) and vice versa,
        so the UV data assigned to 'west' and 'east' must be swapped.
-       This swap is in addition to the geometric X-mirror and mirror_uv;
-       together the three produce the correct result:
-         a) Geometric X-mirror → correct cube position
-         b) West↔East UV swap → correct face-UV assignment
-         c) mirror_uv=true → correct per-face UV orientation (horizontal mirror)
 
-  Bone pivots (origin) in .bbmodel are RELATIVE to the parent bone, matching
-  the geo.json convention. Blockbench adds child mesh to parent mesh in Three.js,
-  so the child's position (origin) is automatically relative to the parent.
+  Rotation Conversion:
+    Uses scipy.spatial.transform.Rotation to convert from geo.json extrinsic
+    XYZ Euler angles to Blockbench intrinsic xyz Euler angles:
+      Rotation.from_euler('XYZ', geo_rot, degrees=True).as_euler('xyz', degrees=True)
+    This correctly handles multi-axis rotations where simple [-rx, -ry, rz]
+    fails (e.g., when Z=-180, X rotation sign must flip).
 """
 
 import base64
@@ -65,9 +62,19 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
+from scipy.spatial.transform import Rotation
+
 
 # Face direction mapping order used in bbmodel
 FACE_NAMES = ["north", "east", "south", "west", "up", "down"]
+
+# Y offset correction for absolute pivots.
+# In our geo.json, _make_pivots_relative() subtracts root.pivot=[0,24,0] from
+# direct children of root, but the resulting relative pivot is 24 units too low
+# in Y because convert_model_pos() already negates Y without adding the Y_OFFSET.
+# We correct this by adding 24 to Y for root's direct children when computing
+# absolute pivots for .bbmodel output.
+Y_OFFSET = 24.0
 
 
 class BBModelGenerator:
@@ -91,6 +98,96 @@ class BBModelGenerator:
     def _uuid() -> str:
         """Generate a short unique ID string (8 hex chars) for bbmodel objects."""
         return uuid.uuid4().hex[:8]
+
+    # ========================================================================
+    # Absolute Pivot Computation
+    # ========================================================================
+
+    def _compute_absolute_pivots(self, bones: list) -> Dict[str, list]:
+        """
+        Compute absolute pivots for all bones, matching the reference .bbmodel
+        convention where element from/to and group origins are in absolute
+        world space.
+
+        Algorithm:
+          - root: abs_pivot = root.pivot (typically [0, 24, 0])
+          - Direct children of root: abs_pivot = root.pivot + child.pivot + [0, Y_OFFSET, 0]
+            The Y_OFFSET correction compensates for the double-subtraction bug
+            in _make_pivots_relative() which subtracts root.pivot=[0,24,0]
+            from convert_model_pos() results that already lack the +24 Y offset.
+          - Deeper descendants: abs_pivot = parent_abs_pivot + child.pivot
+
+        Returns:
+            Dict mapping bone_name -> [abs_x, abs_y, abs_z]
+        """
+        bone_map: Dict[str, dict] = {b["name"]: b for b in bones}
+        abs_pivots: Dict[str, list] = {}
+
+        # Root pivot
+        root_bone = bone_map.get("root")
+        if root_bone:
+            root_pivot = [float(v) for v in root_bone.get("pivot", [0, 24, 0])]
+        else:
+            root_pivot = [0.0, 24.0, 0.0]
+        abs_pivots["root"] = root_pivot
+
+        # Recursively compute absolute pivots
+        def compute_abs(bone_name: str, parent_abs: list, is_root_child: bool = False):
+            bone = bone_map[bone_name]
+            pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
+
+            abs_pivot = [parent_abs[i] + pivot[i] for i in range(3)]
+
+            # For direct children of root, add Y_OFFSET correction
+            if is_root_child:
+                abs_pivot[1] += Y_OFFSET
+
+            abs_pivots[bone_name] = abs_pivot
+
+            # Recurse for children
+            for child_bone in bones:
+                if child_bone.get("parent") == bone_name:
+                    compute_abs(child_bone["name"], abs_pivot, is_root_child=False)
+
+        # Process root's children (they get the Y_OFFSET correction)
+        for bone in bones:
+            if bone.get("parent") == "root":
+                compute_abs(bone["name"], root_pivot, is_root_child=True)
+
+        # Also handle top-level bones that aren't "root" and don't have a parent
+        for bone in bones:
+            if bone["name"] not in abs_pivots and bone.get("parent") is None and bone["name"] != "root":
+                pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
+                abs_pivots[bone["name"]] = pivot
+
+        return abs_pivots
+
+    # ========================================================================
+    # Rotation Conversion
+    # ========================================================================
+
+    def _convert_rotation_to_bbmodel(self, rotation_deg: list) -> list:
+        """
+        Convert rotation from geo.json (extrinsic XYZ) to .bbmodel (intrinsic xyz)
+        using scipy Rotation.
+
+        The geo.json format stores rotations as extrinsic XYZ Euler angles.
+        The .bbmodel (Blockbench internal) format uses intrinsic xyz Euler angles.
+        scipy's Rotation class handles this conversion correctly, including
+        multi-axis rotations where simple sign flipping fails.
+
+        Example failures of simple [-rx, -ry, rz]:
+          - geo [44, 0, 0] -> simple gives [-44, 0, 0] but correct is [44, 0, 0]
+          - geo [-25, 0, -180] -> simple gives [25, 0, -180] (happens to be correct)
+          The Z=-180 case flips the X sign convention, which scipy handles properly.
+        """
+        if not rotation_deg or all(abs(v) < 1e-10 for v in rotation_deg):
+            return [0.0, 0.0, 0.0]
+
+        r = Rotation.from_euler("XYZ", rotation_deg, degrees=True)
+        result = r.as_euler("xyz", degrees=True)
+        # Round to avoid floating point noise (e.g., 24.999999999996 -> 25.0)
+        return [round(float(v), 6) for v in result]
 
     # ========================================================================
     # Main Generation
@@ -131,7 +228,12 @@ class BBModelGenerator:
         now = int(time.time())
 
         # ------------------------------------------------------------------
-        # Phase 1: Assign UUIDs to all bones and cubes
+        # Phase 1: Compute absolute pivots for all bones
+        # ------------------------------------------------------------------
+        abs_pivots = self._compute_absolute_pivots(bones)
+
+        # ------------------------------------------------------------------
+        # Phase 2: Assign UUIDs to all bones and cubes
         # ------------------------------------------------------------------
         bone_uuids: Dict[str, str] = {}  # bone_name -> uuid
         element_uuids: Dict[Tuple[str, int], str] = {}  # (bone_name, cube_idx) -> uuid
@@ -143,33 +245,29 @@ class BBModelGenerator:
                 element_uuids[(bone_name, cube_idx)] = self._uuid()
 
         # ------------------------------------------------------------------
-        # Phase 2: Build elements (cubes) list
+        # Phase 3: Build elements (cubes) list
         # ------------------------------------------------------------------
-        # Elements use BONE-LOCAL coordinates directly from geo.json:
-        #   - Element from/to: cube origin and origin+size (NO X-flip!)
-        #   - Element origin:  [0, 0, 0] (rotation center = bone's own pivot)
-        #
-        # CRITICAL: Do NOT apply X-flip! .bbmodel is Blockbench's internal
-        # format and does NOT go through the .geo.json import path that
-        # applies X-flip. Applying X-flip here causes mirrored stacking.
-        elements = self._build_elements(bones, element_uuids)
+        # Elements use ABSOLUTE world-space coordinates:
+        #   - Element from/to: cube origin+abs_pivot and origin+size+abs_pivot
+        #   - Element origin:  bone's absolute pivot (rotation center)
+        elements = self._build_elements(bones, element_uuids, abs_pivots)
 
         # ------------------------------------------------------------------
-        # Phase 3: Build outliner (bone hierarchy)
+        # Phase 4: Build groups (flat array) and outliner (tree)
         # ------------------------------------------------------------------
-        # Bone pivots (origin) are RELATIVE to parent bone, directly from
-        # geo.json. No X-flip. The field name in .bbmodel is "origin".
-        outliner = self._build_outliner(bones, bone_uuids, element_uuids)
+        groups, outliner = self._build_groups_and_outliner(
+            bones, bone_uuids, element_uuids, abs_pivots
+        )
 
         # ------------------------------------------------------------------
-        # Phase 4: Build textures list
+        # Phase 5: Build textures list
         # ------------------------------------------------------------------
         textures = self._build_textures(
             texture_path, texture_name, namespace, tex_width, tex_height
         )
 
         # ------------------------------------------------------------------
-        # Phase 5: Build animations
+        # Phase 6: Build animations
         # ------------------------------------------------------------------
         animations = self._build_animations(anim_json) if anim_json else []
 
@@ -178,7 +276,7 @@ class BBModelGenerator:
         # ------------------------------------------------------------------
         bbmodel = {
             "meta": {
-                "format_version": "4.10",
+                "format_version": "5.0",
                 "model_format": "bedrock",
                 "model_identifier": short_name,
                 "creation_time": now,
@@ -197,6 +295,7 @@ class BBModelGenerator:
                 "height": tex_height,
             },
             "elements": elements,
+            "groups": groups,
             "outliner": outliner,
             "textures": textures,
             "animations": animations,
@@ -212,6 +311,7 @@ class BBModelGenerator:
         self,
         bones: list,
         element_uuids: Dict[Tuple[str, int], str],
+        abs_pivots: Dict[str, list],
     ) -> list:
         """
         Build the flat elements list from all bones' cubes.
@@ -221,19 +321,20 @@ class BBModelGenerator:
           - size: [w, h, d]
 
         In .bbmodel, each element has:
-          - from: [x, y, z]  (minimum corner in BONE-LOCAL space, NO X-flip)
-          - to: [x+w, y+h, z+d]  (maximum corner in BONE-LOCAL space, NO X-flip)
-          - origin: [0, 0, 0]  (rotation center = bone's own pivot)
+          - from: [x, y, z]  (minimum corner in ABSOLUTE world space)
+          - to: [x+w, y+h, z+d]  (maximum corner in ABSOLUTE world space)
+          - origin: [abs_x, abs_y, abs_z]  (bone's absolute pivot = rotation center)
 
-        CRITICAL: Do NOT apply X-flip to element positions!
-        .bbmodel is Blockbench's internal format. The X-flip only happens
-        during .geo.json import (parseCube/compileCube), not during .bbmodel
-        read/write. Applying X-flip here causes mirrored/stacked models.
+        The conversion from bone-local to absolute:
+          abs_from[i] = bone_local_origin[i] + abs_pivot[i]
+          abs_to[i] = bone_local_origin[i] + bone_size[i] + abs_pivot[i]
         """
         elements = []
+        color_cycle = 0
 
         for bone in bones:
             bone_name = bone["name"]
+            abs_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
 
             for cube_idx, cube in enumerate(bone.get("cubes", [])):
                 elem_uuid = element_uuids[(bone_name, cube_idx)]
@@ -242,42 +343,39 @@ class BBModelGenerator:
                 inflate = cube.get("inflate", 0.0)
                 mirror = cube.get("mirror", False)
 
-                # Direct mapping from geo.json cube coordinates to .bbmodel.
+                # Convert from bone-local to ABSOLUTE world space
                 from_pos = [
-                    float(origin[0]),                       # X
-                    float(origin[1]),                       # Y: direct
-                    float(origin[2]),                       # Z: direct
+                    float(origin[0]) + abs_pivot[0],
+                    float(origin[1]) + abs_pivot[1],
+                    float(origin[2]) + abs_pivot[2],
                 ]
                 to_pos = [
-                    float(origin[0]) + float(size[0]),      # X
-                    float(origin[1]) + float(size[1]),      # Y: direct
-                    float(origin[2]) + float(size[2]),      # Z: direct
+                    float(origin[0]) + float(size[0]) + abs_pivot[0],
+                    float(origin[1]) + float(size[1]) + abs_pivot[1],
+                    float(origin[2]) + float(size[2]) + abs_pivot[2],
                 ]
 
                 # Geometric X-mirror for mirrored cubes.
-                # In MC 1.12.2, mirror=true causes scale(-1,1,1) which mirrors
-                # the cube's geometry around the bone pivot (X=0 in bone-local
-                # space). Without this, mirrored cubes stay at the non-mirrored
-                # position and overlap with non-mirrored cubes ("stacking").
+                # Mirror around the bone's absolute pivot X coordinate.
+                # Original: [ox+px, ox+w+px] -> Mirrored: [2*px-(ox+w+px), 2*px-(ox+px)]
+                #         = [px-ox-w, px-ox]
                 if mirror:
-                    # Mirror X around bone pivot (X=0 in bone-local space)
-                    # Original: [ox, ox+w] → Mirrored: [-(ox+w), -ox]
-                    from_x_mirrored = -float(origin[0]) - float(size[0])
-                    to_x_mirrored = -float(origin[0])
+                    px = abs_pivot[0]
+                    from_x_mirrored = 2 * px - (float(origin[0]) + float(size[0]) + px)
+                    to_x_mirrored = 2 * px - (float(origin[0]) + px)
                     from_pos[0] = from_x_mirrored
                     to_pos[0] = to_x_mirrored
                     # Ensure from[0] <= to[0] (required by .bbmodel format)
                     if from_pos[0] > to_pos[0]:
                         from_pos[0], to_pos[0] = to_pos[0], from_pos[0]
 
-                # Cube origin = rotation center = [0, 0, 0] in bone-local space
-                # (The bone's pivot IS the rotation center; in bone-local coords it's at origin)
-                bb_origin = [0.0, 0.0, 0.0]
+                # Element origin = bone's absolute pivot (rotation center)
+                bb_origin = [float(abs_pivot[0]), float(abs_pivot[1]), float(abs_pivot[2])]
 
                 # Build faces with UV conversion
                 faces = self._convert_faces(cube.get("uv", {}))
 
-                # For mirrored cubes, swap West↔East UV faces.
+                # For mirrored cubes, swap West<->East UV faces.
                 # After geometric X-mirror, the face at -X (west) was originally at +X (east),
                 # so it needs the east UV. Similarly, the face at +X (east) needs the west UV.
                 if mirror:
@@ -288,23 +386,29 @@ class BBModelGenerator:
                         faces["east"] = west_uv
 
                 element = {
-                    "name": f"cube",
-                    "uuid": elem_uuid,
-                    "type": "cube",
-                    "resizable": True,
+                    "name": f"{bone_name}_c{cube_idx}",
+                    "box_uv": False,
+                    "render_order": "default",
+                    "locked": False,
+                    "export": True,
+                    "scope": 0,
+                    "allow_mirror_modeling": True,
                     "from": from_pos,
                     "to": to_pos,
                     "autouv": 0,
-                    "color": 0,
+                    "color": color_cycle % 8,
                     "inflate": float(inflate),
                     "mirror_uv": mirror,
                     "rotation": [0.0, 0.0, 0.0],
                     "origin": bb_origin,
                     "uv_offset": [0, 0],
                     "faces": faces,
+                    "type": "cube",
+                    "uuid": elem_uuid,
                 }
 
                 elements.append(element)
+                color_cycle += 1
 
         return elements
 
@@ -340,11 +444,11 @@ class BBModelGenerator:
                     "texture": -1,
                 }
 
-        # North↔South UV Face Swap (RH→LH Z-flip correction)
+        # North<->South UV Face Swap (RH->LH Z-flip correction)
         # When converting from MC 1.12.2 (RH, Y-down) to .bbmodel (LH, Y-up),
         # the M_model = diag(1, -1, -1) conversion Z-flips the physical faces:
-        #   north_RH [0,0,-1] → M_model*[0,0,-1] = [0,0,+1] = south_LH
-        #   south_RH [0,0,+1] → M_model*[0,0,+1] = [0,0,-1] = north_LH
+        #   north_RH [0,0,-1] -> M_model*[0,0,-1] = [0,0,+1] = south_LH
+        #   south_RH [0,0,+1] -> M_model*[0,0,+1] = [0,0,-1] = north_LH
         # Therefore the UV that was assigned to 'north' in RH must go to 'south'
         # in LH, and vice versa. West/East and Up/Down do NOT swap.
         north_uv = faces.get("north")
@@ -356,43 +460,24 @@ class BBModelGenerator:
         return faces
 
     # ========================================================================
-    # Outliner (Bone Hierarchy) Builder
+    # Groups and Outliner Builder
     # ========================================================================
 
-    def _build_outliner(
+    def _build_groups_and_outliner(
         self,
         bones: list,
         bone_uuids: Dict[str, str],
         element_uuids: Dict[Tuple[str, int], str],
-    ) -> list:
+        abs_pivots: Dict[str, list],
+    ) -> Tuple[list, list]:
         """
-        Build the outliner (bone hierarchy) from the flat bone list.
+        Build both the groups flat array and the outliner tree structure.
 
-        The outliner is a tree structure where:
-          - Leaf entries are element UUID strings (references to elements)
-          - Branch entries are bone group objects with name, uuid, origin, rotation, children
+        The groups flat array contains all bone groups with full metadata:
+          - name, uuid, origin (absolute pivot), rotation (converted), etc.
 
-        Bone parent relationships from geo.json define the tree structure.
-
-        CRITICAL COORDINATE RULES for .bbmodel bone groups:
-
-        1. The field name is "origin" (NOT "pivot") — this is Blockbench's
-           internal field name for bone group pivot points.
-
-        2. The origin values are RELATIVE to the parent bone, matching the
-           geo.json convention. Blockbench adds child mesh to parent mesh
-           in Three.js, so the child's position (origin) is automatically
-           relative to the parent.
-
-        3. NO X-flip on origin values. .bbmodel is Blockbench's internal
-           format — X-flip only happens during .geo.json import, not during
-           .bbmodel read/write.
-
-        4. Rotation X and Y are negated: [-rx, -ry, rz]. This conversion
-           IS needed because Blockbench's internal rotation conventions
-           differ from geo.json (different Euler angle sign conventions).
-           From Blockbench source (parseBone):
-             group.rotation.forEach((br, axis) => { if (axis !== 2) group.rotation[axis] *= -1 })
+        The outliner tree contains groups with only uuid, isOpen, and children:
+          - children can be element UUID strings or nested group objects
         """
         # Build lookup: bone_name -> bone data
         bone_map: Dict[str, dict] = {}
@@ -408,52 +493,64 @@ class BBModelGenerator:
             parent_name = bone.get("parent")
 
             if parent_name is None:
-                # No parent - truly top-level
                 root_bones.append(bone_name)
             else:
-                # Has a parent - add to parent's children list
                 if parent_name not in children_map:
                     children_map[parent_name] = []
                 children_map[parent_name].append(bone_name)
 
-        # Recursively build the outliner tree
-        def build_bone_entry(bone_name: str) -> dict:
-            """Build a single bone group entry for the outliner."""
-            bone = bone_map[bone_name]
+        # Build groups flat array (all bones with full metadata)
+        groups = []
+        for bone in bones:
+            bone_name = bone["name"]
             bone_uid = bone_uuids[bone_name]
             rotation = bone.get("rotation", [0.0, 0.0, 0.0])
+            abs_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
 
+            # Convert rotation using scipy
+            bb_rotation = self._convert_rotation_to_bbmodel(rotation)
+
+            group = {
+                "name": bone_name,
+                "uuid": bone_uid,
+                "export": True,
+                "locked": False,
+                "scope": 0,
+                "selected": False,
+                "_static": {"properties": {}, "temp_data": {}},
+                "origin": [float(abs_pivot[0]), float(abs_pivot[1]), float(abs_pivot[2])],
+                "rotation": bb_rotation,
+                "bedrock_binding": "",
+                "color": 0,
+                "children": [],  # Empty in groups flat array; actual children in outliner
+                "reset": False,
+                "shade": True,
+                "mirror_uv": False,
+                "visibility": True,
+                "autouv": 0,
+                "isOpen": False,
+                "primary_selected": False,
+            }
+            groups.append(group)
+
+        # Build outliner tree (hierarchical structure with UUID references)
+        def build_outliner_entry(bone_name: str) -> dict:
+            """Build a single bone group entry for the outliner tree."""
+            bone_uid = bone_uuids[bone_name]
             children = []
 
             # Add element UUIDs (cubes belonging to this bone)
-            for cube_idx in range(len(bone.get("cubes", []))):
+            for cube_idx in range(len(bone_map[bone_name].get("cubes", []))):
                 elem_uuid = element_uuids[(bone_name, cube_idx)]
                 children.append(elem_uuid)
 
             # Add child bone groups
             for child_name in children_map.get(bone_name, []):
-                children.append(build_bone_entry(child_name))
-
-            # Use RELATIVE pivot directly from geo.json, NO X-flip.
-            # The geo.json already has relative pivots (thanks to
-            # _make_pivots_relative in model_converter.py).
-            pivot = bone.get("pivot", [0.0, 0.0, 0.0])
-            bb_origin_x = float(pivot[0])   # NO X-flip!
-            bb_origin_y = float(pivot[1])    # Direct
-            bb_origin_z = float(pivot[2])    # Direct
-
-            # Rotation: negate X and Y for Blockbench internal convention.
-            # This IS needed — it's not a position flip but a rotation sign
-            # convention difference between geo.json and Blockbench internal.
-            bb_rot_x = -float(rotation[0])   # X negated
-            bb_rot_y = -float(rotation[1])   # Y negated
-            bb_rot_z = float(rotation[2])    # Z preserved
+                children.append(build_outliner_entry(child_name))
 
             entry = {
-                "name": bone_name,
                 "uuid": bone_uid,
-                "origin": [bb_origin_x, bb_origin_y, bb_origin_z],  # "origin", NOT "pivot"
-                "rotation": [bb_rot_x, bb_rot_y, bb_rot_z],
+                "isOpen": False,
             }
 
             if children:
@@ -464,15 +561,14 @@ class BBModelGenerator:
         # Build the outliner starting from root-level bones
         outliner = []
 
-        # If there's a "root" bone, it goes first and contains everything
         if "root" in bone_map:
-            outliner.append(build_bone_entry("root"))
+            outliner.append(build_outliner_entry("root"))
         else:
             # No explicit root bone - add top-level bones directly
             for bone_name in root_bones:
-                outliner.append(build_bone_entry(bone_name))
+                outliner.append(build_outliner_entry(bone_name))
 
-        return outliner
+        return groups, outliner
 
     # ========================================================================
     # Textures Builder
@@ -831,6 +927,7 @@ if __name__ == "__main__":
 
     print(f"Generated {args.output}")
     print(f"  Elements:  {len(bbmodel.get('elements', []))}")
+    print(f"  Groups:    {len(bbmodel.get('groups', []))}")
     print(f"  Outliner:  {len(bbmodel.get('outliner', []))} root entries")
     print(f"  Textures:  {len(bbmodel.get('textures', []))}")
     print(f"  Animations: {len(bbmodel.get('animations', []))}")

@@ -985,3 +985,59 @@ Stage Summary:
 - Frontend download links updated to point to fixed .bbmodel files
 - No cubes in Heblu/Kirin use mirror=true, so Fix 2&3 are preventive; Fix 1 is the critical fix
 - All syntax checks pass, dev server running correctly
+
+---
+Task ID: 4
+Agent: Code Agent
+Task: Completely rewrite bbmodel_generator.py to match reference .bbmodel format (fix mirror stacking disorder)
+
+Work Log:
+- Analyzed reference kirin.bbmodel vs our converter output to identify 6 critical issues
+- Issue 1: Element coordinates must be ABSOLUTE (bone-local origin + absolute pivot), not bone-local
+  - Reference: bodym_c0 from=[-9.5, 80, 11] to=[9.5, 104, 21], origin=[0, 101, 16]
+  - Old code: from=[-9.5, -21, -5] to=[9.5, 3, 5], origin=[0, 0, 0]
+- Issue 2: Absolute pivots need +24 Y offset for root's direct children
+  - Old accumulated: mainbody abs=[0, 77, 16], Reference: [0, 101, 16]
+  - Fix: For root's direct children: abs_pivot = root_pivot + child_pivot + [0, 24, 0]
+  - For deeper descendants: abs_pivot = parent_abs + child_pivot (no extra 24)
+- Issue 3: Rotation conversion must use scipy, not simple [-rx, -ry, rz]
+  - Old: [44, 0, 0] → [-44, 0, 0] ✗
+  - scipy: Rotation.from_euler('XYZ', [44, 0, 0], degrees=True).as_euler('xyz', degrees=True) → [44, 0, 0] ✓
+- Issue 4: Need `groups` flat array in addition to `outliner`
+  - groups: flat array with full bone metadata (name, uuid, origin, rotation, etc.)
+  - outliner: tree with UUID-only references and isOpen flag
+- Issue 5: Format version must be "5.0" (was "4.10")
+- Issue 6: Element naming should be bone_name + "_c" + cube_index (was just "cube")
+
+- Completely rewrote bbmodel_generator.py with all fixes:
+  1. Added _compute_absolute_pivots() method with Y_OFFSET=24 for root's direct children
+  2. Element from/to in ABSOLUTE world space (bone_local + abs_pivot)
+  3. Element origin = bone's absolute pivot (not [0,0,0])
+  4. Rotation via scipy Rotation.from_euler('XYZ').as_euler('xyz')
+  5. Groups flat array with full metadata per reference format
+  6. Outliner tree with UUID-only group references
+  7. Format version 5.0
+  8. North↔South UV swap preserved
+  9. Mirror X-flip and West↔East UV swap preserved (now around absolute pivot X)
+  10. Element naming: bone_name + "_c" + cube_index
+  11. Additional element fields: box_uv, render_order, locked, export, scope, allow_mirror_modeling
+
+- Verification results against reference kirin.bbmodel:
+  - All 142 group origins match exactly (0 mismatches)
+  - 121/142 rotation matches are exact, 21 are physically equivalent (same rotation matrix, different Euler decomposition)
+  - 0 true rotation mismatches
+  - All 141 element positions match (0 mismatches)
+  - All 141 element origins match (0 mismatches)
+  - All 846 UV comparisons match (0 mismatches)
+  - Outliner structure: 283 entries (matches reference)
+
+- Also tested with Heblu model: 356 elements, 357 groups, successful generation
+- Syntax check: PASS
+- CLI entry point: working correctly
+
+Stage Summary:
+- bbmodel_generator.py completely rewritten at /home/z/my-project/converter/bbmodel_generator.py
+- All 6 issues fixed: absolute coordinates, Y offset, scipy rotation, groups array, format 5.0, element naming
+- 100% match on element positions, UVs, and group origins against reference
+- 100% physically correct rotations (121 exact + 21 equivalent = 142/142)
+- Both Kirin and Heblu models generate correctly
