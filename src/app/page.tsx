@@ -88,7 +88,7 @@ const ENTITY_CONFIGS: Record<EntityKey, EntityConfig> = {
       anim: "/converted/kirin.animation.json",
       mapping: "/converted/kirin_bone_mapping.json",
       texture: "/converted/kirin.png",
-      bbmodel: "/converted/kirin_debug.bbmodel",
+      bbmodel: "/converted/kirin.bbmodel",
     },
     resourcePaths: {
       geo: `assets/${MOD_ID}/geo/entity/kirin.geo.json`,
@@ -114,7 +114,7 @@ const ENTITY_CONFIGS: Record<EntityKey, EntityConfig> = {
       anim: "/converted/heblu.animation.json",
       mapping: "/converted/heblu_bone_mapping.json",
       texture: "/converted/heblu.png",
-      bbmodel: "/converted/heblu_debug.bbmodel",
+      bbmodel: "/converted/heblu.bbmodel",
     },
     resourcePaths: {
       geo: `assets/${MOD_ID}/geo/entity/heblu.geo.json`,
@@ -321,7 +321,7 @@ export default function ConverterPage() {
     { key: "geo", label: "Model (.geo.json)", path: config.resourcePaths.geo, url: config.files.geo, file: `${config.key}.geo.json` },
     { key: "anim", label: "Animation (.animation.json)", path: config.resourcePaths.anim, url: config.files.anim, file: `${config.key}.animation.json` },
     { key: "tex", label: "Texture (.png)", path: config.resourcePaths.texture, url: config.files.texture, file: `${config.key}.png` },
-    ...(config.files.bbmodel ? [{ key: "bbmodel", label: "Blockbench Project (.bbmodel)", path: "(open in Blockbench)", url: config.files.bbmodel, file: `${config.key}_debug.bbmodel` }] : []),
+    ...(config.files.bbmodel ? [{ key: "bbmodel", label: "Blockbench Project (.bbmodel)", path: "(open in Blockbench)", url: config.files.bbmodel, file: `${config.key}.bbmodel` }] : []),
   ];
 
   // ─── Bone Tree Renderer ─────────────────────────────────────────────────
@@ -599,7 +599,7 @@ export default function ConverterPage() {
                   size="sm"
                   variant="outline"
                   className="gap-2 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
-                  onClick={() => downloadFile(config.files.bbmodel, `${config.key}_debug.bbmodel`)}
+                  onClick={() => downloadFile(config.files.bbmodel, `${config.key}.bbmodel`)}
                 >
                   <Download className="h-4 w-4" />
                   Download Blockbench Project (.bbmodel)
@@ -828,7 +828,7 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                       variant="outline"
                       size="sm"
                       className="justify-start gap-2 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
-                      onClick={() => downloadFile(config.files.bbmodel, `${config.key}_debug.bbmodel`)}
+                      onClick={() => downloadFile(config.files.bbmodel, `${config.key}.bbmodel`)}
                     >
                       <Download className="h-3.5 w-3.5" />
                       Blockbench Project (.bbmodel)

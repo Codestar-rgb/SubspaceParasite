@@ -842,3 +842,146 @@ Stage Summary:
 - This is the "hybrid" approach: elements relative to bone, pivots in world space
 - Blockbench will compute relative bone positions internally via subtraction
 - Previous "mirrored/stacked" issue should be resolved
+
+---
+Task ID: mirror-stacking-bugfix
+Agent: Main Agent
+Task: Fix mirror stacking bug in bbmodel_generator.py - North↔South UV swap and geometric X-mirror
+
+Work Log:
+- Read and analyzed bbmodel_generator.py (780 lines)
+- Applied Bug 1 fix: North↔South UV Face Swap in _convert_faces()
+  - Added UV swap logic just before `return faces` in _convert_faces()
+  - When converting RH→LH, M_model = diag(1,-1,-1) Z-flips face normals:
+    north_RH [0,0,-1] → south_LH [0,0,+1] and south_RH [0,0,+1] → north_LH [0,0,-1]
+  - Therefore UV assigned to 'north' in RH must go to 'south' in LH, and vice versa
+  - West/East and Up/Down do NOT swap (X not flipped, Y flip maps up_RH to up_LH)
+- Applied Bug 2 fix: Geometric X-Mirror for mirrored cubes in _build_elements()
+  - Added mirror check after computing from_pos/to_pos
+  - When mirror=true, MC 1.12.2 applies scale(-1,1,1) which mirrors geometry around bone pivot
+  - Mirror formula: [ox, ox+w] → [-(ox+w), -ox] for X coordinates
+  - Added from[0] <= to[0] normalization (required by .bbmodel format)
+- Fixed duplicate swap code (MultiEdit initially inserted swap block twice, removed duplicate)
+- Updated module-level docstring with RH→LH Coordinate Corrections section documenting both fixes
+- All existing code and comments preserved except for the specific bug fix areas
+
+Stage Summary:
+- Two mirror stacking bugs fixed in bbmodel_generator.py:
+  1. North↔South UV Face Swap: UV data now correctly swapped for RH→LH Z-flip conversion
+  2. Geometric X-Mirror: Mirrored cubes now have negated X coordinates so they don't overlap
+- Module docstring updated with documentation of both coordinate corrections
+- No changes to core_math.py, model_converter.py, or other converter modules
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Add third fix for mirror stacking bug - West↔East UV Swap for mirrored cubes
+
+Work Log:
+- Read bbmodel_generator.py and identified the target location in _build_elements()
+- Added West↔East UV face swap after _convert_faces() call, only for mirrored cubes
+- The swap logic: when mirror=true, faces["west"] and faces["east"] UV data are exchanged
+  - After geometric X-mirror, the face at -X (west) was originally at +X (east), so it needs the east UV
+  - Similarly, the face at +X (east) needs the west UV
+- Updated module docstring to document the third coordinate correction:
+  3. West↔East UV Swap for mirrored cubes: UV data assigned to 'west' and 'east' must be swapped
+     after geometric X-mirror. Together the three fixes produce correct result:
+     a) Geometric X-mirror → correct cube position
+     b) West↔East UV swap → correct face-UV assignment
+     c) mirror_uv=true → correct per-face UV orientation (horizontal mirror)
+- Verified syntax with ast.parse: SYNTAX OK
+
+Stage Summary:
+- Third mirror stacking fix applied to bbmodel_generator.py
+- West↔East UV swap added in _build_elements() after _convert_faces() for mirrored cubes
+- Module docstring updated with complete documentation of all three coordinate corrections
+- Syntax verification passed
+
+---
+
+## Task 5: Integrate BBModelGenerator into converter runner scripts
+
+**Date:** 2025-05-24
+
+### Changes Made
+
+#### 1. Updated `/home/z/my-project/converter/run_heblu.py`
+- Added new **Step 9: Generate .bbmodel file** between the texture copy step (Step 8) and the render effects parsing step (now Step 10)
+- The new step:
+  - Imports `BBModelGenerator` from `bbmodel_generator`
+  - Loads animation JSON from the saved `heblu.animation.json` file (if available)
+  - Generates a `.bbmodel` using `geo_json` in memory, `anim_json` from file, and `dst_texture` for texture embedding
+  - Uses `texture_name="heblu"` and `namespace="srparasites"`
+  - Saves output to `heblu.bbmodel` in the output directory
+- Renumbered all subsequent steps: Step 9→10, Step 10→11
+- Updated all step denominators from `/10` to `/11`
+- Added `heblu.bbmodel` marker `[Blockbench Model]` in the summary section
+
+#### 2. Updated `/home/z/my-project/converter/run_kirin.py`
+- Added new **Step 20: Generate .bbmodel file** after the texture copy step (Step 19)
+- The new step:
+  - Imports `BBModelGenerator` from `bbmodel_generator`
+  - Loads animation JSON from the saved `kirin.animation.json` file (if available)
+  - Generates a `.bbmodel` using `geo_json` in memory, `anim_json` from file, and `dst_texture` for texture embedding
+  - Uses `texture_name="kirin"` and `namespace="srparasites"`
+  - Saves output to `kirin.bbmodel` in the output directory
+- Renumbered subsequent steps: Step 20→21, Step 21→22
+- Updated step denominators for affected steps from `/21` to `/22`
+- Added `kirin.bbmodel` marker `[Blockbench Model]` in the summary section
+
+### Verification
+- Both files pass Python AST syntax checks
+- Kirin converter runs successfully with `--mode both`, generating `kirin.bbmodel` (398,167 bytes)
+- Output file `kirin.bbmodel` and `kirin.geo.json` copied to `public/converted/`
+
+
+## Task 8 - Update .bbmodel file references in page.tsx
+
+**Date:** 2026-03-04
+**Status:** Completed
+
+### Changes Made
+Updated all `.bbmodel` file references in `/home/z/my-project/src/app/page.tsx` from old debug names to the new mirror-stacking-fix versions:
+
+| Location | Old Value | New Value |
+|----------|-----------|-----------|
+| Line 91 (kirin config) | `/converted/kirin_debug.bbmodel` | `/converted/kirin.bbmodel` |
+| Line 117 (heblu config) | `/converted/heblu_debug.bbmodel` | `/converted/heblu.bbmodel` |
+| Line 324 (resourcePaths) | `${config.key}_debug.bbmodel` | `${config.key}.bbmodel` |
+| Line 602 (download button) | `${config.key}_debug.bbmodel` | `${config.key}.bbmodel` |
+| Line 831 (additional files) | `${config.key}_debug.bbmodel` | `${config.key}.bbmodel` |
+
+### Verification
+- No remaining `_debug.bbmodel` references in page.tsx (grep confirmed)
+- Both `kirin.bbmodel` and `heblu.bbmodel` exist in `/home/z/my-project/public/converted/`
+- TypeScript check passes (no errors in page.tsx)
+- Dev server returning 200 OK
+
+---
+Task ID: 1-8
+Agent: Main Agent
+Task: Fix mirror stacking disorder (镜像堆叠交错杂乱) in bbmodel_generator.py
+
+Work Log:
+- Analyzed the bbmodel_generator.py code and identified three root causes of mirror stacking
+- Fix 1: Added North↔South UV face swap in _convert_faces() for RH→LH Z-flip correction
+  - After M_model = diag(1,-1,-1), north_RH → south_LH, south_RH → north_LH
+  - Without swap, textures appear on wrong faces causing visual disorder
+- Fix 2: Added geometric X-mirror for mirrored cubes in _build_elements()
+  - When mirror=true, negate X from/to coordinates around bone pivot (X=0)
+  - Formula: [ox, ox+w] → [-(ox+w), -ox]
+  - Without this, mirrored cubes stay at non-mirrored position, causing stacking/overlap
+- Fix 3: Added West↔East UV face swap for mirrored cubes in _build_elements()
+  - After geometric X-mirror, face at -X was originally at +X, needs east UV
+  - Swap W/E UVs + mirror_uv flag = correct mirrored cube appearance
+- Integrated BBModelGenerator into run_heblu.py and run_kirin.py
+- Updated page.tsx to reference correct .bbmodel files (removed _debug suffix)
+- Regenerated all .bbmodel output files with fixes applied
+- Copied updated files to /public/converted/
+
+Stage Summary:
+- Three fixes applied to bbmodel_generator.py: N↔S UV swap, geometric X-mirror, W↔E UV swap
+- Both Heblu and Kirin converters regenerated with correct .bbmodel output
+- Frontend download links updated to point to fixed .bbmodel files
+- No cubes in Heblu/Kirin use mirror=true, so Fix 2&3 are preventive; Fix 1 is the critical fix
+- All syntax checks pass, dev server running correctly

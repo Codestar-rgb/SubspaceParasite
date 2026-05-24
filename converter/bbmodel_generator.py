@@ -33,6 +33,26 @@ CRITICAL: Coordinate System for .bbmodel
     DO apply X/Y rotation negation: [-rx, -ry, rz]
       (Blockbench internally uses different rotation sign conventions)
 
+  RH→LH Coordinate Corrections (applied in this generator):
+    1. North↔South UV Face Swap: The M_model = diag(1,-1,-1) Z-flip maps
+       north_RH → south_LH and south_RH → north_LH, so UV data assigned to
+       'north' in RH must be moved to 'south' in LH, and vice versa.
+       West/East and Up/Down face UVs are NOT swapped.
+    2. Geometric X-Mirror for mirrored cubes: When mirror=true, MC 1.12.2
+       applies scale(-1,1,1) which mirrors both geometry and UV around the
+       bone pivot (X=0 in bone-local space). The geometric mirror (negating
+       from/to X coordinates) must be applied in addition to setting
+       mirror_uv=true, otherwise mirrored cubes overlap with non-mirrored
+       cubes causing a "stacking" visual disorder.
+    3. West↔East UV Swap for mirrored cubes: After the geometric X-mirror,
+       the face at -X (west) was originally at +X (east) and vice versa,
+       so the UV data assigned to 'west' and 'east' must be swapped.
+       This swap is in addition to the geometric X-mirror and mirror_uv;
+       together the three produce the correct result:
+         a) Geometric X-mirror → correct cube position
+         b) West↔East UV swap → correct face-UV assignment
+         c) mirror_uv=true → correct per-face UV orientation (horizontal mirror)
+
   Bone pivots (origin) in .bbmodel are RELATIVE to the parent bone, matching
   the geo.json convention. Blockbench adds child mesh to parent mesh in Three.js,
   so the child's position (origin) is automatically relative to the parent.
@@ -223,18 +243,32 @@ class BBModelGenerator:
                 mirror = cube.get("mirror", False)
 
                 # Direct mapping from geo.json cube coordinates to .bbmodel.
-                # NO X-flip! .bbmodel uses the same coordinate orientation as
-                # geo.json for element positions.
                 from_pos = [
-                    float(origin[0]),                       # X: direct
+                    float(origin[0]),                       # X
                     float(origin[1]),                       # Y: direct
                     float(origin[2]),                       # Z: direct
                 ]
                 to_pos = [
-                    float(origin[0]) + float(size[0]),      # X: direct
+                    float(origin[0]) + float(size[0]),      # X
                     float(origin[1]) + float(size[1]),      # Y: direct
                     float(origin[2]) + float(size[2]),      # Z: direct
                 ]
+
+                # Geometric X-mirror for mirrored cubes.
+                # In MC 1.12.2, mirror=true causes scale(-1,1,1) which mirrors
+                # the cube's geometry around the bone pivot (X=0 in bone-local
+                # space). Without this, mirrored cubes stay at the non-mirrored
+                # position and overlap with non-mirrored cubes ("stacking").
+                if mirror:
+                    # Mirror X around bone pivot (X=0 in bone-local space)
+                    # Original: [ox, ox+w] → Mirrored: [-(ox+w), -ox]
+                    from_x_mirrored = -float(origin[0]) - float(size[0])
+                    to_x_mirrored = -float(origin[0])
+                    from_pos[0] = from_x_mirrored
+                    to_pos[0] = to_x_mirrored
+                    # Ensure from[0] <= to[0] (required by .bbmodel format)
+                    if from_pos[0] > to_pos[0]:
+                        from_pos[0], to_pos[0] = to_pos[0], from_pos[0]
 
                 # Cube origin = rotation center = [0, 0, 0] in bone-local space
                 # (The bone's pivot IS the rotation center; in bone-local coords it's at origin)
@@ -242,6 +276,16 @@ class BBModelGenerator:
 
                 # Build faces with UV conversion
                 faces = self._convert_faces(cube.get("uv", {}))
+
+                # For mirrored cubes, swap West↔East UV faces.
+                # After geometric X-mirror, the face at -X (west) was originally at +X (east),
+                # so it needs the east UV. Similarly, the face at +X (east) needs the west UV.
+                if mirror:
+                    west_uv = faces.get("west")
+                    east_uv = faces.get("east")
+                    if west_uv is not None and east_uv is not None:
+                        faces["west"] = east_uv
+                        faces["east"] = west_uv
 
                 element = {
                     "name": f"cube",
@@ -295,6 +339,19 @@ class BBModelGenerator:
                     "uv": [0.0, 0.0, 0.0, 0.0],
                     "texture": -1,
                 }
+
+        # North↔South UV Face Swap (RH→LH Z-flip correction)
+        # When converting from MC 1.12.2 (RH, Y-down) to .bbmodel (LH, Y-up),
+        # the M_model = diag(1, -1, -1) conversion Z-flips the physical faces:
+        #   north_RH [0,0,-1] → M_model*[0,0,-1] = [0,0,+1] = south_LH
+        #   south_RH [0,0,+1] → M_model*[0,0,+1] = [0,0,-1] = north_LH
+        # Therefore the UV that was assigned to 'north' in RH must go to 'south'
+        # in LH, and vice versa. West/East and Up/Down do NOT swap.
+        north_uv = faces.get("north")
+        south_uv = faces.get("south")
+        if north_uv is not None and south_uv is not None:
+            faces["north"] = south_uv
+            faces["south"] = north_uv
 
         return faces
 

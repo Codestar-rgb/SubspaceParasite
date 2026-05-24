@@ -65,7 +65,7 @@ def main():
         "client", "model", "entity", "derived", "ModelHeblu.java"
     )
 
-    print(f"[1/10] Reading ModelHeblu.java...")
+    print(f"[1/11] Reading ModelHeblu.java...")
     with open(model_java_path, 'r') as f:
         model_java = f.read()
     print(f"      Source: {len(model_java)} chars, {model_java.count(chr(10))} lines")
@@ -73,7 +73,7 @@ def main():
     # ========================================================================
     # Step 2: Convert model to .geo.json
     # ========================================================================
-    print("\n[2/10] Converting model to .geo.json...")
+    print("\n[2/11] Converting model to .geo.json...")
     converter = ModelConverter()
     result = converter.convert(model_java, "model.heblu")
 
@@ -98,39 +98,39 @@ def main():
 
     if output_mode in ("game", "both"):
         geo_json_path = os.path.join(output_dir, "heblu.geo.json")
-        print(f"\n[3/10] Saving game-format .geo.json to {geo_json_path}...")
+        print(f"\n[3/11] Saving game-format .geo.json to {geo_json_path}...")
         geo_json_str = json.dumps(geo_json, indent=2, ensure_ascii=False)
         with open(geo_json_path, 'w') as f:
             f.write(geo_json_str)
         print(f"      File size: {len(geo_json_str):,} bytes")
     else:
-        print("\n[3/10] Skipping game-format output")
+        print("\n[3/11] Skipping game-format output")
 
     # ========================================================================
     # Step 4: Save Blockbench preview format
     # ========================================================================
     if output_mode in ("blockbench", "both"):
         bb_geo_json_path = os.path.join(output_dir, "heblu_bb.geo.json")
-        print(f"\n[4/10] Saving Blockbench preview format...")
+        print(f"\n[4/11] Saving Blockbench preview format...")
         bb_geo_str = converter.to_blockbench_geo_json_string(result)
         with open(bb_geo_json_path, 'w') as f:
             f.write(bb_geo_str)
         print(f"      File size: {len(bb_geo_str):,} bytes")
     else:
-        print("\n[4/10] Skipping Blockbench format")
+        print("\n[4/11] Skipping Blockbench format")
 
     # ========================================================================
     # Step 5: Save bone mapping
     # ========================================================================
     mapping_path = os.path.join(output_dir, "heblu_bone_mapping.json")
-    print(f"\n[5/10] Saving bone mapping...")
+    print(f"\n[5/11] Saving bone mapping...")
     converter.save_bone_mapping(result, mapping_path)
     print(f"      Mapped bones: {len(bone_mapping)}")
 
     # ========================================================================
     # Step 6: Convert animations
     # ========================================================================
-    print(f"\n[6/10] Converting animations...")
+    print(f"\n[6/11] Converting animations...")
     anim_converter = AnimationConverter(bone_mapping)
     anim_result = anim_converter.convert_set_rotation_angles(
         model_java,
@@ -174,7 +174,7 @@ def main():
     # ========================================================================
     # Step 7: Apply easing fitting
     # ========================================================================
-    print(f"\n[7/10] Applying easing fitting...")
+    print(f"\n[7/11] Applying easing fitting...")
     easing_fitter_obj = EasingFitter()
     if anim_json:
         try:
@@ -241,7 +241,7 @@ def main():
     # ========================================================================
     # Step 8: Copy texture
     # ========================================================================
-    print(f"\n[8/10] Copying texture...")
+    print(f"\n[8/11] Copying texture...")
     src_texture = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "..", "jar_extract", "assets", "srparasites",
@@ -255,9 +255,37 @@ def main():
         print(f"      WARNING: Texture not found at {src_texture}")
 
     # ========================================================================
-    # Step 9: Parse render effects
+    # Step 9: Generate .bbmodel file
     # ========================================================================
-    print(f"\n[9/10] Parsing render effects...")
+    print(f"\n[9/11] Generating .bbmodel file...")
+    from bbmodel_generator import BBModelGenerator
+    bbmodel_gen = BBModelGenerator()
+
+    # Load animation if available
+    bb_anim_data = None
+    if anim_json:
+        anim_json_path_check = os.path.join(output_dir, "heblu.animation.json")
+        if os.path.isfile(anim_json_path_check):
+            with open(anim_json_path_check, 'r') as f:
+                bb_anim_data = json.load(f)
+
+    # Generate .bbmodel
+    bbmodel = bbmodel_gen.generate(
+        geo_json,
+        anim_json=bb_anim_data,
+        texture_path=dst_texture if os.path.exists(dst_texture) else None,
+        texture_name="heblu",
+        namespace="srparasites",
+    )
+
+    bbmodel_path = os.path.join(output_dir, "heblu.bbmodel")
+    bbmodel_gen.save(bbmodel, bbmodel_path)
+    print(f"      .bbmodel saved: {bbmodel_path}")
+
+    # ========================================================================
+    # Step 10: Parse render effects
+    # ========================================================================
+    print(f"\n[10/11] Parsing render effects...")
     render_effect_parser = RenderEffectParser(bone_mapping)
     render_effects = render_effect_parser.parse(model_java, model_java)
     print(f"      Emissive: {render_effects.emissive.detected}")
@@ -265,9 +293,9 @@ def main():
     print(f"      Conditional visibility: {len(render_effects.conditional_visibility)}")
 
     # ========================================================================
-    # Step 10: Generate Java model class
+    # Step 11: Generate Java model class
     # ========================================================================
-    print(f"\n[10/10] Generating GeckoLib Java model class...")
+    print(f"\n[11/11] Generating GeckoLib Java model class...")
     _generate_geckolib_java(output_dir, bone_mapping, render_effects)
 
     # ========================================================================
@@ -294,6 +322,8 @@ def main():
                 marker = " [Animation]"
             elif f == "heblu.png":
                 marker = " [Texture]"
+            elif f == "heblu.bbmodel":
+                marker = " [Blockbench Model]"
             elif f == "heblu_bb.geo.json":
                 marker = " [Blockbench Preview]"
             print(f"    {f} ({size:,} bytes){marker}")

@@ -523,7 +523,7 @@ def main():
     # ========================================================================
     # Step 19: Copy texture + save overlay/particle hints
     # ========================================================================
-    print(f"\n[19/21] Copying texture and saving hint files...")
+    print(f"\n[19/22] Copying texture and saving hint files...")
     src_texture = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "..", "jar_extract", "assets", "srparasites",
@@ -570,9 +570,37 @@ def main():
         print(f"      Overlay hints saved: {overlay_hints_path}")
 
     # ========================================================================
-    # Step 20: Generate SwingComponent utility + AnimationNames interface
+    # Step 20: Generate .bbmodel file
     # ========================================================================
-    print(f"\n[20/21] Generating SwingComponent utility...")
+    print(f"\n[20/22] Generating .bbmodel file...")
+    from bbmodel_generator import BBModelGenerator
+    bbmodel_gen = BBModelGenerator()
+
+    # Load animation if available
+    bb_anim_data = None
+    if anim_json:
+        anim_json_path_check = os.path.join(output_dir, "kirin.animation.json")
+        if os.path.isfile(anim_json_path_check):
+            with open(anim_json_path_check, 'r') as f:
+                bb_anim_data = json.load(f)
+
+    # Generate .bbmodel
+    bbmodel = bbmodel_gen.generate(
+        geo_json,
+        anim_json=bb_anim_data,
+        texture_path=dst_texture if os.path.exists(dst_texture) else None,
+        texture_name="kirin",
+        namespace="srparasites",
+    )
+
+    bbmodel_path = os.path.join(output_dir, "kirin.bbmodel")
+    bbmodel_gen.save(bbmodel, bbmodel_path)
+    print(f"      .bbmodel saved: {bbmodel_path}")
+
+    # ========================================================================
+    # Step 21: Generate SwingComponent utility + AnimationNames interface
+    # ========================================================================
+    print(f"\n[21/22] Generating SwingComponent utility...")
     swing_components = swing_result.swing_components if swing_result else []
     if swing_components:
         swing_util_path = os.path.join(output_dir, "KirinSwingComponents.java")
@@ -594,9 +622,9 @@ def main():
         print("      No swing components to generate")
 
     # ========================================================================
-    # Step 21: Generate enhanced Java model
+    # Step 22: Generate enhanced Java model
     # ========================================================================
-    print(f"\n[21/21] Generating enhanced Java model...")
+    print(f"\n[22/22] Generating enhanced Java model...")
     _generate_geckolib_java(output_dir, bone_mapping, render_effects, swing_result,
                             layers_result, events_result, visibility_result,
                             overlay_result, firstperson_result, naming_result)
@@ -684,6 +712,8 @@ def main():
             marker = " [GeckoLib Game]"
         elif f == "kirin.animation.json":
             marker = " [Animation]"
+        elif f == "kirin.bbmodel":
+            marker = " [Blockbench Model]"
         elif f.endswith(".java"):
             marker = " [Java Code]"
         print(f"    {f} ({size:,} bytes){marker}")
