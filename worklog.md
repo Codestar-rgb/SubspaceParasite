@@ -1112,3 +1112,40 @@ Stage Summary:
 - bano.geo.json matches reference exactly (63/63 bones)
 - SRP-Bedrock-Models.zip replaced with fresh conversion output
 - All conversion pipeline components verified correct: model_converter.py, bbmodel_generator.py, bbmodel_to_geo.py
+---
+Task ID: 1
+Agent: Main Agent
+Task: Backup converter as ZIP, upgrade with animation extraction, batch convert with animations, re-export geo.json+textures zip
+
+Work Log:
+- Backed up converter to MinecraftModelMigrator-Pro-backup-20260527_150725.zip
+- Created new animation_extractor.py module with comprehensive animation parsing:
+  - State machine parsing (getParasiteStatus, getOpen, getFlyingState)
+  - swingX/Y/Z helper expansion to mathematical expressions
+  - moveY helper expansion to position offsets
+  - Intermediate variable resolution
+  - Numerical sampling with Douglas-Peucker simplification
+  - Loop continuity enforcement
+  - Proper animation naming (idle, walk, attack, death, evolved, etc.)
+  - M_MODEL coordinate transform (Y/Z negation for rotation and position)
+- Integrated animation extraction into batch_convert.py with max_bones=150 limit
+- Fixed multiple bugs in animation_extractor.py:
+  - Fixed infinite loop in _extract_top_level_if_blocks
+  - Fixed double _walk suffix in animation naming
+  - Fixed else block detection for boolean conditions (host open/closed)
+  - Added efficient depth-map based if block extraction
+- Batch converted 154 models with animation extraction:
+  - 31 models have animations (105 total animations)
+  - Animation distribution: 1-9 animations per model
+  - Common names: idle, idle_walk, evolved, evolved_walk, attack, attack_walk, death, sleeping, closed, open
+- Re-exported bedrock geo.json + PNG files (154 models, all successful)
+- Extracted animation.json files from bbmodel files
+- Created SRP-Bedrock-Models.zip (4.5MB) containing geo.json + PNG + animation.json
+
+Stage Summary:
+- New file: converter/animation_extractor.py (1400+ lines)
+- 154 .bbmodel files updated with animations (31 with animation data)
+- 154 geo.json + PNG files in MROLF-TGNBF/bedrock/
+- 31 animation.json files in MROLF-TGNBF/bedrock/
+- SRP-Bedrock-Models.zip updated with all files including animations
+- Key animation patterns supported: status-based state machines, boolean conditions, swingX/Y/Z, moveY, direct rotation/position assignments

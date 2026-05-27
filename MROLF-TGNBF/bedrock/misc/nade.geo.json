@@ -3,14 +3,14 @@
   "minecraft:geometry": [
     {
       "description": {
-        "identifier": "geometry.model.nade",
+        "identifier": "geometry.nade",
         "texture_width": 64,
         "texture_height": 32,
         "visible_bounds_width": 2,
         "visible_bounds_height": 3,
         "visible_bounds_offset": [
           0,
-          1,
+          1.5,
           0
         ]
       },
@@ -24,7 +24,7 @@
           ],
           "rotation": [
             0.0,
-            -180.0,
+            180.0,
             0.0
           ]
         },
@@ -32,15 +32,14 @@
           "name": "mainbody",
           "pivot": [
             0.0,
-            4.0,
-            0.0
+            -44.0,
+            -0.0
           ],
-          "parent": "root",
           "cubes": [
             {
               "origin": [
                 -8.0,
-                0.0,
+                -4.0,
                 -8.0
               ],
               "size": [
@@ -52,16 +51,6 @@
                 "north": {
                   "uv": [
                     48.0,
-                    16.0
-                  ],
-                  "uv_size": [
-                    16.0,
-                    16.0
-                  ]
-                },
-                "east": {
-                  "uv": [
-                    32.0,
                     16.0
                   ],
                   "uv_size": [
@@ -81,7 +70,17 @@
                 },
                 "west": {
                   "uv": [
-                    0.0,
+                    0,
+                    16.0
+                  ],
+                  "uv_size": [
+                    16.0,
+                    16.0
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    32.0,
                     16.0
                   ],
                   "uv_size": [
@@ -91,27 +90,28 @@
                 },
                 "up": {
                   "uv": [
-                    32.0,
-                    16.0
+                    16.0,
+                    0
                   ],
                   "uv_size": [
-                    -16.0,
-                    -16.0
+                    16.0,
+                    16.0
                   ]
                 },
                 "down": {
                   "uv": [
-                    48.0,
-                    16.0
+                    32.0,
+                    0
                   ],
                   "uv_size": [
-                    -16.0,
-                    -16.0
+                    16.0,
+                    16.0
                   ]
                 }
               }
             }
-          ]
+          ],
+          "parent": "root"
         }
       ]
     }

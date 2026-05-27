@@ -373,7 +373,8 @@ def find_texture(texture_dir: str, entity_name: str) -> str:
 
 
 def convert_model(java_path: str, output_dir: str, category: str, output_name: str,
-                  texture_path: str = None, namespace: str = "srparasites") -> dict:
+                  texture_path: str = None, namespace: str = "srparasites",
+                  extract_anim: bool = True) -> dict:
     """
     Convert a single model Java file to .bbmodel format.
 
@@ -381,7 +382,7 @@ def convert_model(java_path: str, output_dir: str, category: str, output_name: s
         - success: bool
         - output_path: str (if success)
         - error: str (if not success)
-        - stats: dict (bones, cubes, texture_size)
+        - stats: dict (bones, cubes, texture_size, animations)
     """
     try:
         # Read Java source
@@ -401,32 +402,54 @@ def convert_model(java_path: str, output_dir: str, category: str, output_name: s
         tex_w = geo_json['model']['texture_width']
         tex_h = geo_json['model']['texture_height']
 
-        # Step 2: Generate .bbmodel
+        # Step 2: Extract animations (if enabled)
+        anim_json = None
+        anim_count = 0
+        if extract_anim:
+            try:
+                from animation_extractor import AnimationExtractor
+                anim_extractor = AnimationExtractor(bone_mapping)
+                # Skip animation extraction for very large models (>150 animated bones)
+                # as they are too slow and typically need custom handling
+                anim_json = anim_extractor.extract(source, output_name, max_bones=150)
+                if anim_json and 'animations' in anim_json:
+                    anim_count = len(anim_json['animations'])
+            except Exception as e:
+                # Animation extraction failure should not block geometry conversion
+                import traceback as tb
+                print(f"\n    [ANIM WARN] {output_name}: {e}")
+                anim_json = None
+
+        # Step 3: Generate .bbmodel
         from bbmodel_generator import BBModelGenerator
         bbgen = BBModelGenerator()
 
         bbmodel = bbgen.generate(
             geo_json,
-            anim_json=None,  # No animation conversion in batch mode
+            anim_json=anim_json,
             texture_path=texture_path,
             texture_name=output_name,
             namespace=namespace,
         )
 
-        # Step 3: Save .bbmodel
+        # Step 4: Save .bbmodel
         cat_dir = os.path.join(output_dir, category)
         os.makedirs(cat_dir, exist_ok=True)
         out_path = os.path.join(cat_dir, f"{output_name}.bbmodel")
         bbgen.save(bbmodel, out_path)
 
+        stats = {
+            'bones': len(bones),
+            'cubes': total_cubes,
+            'texture_size': f"{tex_w}x{tex_h}",
+        }
+        if anim_count > 0:
+            stats['animations'] = anim_count
+
         return {
             'success': True,
             'output_path': out_path,
-            'stats': {
-                'bones': len(bones),
-                'cubes': total_cubes,
-                'texture_size': f"{tex_w}x{tex_h}",
-            }
+            'stats': stats,
         }
 
     except Exception as e:
@@ -505,10 +528,16 @@ def main():
             texture_path=tex_path,
             namespace=args.namespace,
         )
+        
+        # Force garbage collection to prevent memory buildup
+        if i % 10 == 0:
+            import gc
+            gc.collect()
 
         if result['success']:
             stats = result['stats']
-            print(f"OK ({stats['bones']} bones, {stats['cubes']} cubes, {stats['texture_size']})")
+            anim_info = f", {stats['animations']} anims" if 'animations' in stats else ""
+            print(f"OK ({stats['bones']} bones, {stats['cubes']} cubes, {stats['texture_size']}{anim_info})")
             results['success'].append((category, output_name, stats))
         else:
             print(f"FAILED: {result['error']}")
