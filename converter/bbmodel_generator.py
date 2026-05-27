@@ -549,6 +549,11 @@ class BBModelGenerator:
             # Convert rotation using scipy
             bb_rotation = self._convert_rotation_to_bbmodel(rotation)
 
+            # Root bone: add 180° Y rotation so the model faces the correct direction
+            # (RH→LH coordinate flip causes the model to appear reversed)
+            if bone_name == "root":
+                bb_rotation[1] += 180.0
+
             group = {
                 "name": bone_name,
                 "uuid": bone_uid,
