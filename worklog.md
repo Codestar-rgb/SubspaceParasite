@@ -1065,3 +1065,26 @@ Stage Summary:
 - Circular reference bug fixed in bbmodel_generator.py (iterative pivot computation)
 - Files ready at /tmp/Koasc-Edcvb/ (needs manual git push with credentials)
 - Also saved as /home/z/my-project/koasc-edcvb-updated.tar.gz
+---
+Task ID: 1
+Agent: Main
+Task: Fix bbmodel_to_geo.py converter based on reference bano.geo.json, re-batch-convert 154 models, replace zip
+
+Work Log:
+- Analyzed reference bano.geo.json (exported by Blockbench plugin) vs our buggy output
+- Identified 6 major bugs in the coordinate transformation:
+  1. Bone pivots: Was computing relative (child-parent), should be absolute with X negated
+  2. Cube origins: Was using from-bone_pivot offset, should mirror X: [-to_x, from_y, from_z]
+  3. Root rotation: Was subtracting 180° Y, should keep it as [0, -180, 0]
+  4. All rotations: Was using scipy intrinsic→extrinsic conversion (wrong results), should just negate X and Y components [-rx, -ry, rz] since geo.json uses same intrinsic xyz convention
+  5. UV up/down faces: Was using [u1,v1]+positive size, should use [u2,v2]+negative size for Bedrock convention
+  6. Y_OFFSET subtraction: Was incorrectly applied to root's children, removed entirely
+- Verified fixed converter produces 0 mismatches against reference bano.geo.json (63/63 bones match)
+- Batch converted all 154 models successfully (154/154 OK, 20433 bones, 20283 cubes)
+- Created replacement SRP-Bedrock-Models.zip (4.5MB) in MROLF-TGNBF/
+
+Stage Summary:
+- All coordinate transformations now match Blockbench's Bedrock/GeckoLib export exactly
+- Key transformation: X-mirror all positions and negate X/Y rotations to account for root's 180° Y rotation
+- geo.json uses same intrinsic xyz Euler angle convention as bbmodel (no scipy conversion needed)
+- Output: MROLF-TGNBF/bedrock/ (154 geo.json + 154 PNG), MROLF-TGNBF/SRP-Bedrock-Models.zip
