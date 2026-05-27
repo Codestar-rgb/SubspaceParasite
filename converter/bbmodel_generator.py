@@ -117,6 +117,11 @@ class BBModelGenerator:
             from convert_model_pos() results that already lack the +24 Y offset.
           - Deeper descendants: abs_pivot = parent_abs_pivot + child.pivot
 
+        Circular reference handling:
+          Some models have circular parent references (e.g. A→B→C→A) caused by
+          decompilation artifacts. We break cycles by treating already-visited
+          bones as having no further parent chain.
+
         Returns:
             Dict mapping bone_name -> [abs_x, abs_y, abs_z]
         """
@@ -131,34 +136,68 @@ class BBModelGenerator:
             root_pivot = [0.0, 24.0, 0.0]
         abs_pivots["root"] = root_pivot
 
-        # Recursively compute absolute pivots
-        def compute_abs(bone_name: str, parent_abs: list, is_root_child: bool = False):
-            bone = bone_map[bone_name]
-            pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
+        # Build parent -> children mapping for efficient traversal
+        children_map: Dict[str, list] = {}
+        for bone in bones:
+            parent = bone.get("parent")
+            if parent is not None:
+                if parent not in children_map:
+                    children_map[parent] = []
+                children_map[parent].append(bone["name"])
 
-            abs_pivot = [parent_abs[i] + pivot[i] for i in range(3)]
+        # Iteratively compute absolute pivots (avoids recursion depth issues)
+        # Also detects and breaks circular references.
+        def compute_abs_iterative(start_bone: str, parent_abs: list, is_root_child: bool = False):
+            stack = [(start_bone, parent_abs, is_root_child)]
+            visited = set()
 
-            # For direct children of root, add Y_OFFSET correction
-            if is_root_child:
-                abs_pivot[1] += Y_OFFSET
+            while stack:
+                bone_name, p_abs, is_rc = stack.pop()
 
-            abs_pivots[bone_name] = abs_pivot
+                # Break circular references
+                if bone_name in abs_pivots or bone_name in visited:
+                    continue
+                visited.add(bone_name)
 
-            # Recurse for children
-            for child_bone in bones:
-                if child_bone.get("parent") == bone_name:
-                    compute_abs(child_bone["name"], abs_pivot, is_root_child=False)
+                bone = bone_map[bone_name]
+                pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
+
+                abs_pivot = [p_abs[i] + pivot[i] for i in range(3)]
+
+                # For direct children of root, add Y_OFFSET correction
+                if is_rc:
+                    abs_pivot[1] += Y_OFFSET
+
+                abs_pivots[bone_name] = abs_pivot
+
+                # Push children onto stack
+                for child_name in children_map.get(bone_name, []):
+                    stack.append((child_name, abs_pivot, False))
 
         # Process root's children (they get the Y_OFFSET correction)
-        for bone in bones:
-            if bone.get("parent") == "root":
-                compute_abs(bone["name"], root_pivot, is_root_child=True)
+        for child_name in children_map.get("root", []):
+            compute_abs_iterative(child_name, root_pivot, is_root_child=True)
 
         # Also handle top-level bones that aren't "root" and don't have a parent
         for bone in bones:
             if bone["name"] not in abs_pivots and bone.get("parent") is None and bone["name"] != "root":
                 pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
                 abs_pivots[bone["name"]] = pivot
+
+        # Handle bones that still don't have absolute pivots (orphaned due to broken cycles)
+        # These bones have a parent reference that was part of a cycle;
+        # use the root pivot as their base
+        for bone in bones:
+            if bone["name"] not in abs_pivots:
+                pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
+                # Try to use parent's absolute pivot if available
+                parent = bone.get("parent")
+                if parent and parent in abs_pivots:
+                    parent_abs = abs_pivots[parent]
+                    abs_pivots[bone["name"]] = [parent_abs[i] + pivot[i] for i in range(3)]
+                else:
+                    # Fallback: use root pivot as base
+                    abs_pivots[bone["name"]] = [root_pivot[i] + pivot[i] for i in range(3)]
 
         return abs_pivots
 
@@ -533,40 +572,65 @@ class BBModelGenerator:
             }
             groups.append(group)
 
-        # Build outliner tree (hierarchical structure with UUID references)
-        def build_outliner_entry(bone_name: str) -> dict:
-            """Build a single bone group entry for the outliner tree."""
-            bone_uid = bone_uuids[bone_name]
-            children = []
+        # Build outliner tree (iterative to avoid recursion depth issues)
+        # Cycle-safe: tracks visited bones to prevent infinite loops
+        def build_outliner_tree(start_bone: str) -> dict:
+            """Build outliner tree iteratively from start_bone."""
+            visited = set()
+            # We use a two-pass approach:
+            # 1. Build entries for all bones (bottom-up where possible)
+            # 2. Assemble the tree structure
+            entries = {}
 
-            # Add element UUIDs (cubes belonging to this bone)
-            for cube_idx in range(len(bone_map[bone_name].get("cubes", []))):
-                elem_uuid = element_uuids[(bone_name, cube_idx)]
-                children.append(elem_uuid)
+            # BFS to collect all bones reachable from start_bone
+            queue = [start_bone]
+            bone_order = []
+            while queue:
+                bn = queue.pop(0)
+                if bn in visited:
+                    continue
+                visited.add(bn)
+                bone_order.append(bn)
+                for child_name in children_map.get(bn, []):
+                    if child_name not in visited:
+                        queue.append(child_name)
 
-            # Add child bone groups
-            for child_name in children_map.get(bone_name, []):
-                children.append(build_outliner_entry(child_name))
+            # Build entries in reverse order (children before parents)
+            for bn in reversed(bone_order):
+                bone_uid = bone_uuids[bn]
+                children = []
 
-            entry = {
-                "uuid": bone_uid,
-                "isOpen": False,
-            }
+                # Add element UUIDs (cubes belonging to this bone)
+                for cube_idx in range(len(bone_map[bn].get("cubes", []))):
+                    elem_uuid = element_uuids[(bn, cube_idx)]
+                    children.append(elem_uuid)
 
-            if children:
-                entry["children"] = children
+                # Add child bone group entries (already built)
+                for child_name in children_map.get(bn, []):
+                    if child_name in entries:
+                        children.append(entries[child_name])
 
-            return entry
+                entry = {
+                    "uuid": bone_uid,
+                    "isOpen": False,
+                }
+
+                if children:
+                    entry["children"] = children
+
+                entries[bn] = entry
+
+            return entries[start_bone]
 
         # Build the outliner starting from root-level bones
         outliner = []
 
         if "root" in bone_map:
-            outliner.append(build_outliner_entry("root"))
+            outliner.append(build_outliner_tree("root"))
         else:
             # No explicit root bone - add top-level bones directly
             for bone_name in root_bones:
-                outliner.append(build_outliner_entry(bone_name))
+                outliner.append(build_outliner_tree(bone_name))
 
         return groups, outliner
 

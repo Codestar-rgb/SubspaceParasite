@@ -1041,3 +1041,27 @@ Stage Summary:
 - 100% match on element positions, UVs, and group origins against reference
 - 100% physically correct rotations (121 exact + 21 equivalent = 142/142)
 - Both Kirin and Heblu models generate correctly
+---
+Task ID: batch-convert
+Agent: main
+Task: Batch convert all SRParasites creature models from latest source and push to GitHub
+
+Work Log:
+- Cloned source repo (Qom-Inseac) containing latest SRP source code
+- Discovered 154 Model*.java files across 16 categories
+- Cloned target repo (Koasc-Edcvb) which had 147 existing .bbmodel files
+- Created batch_convert.py script for mass conversion
+- Fixed circular bone reference bug in bbmodel_generator.py (_compute_absolute_pivots and _build_groups_and_outliner) - changed from recursive to iterative with cycle detection
+- Successfully converted all 154 models (149 initially, 5 more after circular ref fix)
+- Replaced all old files in target repo with new conversions
+- Verified no residual non-.bbmodel files remain
+- Verified all 154 source models have corresponding output files
+- Committed to local git but could not push (no GitHub credentials in environment)
+
+Stage Summary:
+- 154 .bbmodel files generated across 16 categories
+- 19,851 total bones, 19,701 total cubes converted
+- 7 new models not in previous conversion: tonro, unvo, venkrol, venkrolSII, venkrolSIII, nULL, rond
+- Circular reference bug fixed in bbmodel_generator.py (iterative pivot computation)
+- Files ready at /tmp/Koasc-Edcvb/ (needs manual git push with credentials)
+- Also saved as /home/z/my-project/koasc-edcvb-updated.tar.gz
