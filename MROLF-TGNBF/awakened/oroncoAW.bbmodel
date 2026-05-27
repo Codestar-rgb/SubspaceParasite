@@ -1,0 +1,5314 @@
+{
+  "meta": {
+    "format_version": "5.0",
+    "model_format": "bedrock",
+    "model_identifier": "oroncoAW",
+    "creation_time": 1779881269,
+    "modification_time": 1779881269,
+    "box_uv": false,
+    "face_size": [
+      1,
+      1
+    ]
+  },
+  "name": "oroncoAW",
+  "geometry_name": "model.oroncoAW",
+  "model_identifier": "oroncoAW",
+  "visible_box": [
+    80,
+    -50,
+    5
+  ],
+  "variable_placeholders": "",
+  "variable_placeholder_buttons": [],
+  "resolution": {
+    "width": 64,
+    "height": 32
+  },
+  "elements": [
+    {
+      "name": "mainbody_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        0.0,
+        56.0,
+        22.0
+      ],
+      "to": [
+        1.0,
+        57.0,
+        23.0
+      ],
+      "autouv": 0,
+      "color": 0,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        57.0,
+        23.0
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            3.0,
+            1.0,
+            4.0,
+            2.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            2.0,
+            1.0,
+            3.0,
+            2.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            1.0,
+            1.0,
+            2.0,
+            2.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            0.0,
+            1.0,
+            1.0,
+            2.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            1.0,
+            0.0,
+            2.0,
+            1.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            2.0,
+            0.0,
+            3.0,
+            1.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "e1fd0e9d"
+    },
+    {
+      "name": "jointH_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -0.5,
+        24.5,
+        34.5
+      ],
+      "to": [
+        0.5,
+        25.5,
+        35.5
+      ],
+      "autouv": 0,
+      "color": 1,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        25.0,
+        35.0
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            7.0,
+            1.0,
+            8.0,
+            2.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            6.0,
+            1.0,
+            7.0,
+            2.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            5.0,
+            1.0,
+            6.0,
+            2.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            4.0,
+            1.0,
+            5.0,
+            2.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            5.0,
+            0.0,
+            6.0,
+            1.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            6.0,
+            0.0,
+            7.0,
+            1.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "5c86cbe0"
+    },
+    {
+      "name": "body_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -35.0,
+        -12.0,
+        -5.5
+      ],
+      "to": [
+        35.0,
+        68.0,
+        42.5
+      ],
+      "autouv": 0,
+      "color": 2,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        67.0,
+        23.0
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            403.0,
+            48.0,
+            473.0,
+            128.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            355.0,
+            48.0,
+            403.0,
+            128.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            285.0,
+            48.0,
+            355.0,
+            128.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            237.0,
+            48.0,
+            285.0,
+            128.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            285.0,
+            0.0,
+            355.0,
+            48.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            355.0,
+            0.0,
+            425.0,
+            48.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "c4ffad27"
+    },
+    {
+      "name": "b_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -15.0,
+        25.0,
+        -79.0
+      ],
+      "to": [
+        15.0,
+        55.0,
+        -13.0
+      ],
+      "autouv": 0,
+      "color": 3,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        40.0,
+        -13.0
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            162.0,
+            66.0,
+            192.0,
+            96.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            96.0,
+            66.0,
+            162.0,
+            96.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            66.0,
+            66.0,
+            96.0,
+            96.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            0.0,
+            66.0,
+            66.0,
+            96.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            66.0,
+            0.0,
+            96.0,
+            66.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            96.0,
+            0.0,
+            126.0,
+            66.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "00fa44d8"
+    },
+    {
+      "name": "head_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -6.0,
+        25.0,
+        36.0
+      ],
+      "to": [
+        6.0,
+        37.0,
+        54.0
+      ],
+      "autouv": 0,
+      "color": 4,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        25.0,
+        44.0
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            240.0,
+            200.0,
+            252.0,
+            212.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            222.0,
+            200.0,
+            240.0,
+            212.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            210.0,
+            200.0,
+            222.0,
+            212.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            192.0,
+            200.0,
+            210.0,
+            212.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            210.0,
+            182.0,
+            222.0,
+            200.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            222.0,
+            182.0,
+            234.0,
+            200.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "4d592581"
+    },
+    {
+      "name": "taclejointUM1_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -0.5,
+        25.0,
+        36.0
+      ],
+      "to": [
+        0.5,
+        26.0,
+        40.0
+      ],
+      "autouv": 0,
+      "color": 5,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        25.5,
+        39.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            177.0,
+            52.0,
+            178.0,
+            53.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            173.0,
+            52.0,
+            177.0,
+            53.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            172.0,
+            52.0,
+            173.0,
+            53.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            168.0,
+            52.0,
+            172.0,
+            53.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            172.0,
+            48.0,
+            173.0,
+            52.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            173.0,
+            48.0,
+            174.0,
+            52.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "5ad0d348"
+    },
+    {
+      "name": "taclejointDM1_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -0.5,
+        36.0,
+        38.0
+      ],
+      "to": [
+        0.5,
+        37.0,
+        39.0
+      ],
+      "autouv": 0,
+      "color": 6,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        36.5,
+        38.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            187.0,
+            49.0,
+            188.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            186.0,
+            49.0,
+            187.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            185.0,
+            49.0,
+            186.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            184.0,
+            49.0,
+            185.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            185.0,
+            48.0,
+            186.0,
+            49.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            186.0,
+            48.0,
+            187.0,
+            49.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "382d3f94"
+    },
+    {
+      "name": "taclejointRM1_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -6.5,
+        30.5,
+        39.0
+      ],
+      "to": [
+        -5.5,
+        31.5,
+        40.0
+      ],
+      "autouv": 0,
+      "color": 7,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        -6.0,
+        31.0,
+        39.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            113.0,
+            49.0,
+            114.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            112.0,
+            49.0,
+            113.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            111.0,
+            49.0,
+            112.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            110.0,
+            49.0,
+            111.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            111.0,
+            48.0,
+            112.0,
+            49.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            112.0,
+            48.0,
+            113.0,
+            49.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "6f127f61"
+    },
+    {
+      "name": "taclejointLM1_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        5.5,
+        30.5,
+        39.0
+      ],
+      "to": [
+        6.5,
+        31.5,
+        40.0
+      ],
+      "autouv": 0,
+      "color": 0,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        6.0,
+        31.0,
+        39.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            203.0,
+            49.0,
+            204.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            202.0,
+            49.0,
+            203.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            201.0,
+            49.0,
+            202.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            200.0,
+            49.0,
+            201.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            201.0,
+            48.0,
+            202.0,
+            49.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            202.0,
+            48.0,
+            203.0,
+            49.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "2c253510"
+    },
+    {
+      "name": "dec_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -0.10000000000000009,
+        20.2,
+        43.5
+      ],
+      "to": [
+        7.9,
+        29.2,
+        46.5
+      ],
+      "autouv": 0,
+      "color": 1,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        3.9,
+        27.2,
+        45.0
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            102.0,
+            80.0,
+            110.0,
+            89.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            99.0,
+            80.0,
+            102.0,
+            89.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            91.0,
+            80.0,
+            99.0,
+            89.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            88.0,
+            80.0,
+            91.0,
+            89.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            91.0,
+            77.0,
+            99.0,
+            80.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            99.0,
+            77.0,
+            107.0,
+            80.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "f85c7782"
+    },
+    {
+      "name": "dec_1_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -7.9,
+        20.2,
+        43.5
+      ],
+      "to": [
+        0.10000000000000009,
+        29.2,
+        46.5
+      ],
+      "autouv": 0,
+      "color": 2,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        -3.9,
+        27.2,
+        45.0
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            155.0,
+            80.0,
+            163.0,
+            89.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            152.0,
+            80.0,
+            155.0,
+            89.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            144.0,
+            80.0,
+            152.0,
+            89.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            141.0,
+            80.0,
+            144.0,
+            89.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            144.0,
+            77.0,
+            152.0,
+            80.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            152.0,
+            77.0,
+            160.0,
+            80.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "e2b87507"
+    },
+    {
+      "name": "tentacle_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -3.5,
+        23.0,
+        28.5
+      ],
+      "to": [
+        3.5,
+        28.0,
+        41.5
+      ],
+      "autouv": 0,
+      "color": 3,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        25.5,
+        39.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            291.0,
+            283.0,
+            298.0,
+            288.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            278.0,
+            283.0,
+            291.0,
+            288.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            271.0,
+            283.0,
+            278.0,
+            288.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            258.0,
+            283.0,
+            271.0,
+            288.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            271.0,
+            270.0,
+            278.0,
+            283.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            278.0,
+            270.0,
+            285.0,
+            283.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "8990349c"
+    },
+    {
+      "name": "taclejointUM2_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -0.5,
+        25.0,
+        30.0
+      ],
+      "to": [
+        0.5,
+        26.0,
+        31.0
+      ],
+      "autouv": 0,
+      "color": 4,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        25.5,
+        30.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            183.0,
+            49.0,
+            184.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            182.0,
+            49.0,
+            183.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            181.0,
+            49.0,
+            182.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            180.0,
+            49.0,
+            181.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            181.0,
+            48.0,
+            182.0,
+            49.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            182.0,
+            48.0,
+            183.0,
+            49.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "1c8ad489"
+    },
+    {
+      "name": "tentacle_1_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -3.0,
+        23.5,
+        18.5
+      ],
+      "to": [
+        3.0,
+        27.5,
+        30.5
+      ],
+      "autouv": 0,
+      "color": 5,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        25.5,
+        29.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            129.0,
+            266.0,
+            135.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            117.0,
+            266.0,
+            129.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            111.0,
+            266.0,
+            117.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            99.0,
+            266.0,
+            111.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            111.0,
+            254.0,
+            117.0,
+            266.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            117.0,
+            254.0,
+            123.0,
+            266.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "07b28b04"
+    },
+    {
+      "name": "taclejointUM3_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -0.5,
+        25.0,
+        20.0
+      ],
+      "to": [
+        0.5,
+        26.0,
+        21.0
+      ],
+      "autouv": 0,
+      "color": 6,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        25.5,
+        20.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            349.0,
+            37.0,
+            350.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            348.0,
+            37.0,
+            349.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            347.0,
+            37.0,
+            348.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            346.0,
+            37.0,
+            347.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            347.0,
+            36.0,
+            348.0,
+            37.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            348.0,
+            36.0,
+            349.0,
+            37.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "4220d86d"
+    },
+    {
+      "name": "tentacle_2_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -2.5,
+        24.0,
+        8.5
+      ],
+      "to": [
+        2.5,
+        27.0,
+        20.5
+      ],
+      "autouv": 0,
+      "color": 7,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        25.5,
+        19.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            450.0,
+            267.0,
+            455.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            438.0,
+            267.0,
+            450.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            433.0,
+            267.0,
+            438.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            421.0,
+            267.0,
+            433.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            433.0,
+            255.0,
+            438.0,
+            267.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            438.0,
+            255.0,
+            443.0,
+            267.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "c24436da"
+    },
+    {
+      "name": "taclejointUM4_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -0.5,
+        25.0,
+        10.0
+      ],
+      "to": [
+        0.5,
+        26.0,
+        11.0
+      ],
+      "autouv": 0,
+      "color": 0,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        25.5,
+        10.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            35.0,
+            9.0,
+            36.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            34.0,
+            9.0,
+            35.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            33.0,
+            9.0,
+            34.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            32.0,
+            9.0,
+            33.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            33.0,
+            8.0,
+            34.0,
+            9.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            34.0,
+            8.0,
+            35.0,
+            9.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "9a17f4e6"
+    },
+    {
+      "name": "tentacle_3_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -2.0,
+        24.5,
+        -1.5
+      ],
+      "to": [
+        2.0,
+        26.5,
+        10.5
+      ],
+      "autouv": 0,
+      "color": 1,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        25.5,
+        9.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            28.0,
+            262.0,
+            32.0,
+            264.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            16.0,
+            262.0,
+            28.0,
+            264.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            12.0,
+            262.0,
+            16.0,
+            264.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            0.0,
+            262.0,
+            12.0,
+            264.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            12.0,
+            250.0,
+            16.0,
+            262.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            16.0,
+            250.0,
+            20.0,
+            262.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "a3963092"
+    },
+    {
+      "name": "tentacle_4_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -3.5,
+        34.0,
+        28.5
+      ],
+      "to": [
+        3.5,
+        39.0,
+        39.5
+      ],
+      "autouv": 0,
+      "color": 2,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        36.5,
+        38.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            61.0,
+            246.0,
+            68.0,
+            251.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            50.0,
+            246.0,
+            61.0,
+            251.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            43.0,
+            246.0,
+            50.0,
+            251.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            32.0,
+            246.0,
+            43.0,
+            251.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            43.0,
+            235.0,
+            50.0,
+            246.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            50.0,
+            235.0,
+            57.0,
+            246.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "9acb09d7"
+    },
+    {
+      "name": "taclejointDM2_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -0.5,
+        36.0,
+        30.0
+      ],
+      "to": [
+        0.5,
+        37.0,
+        31.0
+      ],
+      "autouv": 0,
+      "color": 3,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        36.5,
+        30.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            199.0,
+            49.0,
+            200.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            198.0,
+            49.0,
+            199.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            197.0,
+            49.0,
+            198.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            196.0,
+            49.0,
+            197.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            197.0,
+            48.0,
+            198.0,
+            49.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            198.0,
+            48.0,
+            199.0,
+            49.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "3da1a9ea"
+    },
+    {
+      "name": "tentacle_5_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -3.0,
+        34.5,
+        19.5
+      ],
+      "to": [
+        3.0,
+        38.5,
+        30.5
+      ],
+      "autouv": 0,
+      "color": 4,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        36.5,
+        29.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            427.0,
+            263.0,
+            433.0,
+            267.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            416.0,
+            263.0,
+            427.0,
+            267.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            410.0,
+            263.0,
+            416.0,
+            267.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            399.0,
+            263.0,
+            410.0,
+            267.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            410.0,
+            252.0,
+            416.0,
+            263.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            416.0,
+            252.0,
+            422.0,
+            263.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "41a2950d"
+    },
+    {
+      "name": "taclejointDM3_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -0.5,
+        36.0,
+        21.0
+      ],
+      "to": [
+        0.5,
+        37.0,
+        22.0
+      ],
+      "autouv": 0,
+      "color": 5,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        36.5,
+        21.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            355.0,
+            37.0,
+            356.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            354.0,
+            37.0,
+            355.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            353.0,
+            37.0,
+            354.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            352.0,
+            37.0,
+            353.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            353.0,
+            36.0,
+            354.0,
+            37.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            354.0,
+            36.0,
+            355.0,
+            37.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "67ea0b6d"
+    },
+    {
+      "name": "tentacle_6_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -2.5,
+        35.0,
+        10.5
+      ],
+      "to": [
+        2.5,
+        38.0,
+        21.5
+      ],
+      "autouv": 0,
+      "color": 6,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        36.5,
+        20.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            27.0,
+            247.0,
+            32.0,
+            250.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            16.0,
+            247.0,
+            27.0,
+            250.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            11.0,
+            247.0,
+            16.0,
+            250.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            0.0,
+            247.0,
+            11.0,
+            250.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            11.0,
+            236.0,
+            16.0,
+            247.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            16.0,
+            236.0,
+            21.0,
+            247.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "a97ec128"
+    },
+    {
+      "name": "taclejointDM4_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -0.5,
+        36.0,
+        12.0
+      ],
+      "to": [
+        0.5,
+        37.0,
+        13.0
+      ],
+      "autouv": 0,
+      "color": 7,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        36.5,
+        12.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            73.0,
+            9.0,
+            74.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            72.0,
+            9.0,
+            73.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            71.0,
+            9.0,
+            72.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            70.0,
+            9.0,
+            71.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            71.0,
+            8.0,
+            72.0,
+            9.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            72.0,
+            8.0,
+            73.0,
+            9.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "b16db758"
+    },
+    {
+      "name": "tentacle_7_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -2.0,
+        35.5,
+        0.5
+      ],
+      "to": [
+        2.0,
+        37.5,
+        12.5
+      ],
+      "autouv": 0,
+      "color": 0,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        36.5,
+        11.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            28.0,
+            234.0,
+            32.0,
+            236.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            16.0,
+            234.0,
+            28.0,
+            236.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            12.0,
+            234.0,
+            16.0,
+            236.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            0.0,
+            234.0,
+            12.0,
+            236.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            12.0,
+            222.0,
+            16.0,
+            234.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            16.0,
+            222.0,
+            20.0,
+            234.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "feac73c9"
+    },
+    {
+      "name": "tentacle_8_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -9.5,
+        28.5,
+        27.5
+      ],
+      "to": [
+        -2.5,
+        33.5,
+        40.5
+      ],
+      "autouv": 0,
+      "color": 1,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        -6.0,
+        31.0,
+        39.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            380.0,
+            287.0,
+            387.0,
+            292.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            367.0,
+            287.0,
+            380.0,
+            292.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            360.0,
+            287.0,
+            367.0,
+            292.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            347.0,
+            287.0,
+            360.0,
+            292.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            360.0,
+            274.0,
+            367.0,
+            287.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            367.0,
+            274.0,
+            374.0,
+            287.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "cba62057"
+    },
+    {
+      "name": "taclejointRM2_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -6.5,
+        30.5,
+        29.0
+      ],
+      "to": [
+        -5.5,
+        31.5,
+        30.0
+      ],
+      "autouv": 0,
+      "color": 2,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        -6.0,
+        31.0,
+        29.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            209.0,
+            49.0,
+            210.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            208.0,
+            49.0,
+            209.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            207.0,
+            49.0,
+            208.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            206.0,
+            49.0,
+            207.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            207.0,
+            48.0,
+            208.0,
+            49.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            208.0,
+            48.0,
+            209.0,
+            49.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "af166317"
+    },
+    {
+      "name": "tentacle_9_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -10.0,
+        29.0,
+        16.5
+      ],
+      "to": [
+        -2.0,
+        33.0,
+        29.5
+      ],
+      "autouv": 0,
+      "color": 3,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        -6.0,
+        31.0,
+        28.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            110.0,
+            247.0,
+            118.0,
+            251.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            97.0,
+            247.0,
+            110.0,
+            251.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            89.0,
+            247.0,
+            97.0,
+            251.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            76.0,
+            247.0,
+            89.0,
+            251.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            89.0,
+            234.0,
+            97.0,
+            247.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            97.0,
+            234.0,
+            105.0,
+            247.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "c9339936"
+    },
+    {
+      "name": "taclejointRM3_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -6.5,
+        30.5,
+        18.0
+      ],
+      "to": [
+        -5.5,
+        31.5,
+        19.0
+      ],
+      "autouv": 0,
+      "color": 4,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        -6.0,
+        31.0,
+        18.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            361.0,
+            37.0,
+            362.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            360.0,
+            37.0,
+            361.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            359.0,
+            37.0,
+            360.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            358.0,
+            37.0,
+            359.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            359.0,
+            36.0,
+            360.0,
+            37.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            360.0,
+            36.0,
+            361.0,
+            37.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "6b786ff2"
+    },
+    {
+      "name": "tentacle_10_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -9.5,
+        29.5,
+        5.5
+      ],
+      "to": [
+        -2.5,
+        32.5,
+        18.5
+      ],
+      "autouv": 0,
+      "color": 5,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        -6.0,
+        31.0,
+        17.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            206.0,
+            266.0,
+            213.0,
+            269.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            193.0,
+            266.0,
+            206.0,
+            269.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            186.0,
+            266.0,
+            193.0,
+            269.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            173.0,
+            266.0,
+            186.0,
+            269.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            186.0,
+            253.0,
+            193.0,
+            266.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            193.0,
+            253.0,
+            200.0,
+            266.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "f4dbd0e9"
+    },
+    {
+      "name": "taclejointRM4_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -6.5,
+        30.5,
+        7.0
+      ],
+      "to": [
+        -5.5,
+        31.5,
+        8.0
+      ],
+      "autouv": 0,
+      "color": 6,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        -6.0,
+        31.0,
+        7.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            80.0,
+            9.0,
+            81.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            79.0,
+            9.0,
+            80.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            78.0,
+            9.0,
+            79.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            77.0,
+            9.0,
+            78.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            78.0,
+            8.0,
+            79.0,
+            9.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            79.0,
+            8.0,
+            80.0,
+            9.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "c556a4cb"
+    },
+    {
+      "name": "tentacle_11_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        -9.0,
+        30.0,
+        -5.5
+      ],
+      "to": [
+        -3.0,
+        32.0,
+        7.5
+      ],
+      "autouv": 0,
+      "color": 7,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        -6.0,
+        31.0,
+        6.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            591.0,
+            256.0,
+            597.0,
+            258.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            578.0,
+            256.0,
+            591.0,
+            258.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            572.0,
+            256.0,
+            578.0,
+            258.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            559.0,
+            256.0,
+            572.0,
+            258.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            572.0,
+            243.0,
+            578.0,
+            256.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            578.0,
+            243.0,
+            584.0,
+            256.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "012af42f"
+    },
+    {
+      "name": "tentacle_12_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        2.5,
+        28.5,
+        27.5
+      ],
+      "to": [
+        9.5,
+        33.5,
+        40.5
+      ],
+      "autouv": 0,
+      "color": 0,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        6.0,
+        31.0,
+        39.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            330.0,
+            270.0,
+            337.0,
+            275.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            317.0,
+            270.0,
+            330.0,
+            275.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            310.0,
+            270.0,
+            317.0,
+            275.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            297.0,
+            270.0,
+            310.0,
+            275.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            310.0,
+            257.0,
+            317.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            317.0,
+            257.0,
+            324.0,
+            270.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "cee67b99"
+    },
+    {
+      "name": "taclejointLM2_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        5.5,
+        30.5,
+        29.0
+      ],
+      "to": [
+        6.5,
+        31.5,
+        30.0
+      ],
+      "autouv": 0,
+      "color": 1,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        6.0,
+        31.0,
+        29.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            573.0,
+            49.0,
+            574.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            572.0,
+            49.0,
+            573.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            571.0,
+            49.0,
+            572.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            570.0,
+            49.0,
+            571.0,
+            50.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            571.0,
+            48.0,
+            572.0,
+            49.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            572.0,
+            48.0,
+            573.0,
+            49.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "4bcc8afa"
+    },
+    {
+      "name": "tentacle_13_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        2.0,
+        29.0,
+        16.5
+      ],
+      "to": [
+        10.0,
+        33.0,
+        29.5
+      ],
+      "autouv": 0,
+      "color": 2,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        6.0,
+        31.0,
+        28.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            152.0,
+            201.0,
+            160.0,
+            205.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            139.0,
+            201.0,
+            152.0,
+            205.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            131.0,
+            201.0,
+            139.0,
+            205.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            118.0,
+            201.0,
+            131.0,
+            205.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            131.0,
+            188.0,
+            139.0,
+            201.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            139.0,
+            188.0,
+            147.0,
+            201.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "e91bf467"
+    },
+    {
+      "name": "taclejointLM3_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        5.5,
+        30.5,
+        18.0
+      ],
+      "to": [
+        6.5,
+        31.5,
+        19.0
+      ],
+      "autouv": 0,
+      "color": 3,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        6.0,
+        31.0,
+        18.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            367.0,
+            37.0,
+            368.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            366.0,
+            37.0,
+            367.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            365.0,
+            37.0,
+            366.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            364.0,
+            37.0,
+            365.0,
+            38.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            365.0,
+            36.0,
+            366.0,
+            37.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            366.0,
+            36.0,
+            367.0,
+            37.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "d2ceab46"
+    },
+    {
+      "name": "tentacle_14_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        2.5,
+        29.5,
+        5.5
+      ],
+      "to": [
+        9.5,
+        32.5,
+        18.5
+      ],
+      "autouv": 0,
+      "color": 4,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        6.0,
+        31.0,
+        17.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            405.0,
+            267.0,
+            412.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            392.0,
+            267.0,
+            405.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            385.0,
+            267.0,
+            392.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            372.0,
+            267.0,
+            385.0,
+            270.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            385.0,
+            254.0,
+            392.0,
+            267.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            392.0,
+            254.0,
+            399.0,
+            267.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "c78d5a83"
+    },
+    {
+      "name": "taclejointLM4_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        5.5,
+        30.5,
+        7.0
+      ],
+      "to": [
+        6.5,
+        31.5,
+        8.0
+      ],
+      "autouv": 0,
+      "color": 5,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        6.0,
+        31.0,
+        7.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            97.0,
+            9.0,
+            98.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            96.0,
+            9.0,
+            97.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            95.0,
+            9.0,
+            96.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            94.0,
+            9.0,
+            95.0,
+            10.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            95.0,
+            8.0,
+            96.0,
+            9.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            96.0,
+            8.0,
+            97.0,
+            9.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "d131d610"
+    },
+    {
+      "name": "tentacle_15_c0",
+      "box_uv": false,
+      "render_order": "default",
+      "locked": false,
+      "export": true,
+      "scope": 0,
+      "allow_mirror_modeling": true,
+      "from": [
+        3.0,
+        30.0,
+        -5.5
+      ],
+      "to": [
+        9.0,
+        32.0,
+        7.5
+      ],
+      "autouv": 0,
+      "color": 6,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        6.0,
+        31.0,
+        6.5
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            583.0,
+            218.0,
+            589.0,
+            220.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            570.0,
+            218.0,
+            583.0,
+            220.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            564.0,
+            218.0,
+            570.0,
+            220.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            551.0,
+            218.0,
+            564.0,
+            220.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            564.0,
+            205.0,
+            570.0,
+            218.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            570.0,
+            205.0,
+            576.0,
+            218.0
+          ],
+          "texture": 0
+        }
+      },
+      "type": "cube",
+      "uuid": "d3f8454c"
+    }
+  ],
+  "groups": [
+    {
+      "name": "root",
+      "uuid": "2e7cdc73",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        24.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        180.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "mainbody",
+      "uuid": "cc4d7047",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        57.0,
+        23.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "jointH",
+      "uuid": "17b13e3e",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        25.0,
+        35.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "body",
+      "uuid": "eb9edf1b",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        67.0,
+        23.0
+      ],
+      "rotation": [
+        17.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "b",
+      "uuid": "be3ed298",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        40.0,
+        -13.0
+      ],
+      "rotation": [
+        20.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "head",
+      "uuid": "c9fb3882",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        25.0,
+        44.0
+      ],
+      "rotation": [
+        -148.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointUM1",
+      "uuid": "4b3d686c",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        25.5,
+        39.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointDM1",
+      "uuid": "6a55a818",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        36.5,
+        38.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointRM1",
+      "uuid": "d1e0a5f8",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        -6.0,
+        31.0,
+        39.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointLM1",
+      "uuid": "a7935bdf",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        6.0,
+        31.0,
+        39.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "dec",
+      "uuid": "1b5d7326",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        3.9,
+        27.2,
+        45.0
+      ],
+      "rotation": [
+        21.999985,
+        -3.2e-05,
+        45.000008
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "dec_1",
+      "uuid": "a76fd5a3",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        -3.9,
+        27.2,
+        45.0
+      ],
+      "rotation": [
+        21.999985,
+        3.2e-05,
+        -45.000008
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle",
+      "uuid": "6d5de278",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        25.5,
+        39.5
+      ],
+      "rotation": [
+        -20.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointUM2",
+      "uuid": "71559cd0",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        25.5,
+        30.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_1",
+      "uuid": "3f109123",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        25.5,
+        29.5
+      ],
+      "rotation": [
+        18.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointUM3",
+      "uuid": "ce81fd13",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        25.5,
+        20.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_2",
+      "uuid": "8ae6a363",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        25.5,
+        19.5
+      ],
+      "rotation": [
+        28.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointUM4",
+      "uuid": "53dcb921",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        25.5,
+        10.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_3",
+      "uuid": "60d2454c",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        25.5,
+        9.5
+      ],
+      "rotation": [
+        32.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_4",
+      "uuid": "19f2552d",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        36.5,
+        38.5
+      ],
+      "rotation": [
+        -58.0,
+        0.0,
+        -180.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointDM2",
+      "uuid": "1cde901a",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        36.5,
+        30.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_5",
+      "uuid": "ebedf63a",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        36.5,
+        29.5
+      ],
+      "rotation": [
+        23.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointDM3",
+      "uuid": "cdf0bbb1",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        36.5,
+        21.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_6",
+      "uuid": "d1915445",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        36.5,
+        20.5
+      ],
+      "rotation": [
+        22.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointDM4",
+      "uuid": "762f1d1c",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        36.5,
+        12.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_7",
+      "uuid": "981a5d53",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        0.0,
+        36.5,
+        11.5
+      ],
+      "rotation": [
+        20.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_8",
+      "uuid": "9911a792",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        -6.0,
+        31.0,
+        39.5
+      ],
+      "rotation": [
+        -54.0,
+        19.0,
+        -90.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointRM2",
+      "uuid": "89e5ef6e",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        -6.0,
+        31.0,
+        29.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_9",
+      "uuid": "edb420b5",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        -6.0,
+        31.0,
+        28.5
+      ],
+      "rotation": [
+        27.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointRM3",
+      "uuid": "7c94b08c",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        -6.0,
+        31.0,
+        18.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_10",
+      "uuid": "7707a8b0",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        -6.0,
+        31.0,
+        17.5
+      ],
+      "rotation": [
+        36.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointRM4",
+      "uuid": "4a8f305b",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        -6.0,
+        31.0,
+        7.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_11",
+      "uuid": "8e5c0cea",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        -6.0,
+        31.0,
+        6.5
+      ],
+      "rotation": [
+        38.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_12",
+      "uuid": "aba2ffcc",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        6.0,
+        31.0,
+        39.5
+      ],
+      "rotation": [
+        -54.0,
+        -19.0,
+        90.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointLM2",
+      "uuid": "ecd0bb10",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        6.0,
+        31.0,
+        29.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_13",
+      "uuid": "30741b38",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        6.0,
+        31.0,
+        28.5
+      ],
+      "rotation": [
+        27.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointLM3",
+      "uuid": "12bfea19",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        6.0,
+        31.0,
+        18.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_14",
+      "uuid": "71531a21",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        6.0,
+        31.0,
+        17.5
+      ],
+      "rotation": [
+        36.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "taclejointLM4",
+      "uuid": "8b91fac9",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        6.0,
+        31.0,
+        7.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    },
+    {
+      "name": "tentacle_15",
+      "uuid": "ce609c54",
+      "export": true,
+      "locked": false,
+      "scope": 0,
+      "selected": false,
+      "_static": {
+        "properties": {},
+        "temp_data": {}
+      },
+      "origin": [
+        6.0,
+        31.0,
+        6.5
+      ],
+      "rotation": [
+        38.0,
+        0.0,
+        0.0
+      ],
+      "bedrock_binding": "",
+      "color": 0,
+      "children": [],
+      "reset": false,
+      "shade": true,
+      "mirror_uv": false,
+      "visibility": true,
+      "autouv": 0,
+      "isOpen": false,
+      "primary_selected": false
+    }
+  ],
+  "outliner": [
+    {
+      "uuid": "2e7cdc73",
+      "isOpen": false,
+      "children": [
+        {
+          "uuid": "cc4d7047",
+          "isOpen": false,
+          "children": [
+            "e1fd0e9d",
+            {
+              "uuid": "eb9edf1b",
+              "isOpen": false,
+              "children": [
+                "c4ffad27"
+              ]
+            },
+            {
+              "uuid": "be3ed298",
+              "isOpen": false,
+              "children": [
+                "00fa44d8"
+              ]
+            }
+          ]
+        },
+        {
+          "uuid": "17b13e3e",
+          "isOpen": false,
+          "children": [
+            "5c86cbe0",
+            {
+              "uuid": "c9fb3882",
+              "isOpen": false,
+              "children": [
+                "4d592581",
+                {
+                  "uuid": "4b3d686c",
+                  "isOpen": false,
+                  "children": [
+                    "5ad0d348",
+                    {
+                      "uuid": "6d5de278",
+                      "isOpen": false,
+                      "children": [
+                        "8990349c",
+                        {
+                          "uuid": "71559cd0",
+                          "isOpen": false,
+                          "children": [
+                            "1c8ad489",
+                            {
+                              "uuid": "3f109123",
+                              "isOpen": false,
+                              "children": [
+                                "07b28b04",
+                                {
+                                  "uuid": "ce81fd13",
+                                  "isOpen": false,
+                                  "children": [
+                                    "4220d86d",
+                                    {
+                                      "uuid": "8ae6a363",
+                                      "isOpen": false,
+                                      "children": [
+                                        "c24436da",
+                                        {
+                                          "uuid": "53dcb921",
+                                          "isOpen": false,
+                                          "children": [
+                                            "9a17f4e6",
+                                            {
+                                              "uuid": "60d2454c",
+                                              "isOpen": false,
+                                              "children": [
+                                                "a3963092"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "uuid": "6a55a818",
+                  "isOpen": false,
+                  "children": [
+                    "382d3f94",
+                    {
+                      "uuid": "19f2552d",
+                      "isOpen": false,
+                      "children": [
+                        "9acb09d7",
+                        {
+                          "uuid": "1cde901a",
+                          "isOpen": false,
+                          "children": [
+                            "3da1a9ea",
+                            {
+                              "uuid": "ebedf63a",
+                              "isOpen": false,
+                              "children": [
+                                "41a2950d",
+                                {
+                                  "uuid": "cdf0bbb1",
+                                  "isOpen": false,
+                                  "children": [
+                                    "67ea0b6d",
+                                    {
+                                      "uuid": "d1915445",
+                                      "isOpen": false,
+                                      "children": [
+                                        "a97ec128",
+                                        {
+                                          "uuid": "762f1d1c",
+                                          "isOpen": false,
+                                          "children": [
+                                            "b16db758",
+                                            {
+                                              "uuid": "981a5d53",
+                                              "isOpen": false,
+                                              "children": [
+                                                "feac73c9"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "uuid": "d1e0a5f8",
+                  "isOpen": false,
+                  "children": [
+                    "6f127f61",
+                    {
+                      "uuid": "9911a792",
+                      "isOpen": false,
+                      "children": [
+                        "cba62057",
+                        {
+                          "uuid": "89e5ef6e",
+                          "isOpen": false,
+                          "children": [
+                            "af166317",
+                            {
+                              "uuid": "edb420b5",
+                              "isOpen": false,
+                              "children": [
+                                "c9339936",
+                                {
+                                  "uuid": "7c94b08c",
+                                  "isOpen": false,
+                                  "children": [
+                                    "6b786ff2",
+                                    {
+                                      "uuid": "7707a8b0",
+                                      "isOpen": false,
+                                      "children": [
+                                        "f4dbd0e9",
+                                        {
+                                          "uuid": "4a8f305b",
+                                          "isOpen": false,
+                                          "children": [
+                                            "c556a4cb",
+                                            {
+                                              "uuid": "8e5c0cea",
+                                              "isOpen": false,
+                                              "children": [
+                                                "012af42f"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "uuid": "a7935bdf",
+                  "isOpen": false,
+                  "children": [
+                    "2c253510",
+                    {
+                      "uuid": "aba2ffcc",
+                      "isOpen": false,
+                      "children": [
+                        "cee67b99",
+                        {
+                          "uuid": "ecd0bb10",
+                          "isOpen": false,
+                          "children": [
+                            "4bcc8afa",
+                            {
+                              "uuid": "30741b38",
+                              "isOpen": false,
+                              "children": [
+                                "e91bf467",
+                                {
+                                  "uuid": "12bfea19",
+                                  "isOpen": false,
+                                  "children": [
+                                    "d2ceab46",
+                                    {
+                                      "uuid": "71531a21",
+                                      "isOpen": false,
+                                      "children": [
+                                        "c78d5a83",
+                                        {
+                                          "uuid": "8b91fac9",
+                                          "isOpen": false,
+                                          "children": [
+                                            "d131d610",
+                                            {
+                                              "uuid": "ce609c54",
+                                              "isOpen": false,
+                                              "children": [
+                                                "d3f8454c"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "uuid": "1b5d7326",
+                  "isOpen": false,
+                  "children": [
+                    "f85c7782"
+                  ]
+                },
+                {
+                  "uuid": "a76fd5a3",
+                  "isOpen": false,
+                  "children": [
+                    "e2b87507"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "name": "oroncoAW",
+      "folder": "entity/monster",
+      "namespace": "srparasites",
+      "source": "",
+      "mode": "bitmap",
+      "saved": true,
+      "uuid": "e3b17472",
+      "width": 64,
+      "height": 32,
+      "uv_width": 64,
+      "uv_height": 32
+    }
+  ],
+  "animations": []
+}
