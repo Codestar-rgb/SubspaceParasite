@@ -139,32 +139,230 @@ def discover_model_files(source_dir: str) -> list:
     return models
 
 
+# Comprehensive model-name -> texture-file mapping
+# Keys are the output_name from batch conversion, values are the PNG filename (without .png)
+# This mapping handles the many naming convention differences between model classes and textures.
+TEXTURE_NAME_MAP = {
+    # abomination
+    "aboBodies": "abobodies",
+    "aboHead": "abohead",
+    # adapted
+    "banoAdapted": "banoa",
+    "canraAdapted": "canraa",
+    "emanaAdapted": "emanaa",
+    "gimAdapted": "gima",
+    "hullAdapted": "hull",
+    "ikiAdapted": "ikia",
+    "lumAdapted": "luma",
+    "noglaAdapted": "noglaa",
+    "ranracAdapted": "ranraca",
+    "shycoAdapted": "shycoa",
+    "wymoAdapted": "wymoa",
+    "zaaAdapted": "zaaa",
+    # ancient
+    "oronco": "oronco",
+    "oroncoTen": "oroncoten1",
+    "terla": "terla",
+    # awakened
+    "oroncoAW": "oronco",
+    "oroncoAWFL": "oronco",
+    # crude
+    "cruxA": "cruxa",
+    "cruxB": "cruxb",
+    "done": "done",
+    "heed": "heed",
+    "host": "host",
+    "hostII": "hostii",
+    "inhooM": "inhoom",
+    "inhooS": "inhoos",
+    "leer": "leer",
+    "mes": "mes",
+    "quac": "quac",
+    # derived
+    "heblu": "heblu",
+    "kirin": "kirin",
+    # deterrent
+    "dod": "dod",
+    "dodSII": "dodsii",
+    "dodSIII": "dodsiii",
+    "dodSIV": "dodsiv",
+    "dodSIVH": "dodsivh",
+    "dodT": "dodt",
+    "leem": "leem",
+    "leemB": "leemb",
+    "leemSII": "leemsii",
+    "leemSIII": "leemsiii",
+    "leemSIV": "leemsiv",
+    "nak": "nak",
+    "rof": "rof",
+    "tonro": "tonro",
+    "unvo": "unvo",
+    "venkrol": "venkrol",
+    "venkrolSII": "venkrolsii",
+    "venkrolSIII": "venkrolsiii",
+    "venkrolSIV": "venkrolsiv",
+    "venkrolSV": "venkrolsv",
+    # feral
+    "ferBear": "ferbear",
+    "ferCow": "fercow",
+    "ferEnderman": "ferenderman",
+    "ferHorse": "ferhorse",
+    "ferHuman": "ferhuman",
+    "ferPig": "ferpig",
+    "ferSheep": "fersheep",
+    "ferVillager": "fervillager",
+    "ferWolf": "ferwolf",
+    # focused
+    "banoFocused": "banov",
+    "shycoFocused": "shycov",
+    # hijacked
+    "hiBlaze": "hiblaze",
+    "hiGolem": "higolem",
+    "hiSkeleton": "hiskeleton",
+    # inborn
+    "ata": "ata",
+    "buthol": "buthol",
+    "gothol": "gothol",
+    "kol": "kol",
+    "lesh": "lesh",
+    "lodo": "lodo",
+    "mor": "vermin",
+    "mudo": "mudo",
+    "nuuh": "nuuh",
+    "rathol": "rathol",
+    "viin": "vermina",
+    # infected - body
+    "dorpa": "dorpa",
+    "infBear": "infbear",
+    "infCow": "cow",
+    "infDragonE": "infdragone",
+    "infEnderman": "infenderman",
+    "infHorse": "infhorse",
+    "infHuman": "human",
+    "infPig": "pig",
+    "infPlayer": "infplayer",
+    "infSheep": "sheep",
+    "infSquid": "squid",
+    "infVillager": "villager",
+    "infWolf": "wolf",
+    # infected - heads
+    "infCowHead": "cowh",
+    "infDragonEHead": "infdragone",
+    "infEndermanHead": "infenderman",
+    "infHorseHead": "infhorse",
+    "infHumanHead": "humanh",
+    "infPigHead": "pigh",
+    "infPlayerHead": "infplayer",
+    "infSheepHead": "sheeph",
+    "infVillagerHead": "villagerh",
+    "infWolfHead": "wolfh",
+    # infected - special
+    "speBear": "spebear",
+    "speCow": "specow",
+    "speEnderman": "speenderman",
+    "speHuman": "spehuman",
+    "speSheep": "spesheep",
+    "speVillager": "spevillager",
+    # misc
+    "biomassPod": "biomasspod",
+    "biomassVenkrol": "biomassvenkrol",
+    "bombHost": "bombh",
+    "bombJinjo": "bombj",
+    "bombOmboo": "bombo",
+    "gore": "gore",
+    "meteor": "sky_flash",
+    "nULL": "test",
+    "nade": "nade",
+    "orbScary": "orbscary",
+    "orbVoid": "orbvoid",
+    "tendrilAnged": "tendrilanged",
+    "tendrilBano": "tendrilbano",
+    "tendrilCanra": "tendrilcanra",
+    "tendrilDragonELW": "tendrildragonelw",
+    "tendrilDragonERW": "tendrildragonerw",
+    "tendrilEsor": "tendrilesor",
+    "tendrilNogla": "tendrilnogla",
+    "tendrilShyco": "tendrilshyco",
+    # primitive
+    "bano": "bano",
+    "canra": "canra",
+    "emana": "emana",
+    "gim": "gim",
+    "hull": "hull",
+    "iki": "ikia",
+    "lum": "lum",
+    "nogla": "nogla",
+    "ranrac": "ranrac",
+    "shyco": "shyco",
+    "wymo": "wymo",
+    "zaa": "zaa",
+    # projectile
+    "dropPod": "ancientpod",
+    "projectileHomming": "gnat",
+    # pure
+    "alafha": "alafha",
+    "anged": "anged",
+    "elvia": "elvia",
+    "esor": "esor",
+    "flam": "flam",
+    "flog": "flog",
+    "ganro": "ganro",
+    "jinjo": "jinjo",
+    "lencia": "lencia",
+    "omboo": "omboo",
+    "orch": "orch",
+    "pheon": "pheon",
+    "rond": "test",
+    "tenn": "testb",
+    "vesta": "vesta",
+}
+
+# Additional texture directories to search (projectile textures, etc.)
+EXTRA_TEX_DIRS = {
+    "projectile": "projectile",
+}
+
+
 def find_texture(texture_dir: str, entity_name: str) -> str:
     """
-    Try to find the texture PNG for a given entity name.
+    Find the texture PNG for a given entity name using the comprehensive mapping.
+    Falls back to heuristics if not in the map.
     Returns the path if found, None otherwise.
     """
     if not texture_dir or not os.path.isdir(texture_dir):
         return None
 
-    # Try exact name match
-    candidates = [
-        f"{entity_name}.png",
-        f"{entity_name.lower()}.png",
-    ]
+    # 1. Check the explicit mapping first
+    tex_name = TEXTURE_NAME_MAP.get(entity_name)
+    if tex_name:
+        # Check in main monster directory
+        candidate = os.path.join(texture_dir, f"{tex_name}.png")
+        if os.path.isfile(candidate):
+            return candidate
 
-    # Also try with some common suffix variations
-    # e.g., kirin -> kirin.png, infBear -> infbear.png, etc.
+        # Check in subdirectories (projectile, layer, etc.)
+        parent_dir = os.path.dirname(texture_dir)
+        for sub in EXTRA_TEX_DIRS.values():
+            sub_candidate = os.path.join(parent_dir, sub, f"{tex_name}.png")
+            if os.path.isfile(sub_candidate):
+                return sub_candidate
+
+    # 2. Fallback heuristic: try lowercase exact match
     lower_name = entity_name.lower()
-    for suffix in ["", "a", "b", "c"]:
-        candidates.append(f"{lower_name}{suffix}.png")
+    candidates = [
+        f"{lower_name}.png",
+        f"{lower_name}a.png",
+        f"{lower_name}h.png",
+        f"{lower_name}v.png",
+        f"{lower_name}b.png",
+    ]
 
     for candidate in candidates:
         full_path = os.path.join(texture_dir, candidate)
         if os.path.isfile(full_path):
             return full_path
 
-    # Try partial match
+    # 3. Fallback: partial prefix match
     for f in os.listdir(texture_dir):
         if f.endswith(".png"):
             base = f[:-4].lower()
