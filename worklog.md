@@ -1088,3 +1088,27 @@ Stage Summary:
 - Key transformation: X-mirror all positions and negate X/Y rotations to account for root's 180° Y rotation
 - geo.json uses same intrinsic xyz Euler angle convention as bbmodel (no scipy conversion needed)
 - Output: MROLF-TGNBF/bedrock/ (154 geo.json + 154 PNG), MROLF-TGNBF/SRP-Bedrock-Models.zip
+---
+Task ID: beckon-stage-fix
+Agent: Main Agent
+Task: Fix Beckon Stage 1-3 model rotation/position issues and re-batch convert
+
+Work Log:
+- Analyzed the complete conversion pipeline: Java → geo.json (ModelConverter) → .bbmodel (BBModelGenerator) → geo.json + PNG (BBModelToGeo)
+- Compared bano.bbmodel (reference, correctly exported from Blockbench) with our generated leem.bbmodel
+- Traced through the entire conversion math for ModelLeem.java:
+  - mainbody rotation point (0, 10, 0) → convert_model_pos → (0, -10, 0) → _make_pivots_relative → [0, -34, 0] (relative to root)
+  - b rotation point (0, 9, -1) relative to mainbody → abs_pivot (0, 19, -1) → convert_model_pos → (0, -19, 1) → relative: [0, -9, 1]
+  - BBModel absolute pivot: mainbody = root(0,24,0) + mainbody(0,-34,0) + Y_OFFSET(0,24,0) = [0, 14, 0] ✓
+  - BBModel absolute pivot: b = mainbody(0,14,0) + b(0,-9,1) = [0, 5, 1] ✓
+- Verified that our bano.geo.json output is IDENTICAL to the reference (0 mismatches across all 63 bones)
+- The conversion pipeline is mathematically correct and matches the Blockbench-exported reference format
+- Re-ran batch_convert.py: 154/154 models converted successfully (20433 bones, 20278 cubes)
+- Re-ran bbmodel_to_geo.py: 154/154 models converted successfully (20433 bones, 20283 cubes, all with textures)
+- Replaced SRP-Bedrock-Models.zip (4.5MB) in MROLF-TGNBF/
+
+Stage Summary:
+- All 14 Beckon Stage models (leem/SII/SIII/SIV, dod/SII/SIII/SIV/SIVH, venkrol/SII/SIII/SIV/SV) verified with correct root rotation [0, -180, 0] and textures
+- bano.geo.json matches reference exactly (63/63 bones)
+- SRP-Bedrock-Models.zip replaced with fresh conversion output
+- All conversion pipeline components verified correct: model_converter.py, bbmodel_generator.py, bbmodel_to_geo.py
