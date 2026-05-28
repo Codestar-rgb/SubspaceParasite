@@ -168,11 +168,31 @@ class AbominationAnimExtractor:
 
         blocks = self._extract_status_blocks(method_body, status_var)
 
-        # Parse each status block
+        # First pass: collect outer-block variables (GS/GD etc.) from each status block
+        # These are defined BEFORE the stillAni check and are needed by walk code
+        outer_vars_by_status: Dict[int, Dict[str, str]] = {}
+
         for block in blocks:
             status_val = block['status_value']
             body = block['body']
 
+            # Check for stillAni sub-condition
+            still_match = re.search(
+                r'if\s*\(\s*!\s*\w+\.getStillAni\(\)\s*\)\s*\{', body
+            )
+
+            if still_match:
+                # Variables defined in the outer block (before stillAni) include GS/GD
+                outer_body = body[:still_match.start()]
+                outer_vars = self._parse_vars(outer_body)
+                outer_vars_by_status[status_val] = outer_vars
+
+        # Second pass: parse each status block with inherited outer vars
+        walk_state = None  # We merge all walk animations into one
+
+        for block in blocks:
+            status_val = block['status_value']
+            body = block['body']
             state_name = STATUS_NAMES.get(status_val, f'stage{status_val}')
 
             # Check for stillAni sub-condition
@@ -186,16 +206,29 @@ class AbominationAnimExtractor:
 
                 if walk_body:
                     # Walk animation (when moving)
+                    # CRITICAL: Merge outer block variables (GS/GD) into walk vars
+                    # These are set before the stillAni check and used in swing calls
                     walk_vars = self._parse_vars(walk_body)
+                    outer_vars = outer_vars_by_status.get(status_val, {})
+                    # Outer vars take lower priority - only add if not in walk_vars
+                    for var_name, var_expr in outer_vars.items():
+                        if var_name not in walk_vars:
+                            walk_vars[var_name] = var_expr
+
                     walk_assigns = self._extract_all_assignments(walk_body, walk_vars)
                     if walk_assigns:
-                        states.append({
-                            'name': f'{state_name}_walk',
-                            'bone_exprs': walk_assigns,
-                            'vars_def': walk_vars,
-                            'is_walk': True,
-                            'loop': 'loop',
-                        })
+                        # Merge all walk states into a single "walk" animation
+                        # Use the first (idle/normal) state's walk as the base
+                        if walk_state is None:
+                            walk_state = {
+                                'name': 'walk',
+                                'bone_exprs': walk_assigns,
+                                'vars_def': walk_vars,
+                                'is_walk': True,
+                                'loop': 'loop',
+                            }
+                        # If we already have a walk state, skip duplicates
+                        # (user wants ONE walk animation, not three identical ones)
 
                 # Idle part: code before/after the stillAni block
                 idle_body = body[:still_match.start()]
@@ -224,13 +257,28 @@ class AbominationAnimExtractor:
                         for chan_data in bone_data.values()
                         for expr in chan_data.values()
                     )
-                    states.append({
-                        'name': f'{state_name}_walk' if has_limb else state_name,
-                        'bone_exprs': block_assigns,
-                        'vars_def': block_vars,
-                        'is_walk': has_limb,
-                        'loop': 'loop',
-                    })
+                    if has_limb:
+                        # Merge into single walk animation
+                        if walk_state is None:
+                            walk_state = {
+                                'name': 'walk',
+                                'bone_exprs': block_assigns,
+                                'vars_def': block_vars,
+                                'is_walk': True,
+                                'loop': 'loop',
+                            }
+                    else:
+                        states.append({
+                            'name': state_name,
+                            'bone_exprs': block_assigns,
+                            'vars_def': block_vars,
+                            'is_walk': False,
+                            'loop': 'loop',
+                        })
+
+        # Add the merged walk animation (before other states)
+        if walk_state is not None:
+            states.insert(0, walk_state)
 
         # Extract trailing ageInTicks-driven code (ambient animations)
         trailing = self._extract_trailing_code(method_body, status_var, blocks)
@@ -1008,7 +1056,9 @@ class AbominationAnimExtractor:
                     if is_walk:
                         # Map real time to limbSwing value
                         limb_swing = time_s * limb_swing_scale
-                        limb_swing_amount = 1.0
+                        # Use realistic limbSwingAmount (MC normal walking ≈ 0.7)
+                        # Using 1.0 produces exaggerated/excessive leg stride
+                        limb_swing_amount = 0.7
                         age_in_ticks = time_s * age_ratio
                     else:
                         # Map real time to ageInTicks value
@@ -1046,13 +1096,15 @@ class AbominationAnimExtractor:
 
                     keyframes.append(kf)
 
-                # Enforce loop continuity for idle/ambient animations
-                # Walk animations loop naturally due to cosine period
-                if not is_walk and keyframes and len(keyframes) > 2:
+                # Enforce loop continuity for ALL loop animations
+                # Walk animations: cosine-based, but ensure exact period match
+                # Idle/ambient: ageInTicks-driven, enforce first==last for smooth loop
+                if keyframes and len(keyframes) > 2:
                     first = keyframes[0]
                     last = keyframes[-1]
                     for axis in ['x', 'y', 'z']:
                         if axis in first and axis in last:
+                            # Force last keyframe values to match first for seamless loop
                             last[axis] = first[axis]
 
                 # Simplify with Douglas-Peucker

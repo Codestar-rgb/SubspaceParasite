@@ -1209,3 +1209,27 @@ Stage Summary:
 - All animations now loop perfectly in Blockbench
 - Speed detection correctly handles compound expressions like `0.2 * GS`
 - Output: /home/z/my-project/MROLF-TGNBF/abomination/aboBodies.bbmodel and aboHead.bbmodel
+---
+Task ID: 1
+Agent: main
+Task: Fix abomination animation issues - merge duplicate walks, fix exaggerated stride, fix loop continuity
+
+Work Log:
+- Analyzed current abomination bbmodel files: 3 identical walk animations (idle_walk, evolved_walk, attack_walk) + 1 ambient
+- Identified root causes:
+  1. GS/GD variables defined in outer if-block but not inherited into walk body (inside stillAni block)
+  2. limbSwingAmount=1.0 was too high, causing exaggerated leg stride
+  3. Loop continuity only enforced for non-walk animations
+- Fixed _parse_abomination_states(): Two-pass approach - first collect outer vars (GS/GD), then inherit into walk vars
+- Merged 3 walk animations into single "walk" animation per user request
+- Changed limbSwingAmount from 1.0 to 0.7 (realistic MC walking value)
+- Extended loop continuity enforcement to ALL animations (not just non-walk)
+- Re-ran conversion for both aboHead and aboBodies
+- Verified results: 2 animations per model (walk + ambient), perfect loop continuity (0.0000° diff), natural stride
+
+Stage Summary:
+- Output: MROLF-TGNBF/abomination/aboHead.bbmodel and aboBodies.bbmodel
+- Animations: walk (1.0s loop) + ambient (2.08s/3.44s loop)
+- Walk stride reduced from exaggerated to natural (~±25-30° joint rotation)
+- Loop continuity verified: first==last keyframe for all animations
+- GS/GD variables now properly inherited, making walk animation use correct speed/degree parameters
