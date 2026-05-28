@@ -871,7 +871,8 @@ class AnimationConverter:
         if max_dist > threshold:
             left = self._dp_axis(points[:max_idx + 1], threshold)
             right = self._dp_axis(points[max_idx:], threshold)
-            return left[:-1] + right
+            right_offset = [r + max_idx for r in right]
+            return left[:-1] + right_offset
         else:
             return [0, len(points) - 1]
 

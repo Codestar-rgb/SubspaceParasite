@@ -1149,3 +1149,38 @@ Stage Summary:
 - 31 animation.json files in MROLF-TGNBF/bedrock/
 - SRP-Bedrock-Models.zip updated with all files including animations
 - Key animation patterns supported: status-based state machines, boolean conditions, swingX/Y/Z, moveY, direct rotation/position assignments
+---
+Task ID: 1
+Agent: main
+Task: Upgrade animation converter for abomination models with high precision
+
+Work Log:
+- Analyzed ModelAboHead.java and ModelAboBodies.java animation structures
+- Found getParasiteStatus() state machine with idle(0), evolved(1), attack(2) states
+- Found getStillAni() sub-conditions splitting walk vs idle within each state
+- Found ageInTicks-driven ambient animations (tentacles for Head, body parts for Bodies)
+- Discovered compound assignment pattern: this.bone.field = f1 = MathHelper.sin(...)
+- Discovered GS/GD intermediate variables declared without type prefix inside state blocks
+- Created converter/convert_abomination.py with AbominationAnimExtractor class
+- Fixed critical Douglas-Peucker bug (right subarray indices not offset by split position)
+- Fixed same DP bug in animation_extractor.py and animation_converter.py
+- Fixed GS variable not being captured (bare assignment without type prefix)
+- Fixed loop continuity enforcement (disabled for walk animations)
+- Increased sampling density to 240 samples, DP threshold to 0.08° (0.04° for walk)
+- Successfully converted both abomination models with 4 animations each
+
+Stage Summary:
+- aboHead.bbmodel: 178 elements, 179 groups, embedded texture, 4 animations
+  - idle_walk (6.28s, 19 bones, 242 keyframes, rotation+position)
+  - evolved_walk (6.28s, 19 bones, 242 keyframes, rotation+position)  
+  - attack_walk (6.28s, 19 bones, 236 keyframes, rotation+position)
+  - ambient (30.0s, 13 bones, 273 keyframes, rotation only)
+- aboBodies.bbmodel: 297 elements, 298 groups, embedded texture, 4 animations
+  - idle_walk (6.28s, 7 bones, 95 keyframes, rotation+position)
+  - evolved_walk (6.28s, 7 bones, 110 keyframes, rotation+position)
+  - attack_walk (6.28s, 7 bones, 102 keyframes, rotation+position)
+  - ambient (30.0s, 41 bones, 784 keyframes, rotation only)
+- Animation naming follows GeckoLib convention: animation.{modelName}.{stateName}
+- Walk animations correctly capture swingX/Y/Z leg movements and moveY body bobbing
+- Ambient animations capture ageInTicks-driven tentacle/body swaying
+- Attack walk has lower amplitude than idle/evolved walk (GD=0.9 vs 1.0), matching original
