@@ -860,13 +860,16 @@ class BBModelGenerator:
 
             data_point = {"x": x_val, "y": y_val, "z": z_val, "easing": easing}
 
+            # Use catmullrom interpolation for non-linear easing (smoother in Blockbench)
+            interpolation = "catmullrom" if easing != "linear" else "linear"
+
             keyframe = {
                 "channel": channel_name,
                 "data_points": [data_point],
                 "uuid": self._uuid(),
                 "time": t,
                 "color": -1,
-                "interpolation": "linear",
+                "interpolation": interpolation,
             }
 
             keyframes.append(keyframe)

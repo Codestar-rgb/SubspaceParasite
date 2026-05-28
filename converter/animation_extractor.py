@@ -333,19 +333,76 @@ class AnimationExtractor:
                 states.append(state)
         
         # Handle trailing code (after all if/else blocks)
+        # This often contains ambient/idle animations (ageInTicks-driven)
         trailing = self._extract_trailing_code(method_body, blocks)
         if trailing:
             trailing_assignments = self._extract_all_assignments(trailing)
+            trailing_vars = self._parse_intermediate_vars(trailing)
             # Filter to only non-zero, non-reset assignments
             non_reset = [a for a in trailing_assignments
                         if not self._is_reset_assignment(a)]
             if non_reset:
-                # Add to all existing states as common animation
-                for state in states:
-                    existing = {(a.bone_var, a.channel, a.axis) for a in state.bone_assignments}
+                # Check if trailing code has ageInTicks-driven assignments
+                has_age_ticks = False
+                for a in non_reset:
+                    full_expr = self._resolve_vars(a.expression, trailing_vars)
+                    if 'ageInTicks' in full_expr:
+                        has_age_ticks = True
+                        break
+                
+                if has_age_ticks:
+                    # Trailing code contains idle/ambient animations.
+                    # Add trailing assignments AND vars to all existing states
+                    # so each state gets both walk + ambient animations.
+                    for state in states:
+                        # Merge trailing intermediate variables
+                        for var_name, var_expr in trailing_vars.items():
+                            if var_name not in state.vars_def:
+                                state.vars_def[var_name] = var_expr
+                        
+                        existing = {(a.bone_var, a.channel, a.axis) for a in state.bone_assignments}
+                        for a in non_reset:
+                            if (a.bone_var, a.channel, a.axis) not in existing:
+                                state.bone_assignments.append(a)
+                        
+                        # Re-classify since we added new assignments
+                        self._classify_state(state)
+                    
+                    # Also create a standalone ambient/idle state if trailing has
+                    # ageInTicks-driven bones not covered by any existing state
+                    trailing_age_bones = set()
                     for a in non_reset:
-                        if (a.bone_var, a.channel, a.axis) not in existing:
-                            state.bone_assignments.append(a)
+                        full_expr = self._resolve_vars(a.expression, trailing_vars)
+                        if 'ageInTicks' in full_expr:
+                            trailing_age_bones.add(a.bone_var)
+                    
+                    # Check if any existing idle state already covers these bones
+                    covered_bones = set()
+                    for state in states:
+                        if state.is_idle:
+                            for a in state.bone_assignments:
+                                covered_bones.add(a.bone_var)
+                    
+                    uncovered = trailing_age_bones - covered_bones
+                    if uncovered or not any(s.is_idle for s in states):
+                        # Create a separate ambient/idle state
+                        ambient_state = AnimationState(
+                            name='ambient',
+                            condition_desc='always (trailing code)',
+                        )
+                        ambient_state.bone_assignments = [a for a in non_reset
+                            if 'ageInTicks' in self._resolve_vars(a.expression, trailing_vars)]
+                        ambient_state.vars_def = trailing_vars.copy()
+                        self._classify_state(ambient_state)
+                        if ambient_state.is_idle and ambient_state.bone_assignments:
+                            states.append(ambient_state)
+                else:
+                    # No ageInTicks in trailing - just add as common code
+                    for state in states:
+                        existing = {(a.bone_var, a.channel, a.axis) for a in state.bone_assignments}
+                        for a in non_reset:
+                            if (a.bone_var, a.channel, a.axis) not in existing:
+                                state.bone_assignments.append(a)
         
         return states
 
@@ -440,14 +497,48 @@ class AnimationExtractor:
         trailing = self._extract_trailing_code(method_body, blocks)
         if trailing:
             trailing_assignments = self._extract_all_assignments(trailing)
+            trailing_vars = self._parse_intermediate_vars(trailing)
             non_reset = [a for a in trailing_assignments
                         if not self._is_reset_assignment(a)]
             if non_reset:
-                for state in states:
-                    existing = {(a.bone_var, a.channel, a.axis) for a in state.bone_assignments}
-                    for a in non_reset:
-                        if (a.bone_var, a.channel, a.axis) not in existing:
-                            state.bone_assignments.append(a)
+                # Check if trailing has ageInTicks-driven code
+                has_age_ticks = False
+                for a in non_reset:
+                    full_expr = self._resolve_vars(a.expression, trailing_vars)
+                    if 'ageInTicks' in full_expr:
+                        has_age_ticks = True
+                        break
+                
+                if has_age_ticks:
+                    # Merge trailing vars and assignments into existing states
+                    for state in states:
+                        for var_name, var_expr in trailing_vars.items():
+                            if var_name not in state.vars_def:
+                                state.vars_def[var_name] = var_expr
+                        existing = {(a.bone_var, a.channel, a.axis) for a in state.bone_assignments}
+                        for a in non_reset:
+                            if (a.bone_var, a.channel, a.axis) not in existing:
+                                state.bone_assignments.append(a)
+                        self._classify_state(state)
+                    
+                    # Also create ambient state if no idle state exists
+                    if not any(s.is_idle for s in states):
+                        ambient_state = AnimationState(
+                            name='ambient',
+                            condition_desc='always (trailing code)',
+                        )
+                        ambient_state.bone_assignments = [a for a in non_reset
+                            if 'ageInTicks' in self._resolve_vars(a.expression, trailing_vars)]
+                        ambient_state.vars_def = trailing_vars.copy()
+                        self._classify_state(ambient_state)
+                        if ambient_state.is_idle and ambient_state.bone_assignments:
+                            states.append(ambient_state)
+                else:
+                    for state in states:
+                        existing = {(a.bone_var, a.channel, a.axis) for a in state.bone_assignments}
+                        for a in non_reset:
+                            if (a.bone_var, a.channel, a.axis) not in existing:
+                                state.bone_assignments.append(a)
         
         return states
 
@@ -936,33 +1027,78 @@ class AnimationExtractor:
     # ========================================================================
 
     def _parse_intermediate_vars(self, code: str) -> Dict[str, str]:
-        """Parse intermediate variable definitions from code."""
+        """Parse intermediate variable definitions from code.
+        
+        Handles both declarations (float x = expr;) and re-assignments (x = expr;).
+        Re-assignments are common for variables like GS, GD that are set differently
+        per animation state (e.g., GS = 2.1f; inside an idle block, GS = 2.7f; inside evolved).
+        """
         vars_def = {}
         
-        var_pattern = re.compile(r'(?:float|double)\s+(\w+)\s*=\s*([^;]+);')
+        # Pattern 1: Type-prefixed declarations: float/double varName = expr;
+        typed_pattern = re.compile(r'(?:float|double)\s+(\w+)\s*=\s*([^;]+);')
         
-        for match in var_pattern.finditer(code):
+        # Pattern 2: Re-assignments without type prefix: varName = expr;
+        # Must be at start of line or after a semicolon/brace to avoid matching
+        # bone.field = expr; or this.bone.field = expr;
+        reassign_pattern = re.compile(r'(?:^|[{;}\n])\s*(\w+)\s*=\s*([^;]+);', re.MULTILINE)
+        
+        # Known intermediate variable name patterns
+        known_var_names = {'GS', 'GD', 'j', 'nf2'}
+        
+        def is_valid_var_name(name):
+            """Check if a variable name looks like an intermediate var."""
+            if name in known_var_names:
+                return True
+            if re.match(r'^[fgn]\w*\d+$', name):
+                return True
+            if re.match(r'^[fg]\d+$', name):
+                return True
+            # Also accept short all-caps names used as animation params (GS, GD, GF, etc.)
+            if re.match(r'^[A-Z]{1,3}$', name) and name not in ('IF', 'FOR', 'NEW', 'INT', 'TRY'):
+                return True
+            return False
+        
+        def is_valid_expr(expr_str):
+            """Check if an expression is a valid intermediate var value."""
+            # Skip if expression contains bone field assignments
+            if re.search(r'field_\d+\w', expr_str) and 'this.' in expr_str:
+                return False
+            # Skip entity method calls
+            if expr_str.startswith('parasite.') or expr_str.startswith('entityIn.'):
+                return False
+            # Skip keywords
+            if expr_str.strip() in ('0.0f', '0', '0.0', 'false'):
+                # Zero assignments are OK - they're defaults that get overridden
+                return True
+            return True
+        
+        # Process type-prefixed declarations
+        for match in typed_pattern.finditer(code):
             var_name = match.group(1)
             var_expr = match.group(2).strip()
-            
-            # Skip if expression contains bone field assignments
-            if re.search(r'field_\d+\w', var_expr) and 'this.' in var_expr:
-                continue
             
             # Skip keywords
             if var_name in ('this', 'if', 'else', 'for', 'while', 'return', 'byte',
                           'float', 'int', 'boolean', 'double', 'scaleFactor'):
                 continue
             
-            # Skip entity method calls
-            if var_expr.startswith('parasite.') or var_expr.startswith('entityIn.'):
+            if is_valid_var_name(var_name) and is_valid_expr(var_expr):
+                vars_def[var_name] = var_expr
+        
+        # Process re-assignments (overwrite previous values if same variable)
+        for match in reassign_pattern.finditer(code):
+            var_name = match.group(1)
+            var_expr = match.group(2).strip()
+            
+            # Skip keywords and Java keywords
+            if var_name in ('this', 'if', 'else', 'for', 'while', 'return', 'byte',
+                          'float', 'int', 'boolean', 'double', 'scaleFactor', 'new',
+                          'super', 'null', 'true', 'false', 'class', 'void'):
                 continue
             
-            # Accept variable names that look like intermediate vars
-            if (re.match(r'^[fgn]\w*\d+$', var_name) or 
-                var_name in ('GS', 'GD', 'j', 'nf2') or
-                re.match(r'^[fg]\d+$', var_name)):
-                vars_def[var_name] = var_expr
+            if is_valid_var_name(var_name) and is_valid_expr(var_expr):
+                vars_def[var_name] = var_expr  # Overwrite with latest value
         
         return vars_def
 
@@ -998,8 +1134,8 @@ class AnimationExtractor:
         self,
         state: AnimationState,
         is_walk: bool = False,
-        sample_count: int = 60,
-        dp_threshold: float = 0.15,
+        sample_count: int = 120,
+        dp_threshold: float = 0.08,
     ) -> dict:
         """Sample a single animation state numerically."""
         # Check max_bones limit
@@ -1036,11 +1172,13 @@ class AnimationExtractor:
         
         # Determine sampling parameters
         if is_walk:
-            # Walk animation: sample one full walk cycle
-            # Vanilla MC walk cycle: cos(limbSwing * 0.6662) with period ~2π/0.6662 in limbSwing
-            # We sample over one full cosine period
-            period = 2 * math.pi
-            age_ratio = 10.0      # ageInTicks progresses ~10x slower than limbSwing
+            # Vanilla MC walk cycle: cos(limbSwing * 0.6662)
+            # Full cosine period = 2π, so limbSwing goes from 0 to 2π
+            # In time: period = 2π / 0.6662 * (1 tick / 20 tps) ≈ 0.472s
+            # But we want a slightly longer period for visual smoothness
+            period = 2 * math.pi  # Sample one full cos period in limbSwing space
+            limb_swing_amount = 0.35
+            age_ratio = 0.0  # No ageInTicks influence in pure walk
         else:
             period = self._estimate_period(state)
             period = min(period, 20.0)  # Cap at 20 seconds for practical use
@@ -1060,12 +1198,10 @@ class AnimationExtractor:
                     
                     if is_walk:
                         limb_swing = t
-                        # Use limbSwingAmount = 0.5 for vanilla-like amplitude.
-                        # SRP's swingX formula uses limbSwingAmount SQUARED, so:
-                        #   amplitude = limbSwingAmount^2 * degree
-                        # With 0.5: amplitude = 0.25 * degree (vanilla-like)
-                        # With 1.0: amplitude = 1.0 * degree (way too exaggerated)
-                        limb_swing_amount = 0.5
+                        # Reduced limbSwingAmount for more natural leg swing.
+                        # SRP's swingX formula: amplitude = limbSwingAmount^2 * degree
+                        # With 0.35: amplitude = 0.1225 * degree (natural-looking)
+                        limb_swing_amount = 0.35
                         age_in_ticks = t * age_ratio
                     else:
                         limb_swing = 0.0
@@ -1103,8 +1239,6 @@ class AnimationExtractor:
                     keyframes.append(kf)
                 
                 # Smooth loop enforcement for ALL loop animations
-                # Instead of hard-forcing last = first (which creates a snap),
-                # we smoothly crossfade the last N samples toward the first frame's values.
                 if keyframes and len(keyframes) > 2:
                     first = keyframes[0]
                     last = keyframes[-1]
@@ -1116,14 +1250,15 @@ class AnimationExtractor:
                             max_diff = max(max_diff, abs(last[axis] - first[axis]))
 
                     if max_diff > 0.5:
-                        # Significant mismatch - apply smooth crossfade over last 5% of samples
-                        crossfade_count = max(2, len(keyframes) // 20)
+                        # Significant mismatch - apply Gaussian-weighted crossfade over last 15% of samples
+                        crossfade_count = max(3, len(keyframes) * 15 // 100)
                         for j in range(crossfade_count):
                             idx = len(keyframes) - crossfade_count + j
                             if idx < 0 or idx >= len(keyframes):
                                 continue
-                            alpha = (j + 1) / crossfade_count
-                            alpha = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep
+                            # Gaussian-weighted blend: stronger blending toward the end
+                            t_norm = (j + 1) / crossfade_count  # 0→1
+                            alpha = 1.0 - math.exp(-3.0 * t_norm * t_norm)  # Gaussian curve
                             kf_cur = keyframes[idx]
                             for axis in ['x', 'y', 'z']:
                                 if axis in first and axis in kf_cur:
@@ -1139,6 +1274,41 @@ class AnimationExtractor:
                 # Simplify with Douglas-Peucker
                 simplified = self._douglas_peucker_simplify(keyframes, dp_threshold)
                 
+                # Post-DP loop continuity enforcement
+                # After DP simplification, first and last keyframes may have drifted.
+                # Ensure the last keyframe exactly matches the first for seamless loops.
+                if simplified and len(simplified) > 1:
+                    first_kf = simplified[0]
+                    last_kf = simplified[-1]
+                    for axis in ['x', 'y', 'z']:
+                        if axis in first_kf and axis in last_kf:
+                            # Snap last to first
+                            last_kf[axis] = first_kf[axis]
+                    # Also ensure the second-to-last keyframe doesn't create a sudden jump
+                    if len(simplified) > 2:
+                        second_last = simplified[-2]
+                        for axis in ['x', 'y', 'z']:
+                            if axis in second_last and axis in last_kf:
+                                diff = abs(second_last[axis] - last_kf[axis])
+                                if diff > abs(first_kf.get(axis, 0) - last_kf.get(axis, 0)) * 3:
+                                    # Too big a jump - interpolate
+                                    if len(simplified) > 3:
+                                        third_last = simplified[-3]
+                                        if axis in third_last:
+                                            # Linear interpolate
+                                            second_last[axis] = third_last[axis] + (last_kf[axis] - third_last[axis]) * 0.7
+                
+                # Detect easing type based on the expression pattern
+                easing = "linear"
+                for assignment in state.bone_assignments:
+                    bone_name_check = self.bone_mapping.get(assignment.bone_var, assignment.bone_var)
+                    if bone_name_check == bone_name and assignment.channel == channel:
+                        resolved = self._resolve_vars(assignment.expression, state.vars_def)
+                        if 'cos' in resolved or 'sin' in resolved:
+                            # Cosine/sine-driven bones use easeInOut for natural motion
+                            easing = "easeInOutSine"
+                            break
+
                 # Build channel data in GeckoLib format
                 channel_data = {}
                 for axis in ['x', 'y', 'z']:
@@ -1147,7 +1317,14 @@ class AnimationExtractor:
                         if axis in kf:
                             axis_keyframes[f"{kf['time']:.4f}"] = kf[axis]
                     if axis_keyframes:
-                        channel_data[axis] = axis_keyframes
+                        # Add easing to keyframes if non-linear
+                        if easing != "linear":
+                            new_axis_data = {}
+                            for time_str, val in axis_keyframes.items():
+                                new_axis_data[time_str] = {"vector": val, "easing": easing}
+                            channel_data[axis] = new_axis_data
+                        else:
+                            channel_data[axis] = axis_keyframes
                 
                 if channel_data:
                     bone_anim[channel] = channel_data
@@ -1158,23 +1335,84 @@ class AnimationExtractor:
         return bones_data
 
     def _estimate_period(self, state: AnimationState) -> float:
-        """Estimate the animation period from the expressions."""
-        min_freq = float('inf')
+        """Estimate the animation period from all expressions.
+        
+        Finds all frequency components and computes a common period where
+        ALL bones complete integer cycles for seamless looping.
+        """
+        frequencies = []
         
         for assignment in state.bone_assignments:
             expr = self._resolve_vars(assignment.expression, state.vars_def)
+            # Find all frequency multipliers on ageInTicks
             for freq_match in re.finditer(r'ageInTicks\s*\*\s*\(?\s*([\d.]+)', expr):
                 try:
                     freq = float(freq_match.group(1))
-                    if 0 < freq < min_freq:
-                        min_freq = freq
+                    if 0 < freq < 50:  # Sanity check
+                        frequencies.append(freq)
+                except ValueError:
+                    pass
+            # Also check for: (float)ageInTicks * X pattern
+            for freq_match in re.finditer(r'ageInTicks\s*\*\s*([\d.]+)', expr):
+                try:
+                    freq = float(freq_match.group(1))
+                    if 0 < freq < 50 and freq not in frequencies:
+                        frequencies.append(freq)
                 except ValueError:
                     pass
         
-        if min_freq == float('inf'):
-            min_freq = 0.5  # Default
+        if not frequencies:
+            return 2 * math.pi / 0.5  # Default ~12.57s
         
-        period = 2 * math.pi / min_freq
+        # Find the fundamental period: period = 2π / freq
+        # We need a common period T where T * freq_i / (2π) is an integer for all i
+        # i.e., T = N * 2π / gcd_of_frequencies
+        # Use the LCM approach: find T such that all freq * T / (2π) are integers
+        
+        # Group similar frequencies (within 1% tolerance)
+        unique_freqs = []
+        for f in sorted(frequencies):
+            is_similar = False
+            for uf in unique_freqs:
+                if abs(f - uf) / max(uf, 0.001) < 0.01:
+                    is_similar = True
+                    break
+            if not is_similar:
+                unique_freqs.append(f)
+        
+        if len(unique_freqs) == 1:
+            period = 2 * math.pi / unique_freqs[0]
+        else:
+            # Find LCM of periods: LCM(T1, T2, ...) where Ti = 2π/fi
+            # LCM of rationals: find the smallest T where T*fi/(2π) is integer for all i
+            # Simplified: T = 2π * LCM(numerators) / GCD(denominators)
+            
+            # Convert frequencies to rational approximations
+            from fractions import Fraction
+            frac_freqs = [Fraction(f).limit_denominator(1000) for f in unique_freqs]
+            
+            # Find LCM of periods: T_i = 2π / f_i = 2π * denom_i / numer_i
+            # LCM(T_1, T_2, ...) = 2π * LCM(denom_i) / GCD(numer_i)
+            denoms = [f.denominator for f in frac_freqs]
+            numers = [f.numerator for f in frac_freqs]
+            
+            from math import gcd
+            from functools import reduce
+            
+            def lcm(a, b):
+                return a * b // gcd(a, b)
+            
+            lcm_denom = reduce(lcm, denoms)
+            gcd_numer = reduce(gcd, numers)
+            
+            period = 2 * math.pi * lcm_denom / gcd_numer
+            
+            # Cap at reasonable duration
+            period = min(period, 15.0)
+        
+        # Ensure period is at least 1 second for visual quality
+        period = max(period, 1.0)
+        
         return period
 
     # ========================================================================

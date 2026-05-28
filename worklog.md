@@ -1267,3 +1267,31 @@ Stage Summary:
 - Ambient animation now uses precise period estimation for smooth loop
 - Smooth crossfade replaces hard snap at loop boundary
 - Both .bbmodel files regenerated in MROLF-TGNBF/abomination/
+
+---
+Task ID: animation-quality-upgrade
+Agent: Main Agent
+Task: Upgrade animation quality - walk amplitude, idle loop coherence, variable resolution, batch convert abomination/adapted/deterrent
+
+Work Log:
+- Identified critical bug: GS/GD variables (animation speed/degree multipliers) not captured by _parse_intermediate_vars() because they were re-assignments without `float` prefix
+- Fixed _parse_intermediate_vars() to handle both typed declarations (float x = expr;) and re-assignments (x = expr;) for known variable patterns
+- Added support for short all-caps variable names (GS, GD, GF, etc.) used as animation parameters
+- Fixed trailing code merging: intermediate variables from trailing code (f1, f2, f3 etc.) were not merged into state vars_def, causing ageInTicks-driven idle animations to be lost
+- Improved walk animation: reduced limbSwingAmount from 0.5 to 0.35, set age_ratio to 0.0 for pure walk cycles
+- Improved idle animation: doubled sample count (60→120), lowered DP threshold (0.15→0.08), increased crossfade window (5%→15%), replaced smoothstep with Gaussian-weighted blending
+- Improved period estimation: LCM-based common period calculation using Fraction for rational approximation
+- Added post-DP loop continuity enforcement: snaps last keyframe to first, interpolates second-to-last if needed
+- Added easing type detection: cosine/sine-driven bones get "easeInOutSine" easing with "catmullrom" interpolation in bbmodel
+- Updated bbmodel_generator.py: catmullrom interpolation for non-linear easing
+- Re-ran full batch conversion: 154/154 models successful
+- All target categories (abomination, adapted, deterrent) converted with proper animations
+
+Stage Summary:
+- aboBodies.bbmodel: 4 animations (idle_walk, idle, evolved_walk, evolved) vs previously 2 with zero values
+- Walk animation: ±7° leg swing with easeInOutSine easing (natural vanilla-like amplitude)
+- Idle animation: 41 bones, 514 keyframes, seamless loop on ALL bones
+- All deterrent models: seamless loops verified
+- All adapted models: proper state separation (walk/idle/evolved/attack)
+- Key files modified: converter/animation_extractor.py, converter/bbmodel_generator.py
+- Output: MROLF-TGNBF/abomination/, MROLF-TGNBF/adapted/, MROLF-TGNBF/deterrent/ all updated
