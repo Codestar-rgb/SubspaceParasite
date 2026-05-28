@@ -777,7 +777,7 @@ class AnimationExtractor:
           → bone.rotateAngleX = invert * limbSwingAmount * degree * cos(limbSwing * speed) * limbSwingAmount
           
         Overload 2 (8 args): swingX(bone, speed, degree, invert, offset, weight, limbSwing, limbSwingAmount)
-          → bone.rotateAngleX = invert * limbSwingAmount * degree * cos(limbSwing * speed + offset) + weight * limbSwingAmount
+          → bone.rotateAngleX = invert * limbSwingAmount * degree * cos(limbSwing * speed + offset) * limbSwingAmount + weight * limbSwingAmount
           
         Overload 3 (7 args): swingX(pref, bone, speed, degree, invert, limbSwing, limbSwingAmount)
           → bone.rotateAngleX = pref + invert * limbSwingAmount * degree * cos(limbSwing * speed) * limbSwingAmount
@@ -829,7 +829,7 @@ class AnimationExtractor:
                         limbSwing = args[6].strip()
                         limbSwingAmount = args[7].strip()
                         
-                        expr = f'{invert} * {limbSwingAmount} * {degree} * MathHelper.cos({limbSwing} * {speed} + {offset}) + {weight} * {limbSwingAmount}'
+                        expr = f'{invert} * {limbSwingAmount} * {degree} * MathHelper.cos({limbSwing} * {speed} + {offset}) * {limbSwingAmount} + {weight} * {limbSwingAmount}'
                     else:
                         continue
                     
@@ -1036,7 +1036,10 @@ class AnimationExtractor:
         
         # Determine sampling parameters
         if is_walk:
-            period = 2 * math.pi  # One walk cycle
+            # Walk animation: sample one full walk cycle
+            # Vanilla MC walk cycle: cos(limbSwing * 0.6662) with period ~2π/0.6662 in limbSwing
+            # We sample over one full cosine period
+            period = 2 * math.pi
             age_ratio = 10.0      # ageInTicks progresses ~10x slower than limbSwing
         else:
             period = self._estimate_period(state)
@@ -1057,7 +1060,12 @@ class AnimationExtractor:
                     
                     if is_walk:
                         limb_swing = t
-                        limb_swing_amount = 1.0
+                        # Use limbSwingAmount = 0.5 for vanilla-like amplitude.
+                        # SRP's swingX formula uses limbSwingAmount SQUARED, so:
+                        #   amplitude = limbSwingAmount^2 * degree
+                        # With 0.5: amplitude = 0.25 * degree (vanilla-like)
+                        # With 1.0: amplitude = 1.0 * degree (way too exaggerated)
+                        limb_swing_amount = 0.5
                         age_in_ticks = t * age_ratio
                     else:
                         limb_swing = 0.0
@@ -1094,13 +1102,39 @@ class AnimationExtractor:
                     
                     keyframes.append(kf)
                 
-                # Enforce loop continuity: snap last keyframe to match first
+                # Smooth loop enforcement for ALL loop animations
+                # Instead of hard-forcing last = first (which creates a snap),
+                # we smoothly crossfade the last N samples toward the first frame's values.
                 if keyframes and len(keyframes) > 2:
                     first = keyframes[0]
                     last = keyframes[-1]
+
+                    # Check if last naturally matches first
+                    max_diff = 0.0
                     for axis in ['x', 'y', 'z']:
                         if axis in first and axis in last:
-                            last[axis] = first[axis]
+                            max_diff = max(max_diff, abs(last[axis] - first[axis]))
+
+                    if max_diff > 0.5:
+                        # Significant mismatch - apply smooth crossfade over last 5% of samples
+                        crossfade_count = max(2, len(keyframes) // 20)
+                        for j in range(crossfade_count):
+                            idx = len(keyframes) - crossfade_count + j
+                            if idx < 0 or idx >= len(keyframes):
+                                continue
+                            alpha = (j + 1) / crossfade_count
+                            alpha = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep
+                            kf_cur = keyframes[idx]
+                            for axis in ['x', 'y', 'z']:
+                                if axis in first and axis in kf_cur:
+                                    target = first[axis]
+                                    current = kf_cur[axis]
+                                    kf_cur[axis] = current + (target - current) * alpha
+                    else:
+                        # Small mismatch - just snap last to first
+                        for axis in ['x', 'y', 'z']:
+                            if axis in first and axis in last:
+                                last[axis] = first[axis]
                 
                 # Simplify with Douglas-Peucker
                 simplified = self._douglas_peucker_simplify(keyframes, dp_threshold)

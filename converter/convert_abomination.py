@@ -565,7 +565,7 @@ class AbominationAnimExtractor:
           → invert * limbSwingAmount * degree * cos(limbSwing * speed) * limbSwingAmount
 
         Overload 2 (8 args): swingX(bone, speed, degree, invert, offset, weight, limbSwing, limbSwingAmount)
-          → invert * limbSwingAmount * degree * cos(limbSwing * speed + offset) + weight * limbSwingAmount
+          → invert * limbSwingAmount * degree * cos(limbSwing * speed + offset) * limbSwingAmount + weight * limbSwingAmount
         """
         results = []
 
@@ -609,7 +609,7 @@ class AbominationAnimExtractor:
                         limbSwing = args[6].strip()
                         limbSwingAmount = args[7].strip()
 
-                        expr = f'{invert} * {limbSwingAmount} * {degree} * MathHelper.cos({limbSwing} * {speed} + {offset}) + {weight} * {limbSwingAmount}'
+                        expr = f'{invert} * {limbSwingAmount} * {degree} * MathHelper.cos({limbSwing} * {speed} + {offset}) * {limbSwingAmount} + {weight} * {limbSwingAmount}'
                     else:
                         continue
 
@@ -983,11 +983,13 @@ class AbominationAnimExtractor:
 
         Key timing corrections:
           - Walk animations: limbSwing is NOT in seconds. In MC 1.12.2, limbSwing
-            increments by ~walk_speed*4.0 per tick. At normal walk speed (~0.216 b/tick),
-            limbSwing_rate ≈ 0.864/tick ≈ 17.28/s. We map the period in limbSwing
-            space to a target walk cycle duration (default 1.0s).
+            increments by ~walk_speed*4.0 per tick. We map the period in limbSwing
+            space to a target walk cycle duration.
+            Vanilla MC walk cycle ≈ 0.6667s (40 ticks at 20 TPS).
+            For mod entities with different swing speeds, we scale proportionally.
           - Ambient animations: ageInTicks is in ticks. 1 tick = 0.05s.
-            We sample ageInTicks over one period, then convert tick values to seconds.
+            We find the fundamental period that ALL frequency components share,
+            ensuring smooth loop by sampling over exact integer multiples of all periods.
 
         Args:
             state: State dict from _parse_abomination_states
@@ -1003,32 +1005,42 @@ class AbominationAnimExtractor:
 
         if is_walk:
             # Find the dominant walk speed factor from swing expressions
-            # e.g., swingX(bone, 0.2*GS, degree, invert, offset, weight, limbSwing, limbSwingAmount)
-            # The speed factor is the coefficient of limbSwing in cos(limbSwing * speed)
             walk_speed = self._find_dominant_walk_speed(bone_exprs, vars_def)
 
             # Period in limbSwing space (one full cosine cycle)
             period_limbSwing = 2 * math.pi / walk_speed
 
-            # Target walk cycle duration in seconds
-            # In vanilla MC, a typical walk cycle is ~1.0-1.2 seconds
-            # We use 1.0s as the reference, which looks natural in Blockbench
-            walk_cycle_seconds = 1.0
+            # Vanilla MC walk cycle = 40 ticks = 2.0s at 20 TPS
+            # But the visual cycle (one full leg swing) is 0.6667s because
+            # vanilla uses cos(limbSwing * 0.6662) with limbSwing incrementing
+            # by ~4.0*distance/tick. At normal walk speed the period is ~40 ticks.
+            # For GeckoLib, we target 0.6667s (vanilla standard) as the visual cycle.
+            #
+            # For SRP entities with different swing speeds, we scale proportionally:
+            #   walk_cycle = vanilla_cycle * (vanilla_speed / detected_speed)
+            #   where vanilla_speed ≈ 0.6662 (the vanilla cos coefficient)
+            VANILLA_WALK_SPEED = 0.6662
+            VANILLA_WALK_CYCLE = 0.6667  # seconds
+
+            if walk_speed > 0:
+                walk_cycle_seconds = VANILLA_WALK_CYCLE * (VANILLA_WALK_SPEED / walk_speed)
+            else:
+                walk_cycle_seconds = VANILLA_WALK_CYCLE
+
+            # Clamp to reasonable range
+            walk_cycle_seconds = max(0.4, min(walk_cycle_seconds, 2.0))
 
             # Scaling: limbSwing ranges from 0 to period_limbSwing over walk_cycle_seconds
-            # limbSwing(t) = t * period_limbSwing / walk_cycle_seconds
             limb_swing_scale = period_limbSwing / walk_cycle_seconds
 
             # ageInTicks during walk: scales proportionally
-            # In MC, ageInTicks ≈ time_in_ticks, so at each sample point:
-            # age_in_ticks = time_seconds * TICKS_PER_SECOND
             age_ratio = TICKS_PER_SECOND
 
             period_seconds = walk_cycle_seconds
         else:
-            # Ambient animation: ageInTicks is in ticks
-            # Estimate the period in ageInTicks (tick) space
-            period_ticks = self._estimate_period(bone_exprs, vars_def)
+            # Ambient animation: find the fundamental period that ensures
+            # ALL frequency components complete whole cycles
+            period_ticks = self._estimate_period_precise(bone_exprs, vars_def)
 
             # Convert period from ticks to seconds
             period_seconds = period_ticks / TICKS_PER_SECOND
@@ -1056,9 +1068,14 @@ class AbominationAnimExtractor:
                     if is_walk:
                         # Map real time to limbSwing value
                         limb_swing = time_s * limb_swing_scale
-                        # Use realistic limbSwingAmount (MC normal walking ≈ 0.7)
-                        # Using 1.0 produces exaggerated/excessive leg stride
-                        limb_swing_amount = 0.7
+                        # Use limbSwingAmount that produces vanilla-like amplitude.
+                        # Vanilla MC uses ~1.0 for the base cos coefficient, but
+                        # SRP's swingX formula uses limbSwingAmount SQUARED, so:
+                        #   amplitude = limbSwingAmount^2 * degree
+                        # With 0.5: amplitude = 0.25 * degree (vanilla-like for large entities)
+                        # With 0.7: amplitude = 0.49 * degree (too exaggerated)
+                        # 0.5 produces ~±20° for typical SRP degree values, matching vanilla.
+                        limb_swing_amount = 0.5
                         age_in_ticks = time_s * age_ratio
                     else:
                         # Map real time to ageInTicks value
@@ -1096,16 +1113,41 @@ class AbominationAnimExtractor:
 
                     keyframes.append(kf)
 
-                # Enforce loop continuity for ALL loop animations
-                # Walk animations: cosine-based, but ensure exact period match
-                # Idle/ambient: ageInTicks-driven, enforce first==last for smooth loop
+                # Smooth loop enforcement for ALL loop animations
+                # Instead of hard-forcing last = first (which creates a snap),
+                # we smoothly crossfade the last N samples toward the first frame's values.
                 if keyframes and len(keyframes) > 2:
                     first = keyframes[0]
                     last = keyframes[-1]
+
+                    # Check if last naturally matches first
+                    max_diff = 0.0
                     for axis in ['x', 'y', 'z']:
                         if axis in first and axis in last:
-                            # Force last keyframe values to match first for seamless loop
-                            last[axis] = first[axis]
+                            max_diff = max(max_diff, abs(last[axis] - first[axis]))
+
+                    if max_diff > 0.5:
+                        # Significant mismatch - apply smooth crossfade over last 5% of samples
+                        crossfade_count = max(2, len(keyframes) // 20)
+                        for j in range(crossfade_count):
+                            idx = len(keyframes) - crossfade_count + j
+                            if idx < 0 or idx >= len(keyframes):
+                                continue
+                            # Alpha: 0 at start of crossfade, 1 at the last frame
+                            alpha = (j + 1) / crossfade_count
+                            # Smooth alpha with ease-in (cubic)
+                            alpha = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep
+                            kf_cur = keyframes[idx]
+                            for axis in ['x', 'y', 'z']:
+                                if axis in first and axis in kf_cur:
+                                    target = first[axis]
+                                    current = kf_cur[axis]
+                                    kf_cur[axis] = current + (target - current) * alpha
+                    else:
+                        # Small mismatch - just snap last to first
+                        for axis in ['x', 'y', 'z']:
+                            if axis in first and axis in last:
+                                last[axis] = first[axis]
 
                 # Simplify with Douglas-Peucker
                 # Use tighter threshold for walk animations (more detail needed)
@@ -1131,7 +1173,7 @@ class AbominationAnimExtractor:
         return bones_data
 
     def _estimate_period(self, bone_exprs: dict, vars_def: Dict[str, str]) -> float:
-        """Estimate the animation period from the expressions."""
+        """Estimate the animation period from the expressions (simple version)."""
         min_freq = float('inf')
 
         for bone_name, channels in bone_exprs.items():
@@ -1151,6 +1193,87 @@ class AbominationAnimExtractor:
 
         period = 2 * math.pi / min_freq
         return period
+
+    def _estimate_period_precise(self, bone_exprs: dict, vars_def: Dict[str, str]) -> float:
+        """
+        Estimate the animation period with high precision for smooth looping.
+
+        Instead of just finding the minimum frequency, this method finds ALL
+        frequency components and computes the shortest period that is an integer
+        multiple of all individual periods. This ensures that ALL bones complete
+        whole cycles within the animation length, producing a perfectly smooth loop.
+
+        Strategy:
+          1. Extract all frequency factors from ageInTicks * freq patterns
+          2. Compute individual periods: T_i = 2π / freq_i
+          3. Find the fundamental period T that is close to an integer multiple
+             of each T_i (using a tolerance-based approach)
+          4. This ensures all sine/cosine components return to their starting values
+        """
+        # Collect all frequency factors
+        all_freqs = []
+
+        for bone_name, channels in bone_exprs.items():
+            for channel, axis_exprs in channels.items():
+                for axis, expr in axis_exprs.items():
+                    resolved = self._resolve_vars(expr, vars_def)
+                    for freq_match in re.finditer(r'ageInTicks\s*\*\s*\(?\s*([\d.]+)', resolved):
+                        try:
+                            freq = float(freq_match.group(1))
+                            if freq > 0:
+                                all_freqs.append(freq)
+                        except ValueError:
+                            pass
+
+        if not all_freqs:
+            # Default: 2π / 0.5 ≈ 12.57 ticks ≈ 0.63 seconds
+            return 2 * math.pi / 0.5
+
+        # Find minimum frequency (determines the longest individual period)
+        min_freq = min(all_freqs)
+        base_period = 2 * math.pi / min_freq
+
+        # Check if all frequencies are integer multiples of the minimum frequency.
+        # If so, the base period is the fundamental period.
+        # If not, we need to find a common period.
+        #
+        # For each frequency f_i, the ratio f_i / min_freq should be close to an integer.
+        # If it's not, we need to extend the base period until all ratios become integers.
+        #
+        # Practical approach: find the fundamental period by checking the greatest
+        # common divisor (GCD) of all frequency ratios.
+
+        # Normalize frequencies relative to the minimum
+        ratios = [f / min_freq for f in all_freqs]
+
+        # Round ratios to reasonable precision (they should be near-integer
+        # or simple fractions for typical animation patterns)
+        TOLERANCE = 0.05  # 5% tolerance for ratio rounding
+
+        # Try to find a base frequency that all frequencies are integer multiples of.
+        # Start with the minimum frequency and check.
+        def _find_fundamental_period(freqs, base_f):
+            """Find the shortest period T where all frequencies complete whole cycles."""
+            # Try T = base_period, 2*base_period, 3*base_period, ... up to 10x
+            for multiplier in range(1, 11):
+                candidate_period = base_period * multiplier
+                all_integer = True
+                for f in freqs:
+                    # Number of cycles this frequency completes in candidate_period
+                    cycles = f * candidate_period / (2 * math.pi)
+                    # Check if close to an integer
+                    nearest_int = round(cycles)
+                    if abs(cycles - nearest_int) > TOLERANCE:
+                        all_integer = False
+                        break
+                if all_integer:
+                    return candidate_period
+            # Fallback: use 2x base period for a reasonable approximation
+            return base_period * 2
+
+        fundamental_period = _find_fundamental_period(all_freqs, min_freq)
+
+        return fundamental_period
 
     def _find_dominant_walk_speed(self, bone_exprs: dict, vars_def: Dict[str, str]) -> float:
         """

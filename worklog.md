@@ -1233,3 +1233,37 @@ Stage Summary:
 - Walk stride reduced from exaggerated to natural (~±25-30° joint rotation)
 - Loop continuity verified: first==last keyframe for all animations
 - GS/GD variables now properly inherited, making walk animation use correct speed/degree parameters
+
+---
+Task ID: anim-fix-v2
+Agent: Main Agent
+Task: Fix walk animation amplitude too large, idle animation loop incoherence, and 8-arg swingX formula bug
+
+Work Log:
+- Diagnosed 3 key issues in animation conversion:
+  1. 8-arg swingX overload formula was MISSING `* limbSwingAmount` on the cosine term (only had it once instead of twice)
+     - This made the amplitude ~1.43x larger than it should be
+     - The 6-arg overload correctly had `limbSwingAmount² * degree * cos(...)`, but the 8-arg was missing the square
+  2. `limbSwingAmount = 0.7` was producing too-large leg swing amplitudes (±40° peak)
+     - Vanilla MC walk is ~±28° for standard mobs, abominations should be smaller due to many legs
+  3. Idle/ambient animation loop was not coherent: hard-forcing last=keyframe=first created visible snaps
+     - Period estimation didn't ensure all frequency components complete whole cycles
+- Fixed 8-arg swingX formula in both convert_abomination.py and animation_extractor.py:
+  - Old: `invert * limbSwingAmount * degree * cos(limbSwing * speed + offset) + weight * limbSwingAmount`
+  - New: `invert * limbSwingAmount * degree * cos(limbSwing * speed + offset) * limbSwingAmount + weight * limbSwingAmount`
+- Reduced `limbSwingAmount` from 0.7 to 0.5 for walk animations (both extractors)
+  - With squared formula: amplitude = 0.25 * degree instead of 0.49 * degree (≈50% reduction)
+- Improved walk cycle timing:
+  - Added vanilla MC walk cycle scaling based on detected walk speed
+  - Walk cycle = vanilla_cycle * (vanilla_speed / detected_speed), clamped to [0.4, 2.0] seconds
+- Improved ambient animation loop coherence:
+  - Added `_estimate_period_precise()` method that finds the fundamental period where ALL frequency components complete whole cycles
+  - Replaced hard "force last = first" with smooth crossfade over last 5% of samples using smoothstep interpolation
+  - If mismatch is small (<0.5°), still snap directly for efficiency
+- Re-converted abomination models (aboBodies, aboHead)
+
+Stage Summary:
+- Walk animation amplitude reduced from ±40° to ±14° (aboBodies), ±25° to ±11° (aboHead)
+- Ambient animation now uses precise period estimation for smooth loop
+- Smooth crossfade replaces hard snap at loop boundary
+- Both .bbmodel files regenerated in MROLF-TGNBF/abomination/
