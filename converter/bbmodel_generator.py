@@ -813,6 +813,12 @@ class BBModelGenerator:
 
         We need to merge per-axis keyframes into unified keyframes at each
         unique time point.
+
+        IMPORTANT: When merging per-axis keyframes, axes that don't have a value
+        at a given time point must "hold" their previous value (carry-forward),
+        NOT default to 0.0. Defaulting to 0.0 causes animation twitching because
+        it creates zero-snaps where an axis suddenly drops to 0 when only another
+        axis changes.
         """
         if not channel_data:
             return []
@@ -839,8 +845,10 @@ class BBModelGenerator:
 
                 time_points[t][axis] = (val, easing)
 
-        # Build keyframes from merged time points
+        # Build keyframes from merged time points with carry-forward for
+        # axes that don't change at each time point.
         keyframes = []
+        last_values = {"x": 0.0, "y": 0.0, "z": 0.0}
 
         for t in sorted(time_points.keys()):
             axis_data = time_points[t]
@@ -854,9 +862,16 @@ class BBModelGenerator:
                         easing = axis_easing
                         break
 
-            x_val = axis_data.get("x", (0.0, "linear"))[0]
-            y_val = axis_data.get("y", (0.0, "linear"))[0]
-            z_val = axis_data.get("z", (0.0, "linear"))[0]
+            # Carry-forward: use last known value for axes not present at this time
+            # This prevents zero-snaps that cause twitching
+            x_val = axis_data.get("x", (last_values["x"], "linear"))[0]
+            y_val = axis_data.get("y", (last_values["y"], "linear"))[0]
+            z_val = axis_data.get("z", (last_values["z"], "linear"))[0]
+
+            # Update last known values for carry-forward
+            last_values["x"] = x_val
+            last_values["y"] = y_val
+            last_values["z"] = z_val
 
             data_point = {"x": x_val, "y": y_val, "z": z_val, "easing": easing}
 

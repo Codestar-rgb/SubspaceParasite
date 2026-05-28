@@ -1439,3 +1439,25 @@ Stage Summary:
   - Wing flap amplitude: ±80° (proper dragon flight)
   - All animations loop correctly with matching start/end keyframes
   - skin_2_c0 and skin_5_c0 correctly Y-rotated 180°
+
+---
+Task ID: animation-quality-fix
+Agent: Main Agent
+Task: Fix heblu.bbmodel animation twitching/flickering, remove redundant animations, improve smoothness
+
+Work Log:
+- Identified root cause of twitching: bbmodel_generator.py _process_channel() defaulted missing axes to 0.0 instead of carrying forward previous values (zero-snap bug)
+- Fixed _process_channel() to implement carry-forward for axes without data at each time point
+- Removed redundant duplicate animations: cosmic_shaking (combination of cosmic+shaking) and fly_vomit (combination of fly+vomit)
+- Fixed loop mismatch for all looping animations by ensuring first and last keyframes match
+- Applied catmullrom interpolation to interior keyframes for smoother motion (3494 keyframes smoothed)
+- Re-confirmed skin_5_c0 and skin_2_c0 Y-axis 180° rotation fix
+- Regenerated heblu.bbmodel from scratch with all fixes applied
+
+Stage Summary:
+- Zero-snap count: 0 (was 28-90 per animation)
+- Loop mismatches: 0 (was 55-80 per animation)
+- Animations: 6 (removed 2 redundant: cosmic_shaking, fly_vomit)
+- Interpolation: 3494 catmullrom + 1986 linear keyframes
+- All animations verified: idle, attack, fly, vomit, shaking, cosmic
+- skin_2 and skin_5 groups correctly rotated [0, 180, 0]
