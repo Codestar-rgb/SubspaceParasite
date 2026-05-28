@@ -1184,3 +1184,28 @@ Stage Summary:
 - Walk animations correctly capture swingX/Y/Z leg movements and moveY body bobbing
 - Ambient animations capture ageInTicks-driven tentacle/body swaying
 - Attack walk has lower amplitude than idle/evolved walk (GD=0.9 vs 1.0), matching original
+
+---
+Task ID: 1
+Agent: Main
+Task: Fix animation duration issues (too long → slow-motion) and re-convert abomination models
+
+Work Log:
+- Diagnosed root cause: `_sample_animation()` was using `limbSwing = t` where t=0..2π treated as seconds, making walk animations 6.28s instead of ~1.0s
+- Similarly, `ageInTicks = t` where t=0..30 treated as seconds, making ambient animations 30s instead of ~3.4s
+- Fixed `_sample_animation()`: 
+  - Walk: Now properly maps limbSwing period to 1.0s walk cycle, using `limb_swing_scale = period_limbSwing / walk_cycle_seconds`
+  - Ambient: Now converts ageInTicks period from ticks to seconds via `period_seconds = period_ticks / 20.0`, capped at 5s
+  - Keyframe time is now in real seconds (`time_s`), not in limbSwing/ageInTicks units
+- Added `_find_dominant_walk_speed()`: Extracts the actual speed factor from expressions like `limbSwing * 0.2 * (2.1)` by using balanced parentheses parsing and numerical evaluation
+- Added `_extract_balanced_factor()` and `_eval_speed_expr()` helper methods
+- Fixed speed detection: Previously detected 0.2 (just first number), now correctly computes 0.42 (= 0.2*2.1) for idle, 0.54 (= 0.2*2.7) for evolved, 0.48 (= 0.2*2.4) for attack
+- Re-converted both abomination models (aboBodies.bbmodel, aboHead.bbmodel)
+- Verified all 8 animations have perfect loop continuity (Δ < 0.5°)
+- Results: idle_walk=1.0s, evolved_walk=1.0s, attack_walk=1.0s, ambient=3.44s (aboBodies) / 2.08s (aboHead)
+
+Stage Summary:
+- Animation duration fix: Walk 6.28s → 1.0s, Ambient 30s → 3.44s
+- All animations now loop perfectly in Blockbench
+- Speed detection correctly handles compound expressions like `0.2 * GS`
+- Output: /home/z/my-project/MROLF-TGNBF/abomination/aboBodies.bbmodel and aboHead.bbmodel

@@ -933,6 +933,14 @@ class AbominationAnimExtractor:
         """
         Sample a single animation state numerically with high precision.
 
+        Key timing corrections:
+          - Walk animations: limbSwing is NOT in seconds. In MC 1.12.2, limbSwing
+            increments by ~walk_speed*4.0 per tick. At normal walk speed (~0.216 b/tick),
+            limbSwing_rate ≈ 0.864/tick ≈ 17.28/s. We map the period in limbSwing
+            space to a target walk cycle duration (default 1.0s).
+          - Ambient animations: ageInTicks is in ticks. 1 tick = 0.05s.
+            We sample ageInTicks over one period, then convert tick values to seconds.
+
         Args:
             state: State dict from _parse_abomination_states
             sample_count: Number of samples (240 for smooth curves)
@@ -942,16 +950,50 @@ class AbominationAnimExtractor:
         vars_def = state.get('vars_def', {})
         is_walk = state.get('is_walk', False)
 
-        # Determine sampling period
-        if is_walk:
-            period = 2 * math.pi  # One walk cycle
-            age_ratio = 10.0
-        else:
-            period = self._estimate_period(bone_exprs, vars_def)
-            period = min(period, 30.0)  # Cap at 30 seconds
-            age_ratio = 0
+        # --- Timing constants ---
+        TICKS_PER_SECOND = 20.0  # MC runs at 20 TPS
 
-        dt = period / sample_count
+        if is_walk:
+            # Find the dominant walk speed factor from swing expressions
+            # e.g., swingX(bone, 0.2*GS, degree, invert, offset, weight, limbSwing, limbSwingAmount)
+            # The speed factor is the coefficient of limbSwing in cos(limbSwing * speed)
+            walk_speed = self._find_dominant_walk_speed(bone_exprs, vars_def)
+
+            # Period in limbSwing space (one full cosine cycle)
+            period_limbSwing = 2 * math.pi / walk_speed
+
+            # Target walk cycle duration in seconds
+            # In vanilla MC, a typical walk cycle is ~1.0-1.2 seconds
+            # We use 1.0s as the reference, which looks natural in Blockbench
+            walk_cycle_seconds = 1.0
+
+            # Scaling: limbSwing ranges from 0 to period_limbSwing over walk_cycle_seconds
+            # limbSwing(t) = t * period_limbSwing / walk_cycle_seconds
+            limb_swing_scale = period_limbSwing / walk_cycle_seconds
+
+            # ageInTicks during walk: scales proportionally
+            # In MC, ageInTicks ≈ time_in_ticks, so at each sample point:
+            # age_in_ticks = time_seconds * TICKS_PER_SECOND
+            age_ratio = TICKS_PER_SECOND
+
+            period_seconds = walk_cycle_seconds
+        else:
+            # Ambient animation: ageInTicks is in ticks
+            # Estimate the period in ageInTicks (tick) space
+            period_ticks = self._estimate_period(bone_exprs, vars_def)
+
+            # Convert period from ticks to seconds
+            period_seconds = period_ticks / TICKS_PER_SECOND
+            # Cap at a reasonable ambient duration (max ~5 seconds)
+            period_seconds = min(period_seconds, 5.0)
+
+            # Re-derive period_ticks from capped seconds
+            period_ticks = period_seconds * TICKS_PER_SECOND
+
+            age_ratio = 0
+            limb_swing_scale = 0
+
+        dt = period_seconds / sample_count
         bones_data = {}
 
         for bone_name, channels in bone_exprs.items():
@@ -961,18 +1003,20 @@ class AbominationAnimExtractor:
                 keyframes = []
 
                 for i in range(sample_count + 1):
-                    t = i * dt
+                    time_s = i * dt  # Time in seconds (for Blockbench keyframe)
 
                     if is_walk:
-                        limb_swing = t
+                        # Map real time to limbSwing value
+                        limb_swing = time_s * limb_swing_scale
                         limb_swing_amount = 1.0
-                        age_in_ticks = t * age_ratio
+                        age_in_ticks = time_s * age_ratio
                     else:
+                        # Map real time to ageInTicks value
                         limb_swing = 0.0
                         limb_swing_amount = 0.0
-                        age_in_ticks = t
+                        age_in_ticks = time_s * TICKS_PER_SECOND  # seconds → ticks
 
-                    kf = {'time': t}
+                    kf = {'time': time_s}
 
                     for axis, expr in axis_exprs.items():
                         try:
@@ -1002,10 +1046,8 @@ class AbominationAnimExtractor:
 
                     keyframes.append(kf)
 
-                # Enforce loop continuity ONLY for idle/ambient animations
-                # Walk animations should NOT have start/end values forced to match
-                # because the walk cycle may not be a perfect sine period.
-                # The looping behavior is handled by the animation's "loop" property.
+                # Enforce loop continuity for idle/ambient animations
+                # Walk animations loop naturally due to cosine period
                 if not is_walk and keyframes and len(keyframes) > 2:
                     first = keyframes[0]
                     last = keyframes[-1]
@@ -1057,6 +1099,95 @@ class AbominationAnimExtractor:
 
         period = 2 * math.pi / min_freq
         return period
+
+    def _find_dominant_walk_speed(self, bone_exprs: dict, vars_def: Dict[str, str]) -> float:
+        """
+        Find the dominant walk speed factor from animation expressions.
+
+        Walk animations use patterns like:
+          MathHelper.cos(limbSwing * speed) where speed = 0.2 * GS (e.g., 0.42)
+
+        The speed factor may be a compound expression like '0.2 * GS' that needs
+        variable resolution and numerical evaluation.
+
+        Strategy: Find "limbSwing * <expr>" inside cos() calls, extract <expr>,
+        resolve variables, and evaluate numerically.
+
+        Returns the dominant speed factor (default 0.6667 = vanilla MC walk speed).
+        """
+        speeds = []
+
+        for bone_name, channels in bone_exprs.items():
+            for channel, axis_exprs in channels.items():
+                for axis, expr in axis_exprs.items():
+                    resolved = self._resolve_vars(expr, vars_def)
+
+                    # Find all occurrences of "limbSwing *" and extract the speed factor
+                    pos = 0
+                    while True:
+                        idx = resolved.find('limbSwing', pos)
+                        if idx == -1:
+                            break
+
+                        # Check if followed by *
+                        after = resolved[idx + len('limbSwing'):].lstrip()
+                        if after.startswith('*'):
+                            # Extract the expression after the *
+                            rest = after[1:].lstrip()
+                            # Extract up to a + or - at depth 0
+                            speed_expr = self._extract_balanced_factor(rest)
+                            if speed_expr:
+                                speed = self._eval_speed_expr(speed_expr)
+                                if speed and 0 < speed < 10.0:
+                                    speeds.append(speed)
+
+                        pos = idx + 1
+
+        if speeds:
+            # Use the most common (median) speed as the dominant one
+            speeds.sort()
+            return speeds[len(speeds) // 2]
+
+        # Fallback: vanilla MC default walk speed
+        return 0.6667
+
+    def _extract_balanced_factor(self, expr: str) -> Optional[str]:
+        """
+        Extract a balanced expression from the start of a string.
+        Stops at a + or - at depth 0 (not inside parentheses).
+        Returns the extracted substring, or None if empty.
+        """
+        depth = 0
+        end = 0
+        for i, ch in enumerate(expr):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+                if depth < 0:
+                    break
+            elif ch in ('+', '-') and depth == 0 and i > 0:
+                # Stop at + or - at depth 0 (but not at start)
+                break
+            end = i + 1
+
+        result = expr[:end].strip()
+        return result if result else None
+
+    def _eval_speed_expr(self, speed_expr: str) -> Optional[float]:
+        """Evaluate a speed expression string to a numeric value."""
+        try:
+            py_expr = speed_expr
+            # Remove Java float suffixes
+            py_expr = re.sub(r'(\d+(?:\.\d+)?)[fF](?!\w)', r'\1', py_expr)
+            # Remove non-numeric function calls
+            py_expr = re.sub(r'MathHelper\.\w+', '0', py_expr)
+            py_expr = re.sub(r'math\.\w+', '0', py_expr)
+            # Evaluate
+            speed = float(eval(py_expr, {"__builtins__": {}}, {}))
+            return speed
+        except Exception:
+            return None
 
     # ========================================================================
     # Douglas-Peucker Simplification
