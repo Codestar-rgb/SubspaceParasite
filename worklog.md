@@ -1295,3 +1295,26 @@ Stage Summary:
 - All adapted models: proper state separation (walk/idle/evolved/attack)
 - Key files modified: converter/animation_extractor.py, converter/bbmodel_generator.py
 - Output: MROLF-TGNBF/abomination/, MROLF-TGNBF/adapted/, MROLF-TGNBF/deterrent/ all updated
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix animation speed/duration and duplicate animation issues, then batch convert MROLF-TGNBF
+
+Work Log:
+- Analyzed animation_extractor.py to identify two root causes:
+  1. Walk animation: period was 2π seconds (6.28s) instead of vanilla 0.6667s - limbSwing was used as time axis directly
+  2. Idle animation: ageInTicks was treated as seconds but MC uses ticks (1/20s), making animations 20x too slow
+  3. Duplicate walk animations: each state (idle, evolved) created separate walk animations
+- Fixed _sample_animation: Walk animations now use 0.6667s duration with proper limbSwing-to-time mapping
+- Fixed _sample_animation: Idle animations now convert ageInTicks properly (t * 20.0) for correct evaluation
+- Fixed _estimate_period: Returns period in tick-space (was incorrectly returning seconds), caller converts to seconds
+- Fixed _build_animation_json: All walk animations merged into single shared "walk" animation per model
+- Fixed animation naming: Float variable conditions no longer produce raw condition strings like "ft6 > 0.0f"
+- Ran batch conversion of all 154 models: 100% success
+
+Stage Summary:
+- Walk animations: 6.2832s → 0.6667s (vanilla MC walk cycle)
+- Idle animations: 15.0s → 4.0s (correct ticks-to-seconds conversion)
+- Walk deduplication: e.g., aboBodies went from 4 anims (idle_walk, idle, evolved_walk, evolved) to 3 anims (walk, idle, evolved)
+- All 154 models converted successfully in MROLF-TGNBF/
+- Target folders verified: abomination/ (2 files), adapted/ (12 files), deterrent/ (20 files)

@@ -445,7 +445,13 @@ class AnimationExtractor:
                         else:
                             state_name = f'not_{method_name.replace("get", "").lower()}'
                 else:
-                    state_name = 'else'
+                    # Float variable else block - name based on inverse
+                    # e.g., if "ft6 > 0" was previous, else means "ft6 <= 0"
+                    float_cond_match = re.match(r'(\w+)\s*[><=!]+', last_if_condition)
+                    if float_cond_match:
+                        state_name = f'not_{float_cond_match.group(1)}'
+                    else:
+                        state_name = 'else'
                 
                 last_if_condition = None  # Reset
             else:
@@ -461,9 +467,26 @@ class AnimationExtractor:
                 if matched_var is None:
                     if 'getStillAni' in condition:
                         continue
-                    # For float var conditions (attack timer, etc.)
+                    # For float var conditions (attack timer, digging, etc.)
+                    # Try to extract a meaningful name from the condition
                     matched_var = condition.strip()
                     is_negated = False
+                    
+                    # Clean up float variable condition names
+                    # e.g., "ft6 > 0.0f" -> extract var name for better naming
+                    float_cond_match = re.match(r'(\w+)\s*[><=!]+', matched_var)
+                    if float_cond_match:
+                        float_var_name = float_cond_match.group(1)
+                        # Try to derive a meaningful name from the variable
+                        # Common patterns: ft6=diggingModel, f5=attackTimer
+                        float_name_map = {
+                            'diggingModel': 'digging',
+                            'attackTimer': 'attack',
+                            'digging': 'digging',
+                        }
+                        # Check if we can find the variable's purpose in the source
+                        # For now, use a generic but clean name
+                        matched_var = float_var_name  # Use just the variable name, not the whole condition
                 
                 # Determine state name
                 method_name = bool_vars.get(matched_var, matched_var)
@@ -1173,18 +1196,28 @@ class AnimationExtractor:
         # Determine sampling parameters
         if is_walk:
             # Vanilla MC walk cycle: cos(limbSwing * 0.6662)
-            # Full cosine period = 2π, so limbSwing goes from 0 to 2π
-            # In time: period = 2π / 0.6662 * (1 tick / 20 tps) ≈ 0.472s
-            # But we want a slightly longer period for visual smoothness
-            period = 2 * math.pi  # Sample one full cos period in limbSwing space
+            # Full cosine period = 2π in limbSwing space.
+            # In MC, limbSwing is distance-based, NOT time.
+            # At normal walking speed, one full cycle takes ~0.6667s (40 ticks / 20 tps).
+            # We sample limbSwing from 0 to 2π over a real-time duration of 0.6667s.
+            walk_duration = 0.6667  # seconds - vanilla MC walk cycle duration
+            limb_swing_max = 2 * math.pi  # One full cosine cycle in limbSwing space
             limb_swing_amount = 0.35
             age_ratio = 0.0  # No ageInTicks influence in pure walk
         else:
-            period = self._estimate_period(state)
-            period = min(period, 20.0)  # Cap at 20 seconds for practical use
+            # For idle/ambient animations, ageInTicks is in TICKS (1/20 second).
+            # The _estimate_period returns the period in tick-space.
+            # We need to convert to seconds for the animation timeline.
+            period_ticks = self._estimate_period(state)
+            period_seconds = period_ticks / 20.0  # Convert ticks to seconds
+            period_seconds = min(period_seconds, 4.0)  # Cap at 4 seconds for practical use
+            period_seconds = max(period_seconds, 0.5)  # Minimum 0.5 seconds
             age_ratio = 0
         
-        dt = period / sample_count
+        if is_walk:
+            dt = walk_duration / sample_count
+        else:
+            dt = period_seconds / sample_count
         bones_data = {}
         
         for bone_name, channels in bone_channels.items():
@@ -1197,7 +1230,9 @@ class AnimationExtractor:
                     t = i * dt
                     
                     if is_walk:
-                        limb_swing = t
+                        # Map time [0, walk_duration] to limbSwing [0, 2π]
+                        # This ensures one full walk cycle plays in 0.6667s
+                        limb_swing = limb_swing_max * (t / walk_duration) if walk_duration > 0 else 0.0
                         # Reduced limbSwingAmount for more natural leg swing.
                         # SRP's swingX formula: amplitude = limbSwingAmount^2 * degree
                         # With 0.35: amplitude = 0.1225 * degree (natural-looking)
@@ -1206,7 +1241,9 @@ class AnimationExtractor:
                     else:
                         limb_swing = 0.0
                         limb_swing_amount = 0.0
-                        age_in_ticks = t
+                        # ageInTicks in MC is in TICKS (1/20 second), not seconds.
+                        # Convert: ticks = seconds * 20
+                        age_in_ticks = t * 20.0
                     
                     kf = {'time': t}
                     
@@ -1339,6 +1376,9 @@ class AnimationExtractor:
         
         Finds all frequency components and computes a common period where
         ALL bones complete integer cycles for seamless looping.
+        
+        IMPORTANT: Returns the period in ageInTicks units (ticks, 1/20 second).
+        The caller must convert to seconds: period_seconds = period / 20.0
         """
         frequencies = []
         
@@ -1362,9 +1402,10 @@ class AnimationExtractor:
                     pass
         
         if not frequencies:
-            return 2 * math.pi / 0.5  # Default ~12.57s
+            # Default: ~100 ticks = 5 seconds (typical ambient animation)
+            return 100.0
         
-        # Find the fundamental period: period = 2π / freq
+        # Find the fundamental period: period = 2π / freq (in tick-space)
         # We need a common period T where T * freq_i / (2π) is an integer for all i
         # i.e., T = N * 2π / gcd_of_frequencies
         # Use the LCM approach: find T such that all freq * T / (2π) are integers
@@ -1407,11 +1448,11 @@ class AnimationExtractor:
             
             period = 2 * math.pi * lcm_denom / gcd_numer
             
-            # Cap at reasonable duration
-            period = min(period, 15.0)
+            # Cap at reasonable duration (in ticks)
+            period = min(period, 200.0)  # 200 ticks = 10 seconds max
         
-        # Ensure period is at least 1 second for visual quality
-        period = max(period, 1.0)
+        # Ensure period is at least 10 ticks (0.5 seconds) for visual quality
+        period = max(period, 10.0)
         
         return period
 
@@ -1667,59 +1708,115 @@ class AnimationExtractor:
     # ========================================================================
 
     def _build_animation_json(self, states: List[AnimationState], model_name: str) -> dict:
-        """Build the final GeckoLib animation JSON structure."""
+        """Build the final GeckoLib animation JSON structure.
+        
+        KEY DESIGN DECISIONS:
+        1. All walk animations are MERGED into a single shared "walk" animation.
+           In GeckoLib, walk animations are blended with idle animations at runtime,
+           so having one unified walk animation avoids duplication and saves memory.
+        2. State-specific idle/ambient animations are kept separate (idle, evolved, etc.)
+           since they represent different visual states that are activated conditionally.
+        3. Animation names follow GeckoLib convention: animation.modelName.stateName
+        """
         animations = {}
         
+        # Phase 1: Collect all walk bones from all states that have walk components
+        # Merge them into a single unified walk animation
+        all_walk_assignments = []
+        all_walk_vars = {}
+        walk_bones_seen = set()  # Track (bone_var, channel, axis) to avoid duplicates
+        
         for state in states:
-            base_name = state.name
+            if not state.is_walk:
+                continue
             
-            # Determine the final animation name (avoid double _walk)
-            if state.is_walk and state.is_idle:
-                # Split into separate walk and idle animations
-                walk_state = self._filter_walk_bones(state)
-                idle_state = self._filter_idle_bones(state)
+            for assignment in state.bone_assignments:
+                full_expr = self._resolve_vars(assignment.expression, state.vars_def)
+                if 'limbSwing' not in full_expr:
+                    continue
                 
-                # Walk animation name
-                walk_name = f"{base_name}_walk" if not base_name.endswith('_walk') else base_name
+                key = (assignment.bone_var, assignment.channel, assignment.axis)
+                if key not in walk_bones_seen:
+                    walk_bones_seen.add(key)
+                    all_walk_assignments.append(assignment)
+            
+            # Merge vars from all walk states
+            for var_name, var_expr in state.vars_def.items():
+                if var_name not in all_walk_vars:
+                    all_walk_vars[var_name] = var_expr
+        
+        # Create unified walk animation if we have walk bones
+        if all_walk_assignments:
+            walk_state = AnimationState(
+                name='walk',
+                condition_desc='unified walk from all states',
+            )
+            walk_state.bone_assignments = all_walk_assignments
+            walk_state.vars_def = all_walk_vars
+            walk_state.is_walk = True
+            walk_state.is_idle = False
+            
+            bones_data = self._sample_animation(walk_state, is_walk=True)
+            if bones_data:
+                animations[f"animation.{model_name}.walk"] = {
+                    "loop": "loop",
+                    "animation_length": self._calculate_animation_length(bones_data),
+                    "bones": bones_data,
+                }
+        
+        # Phase 2: Create state-specific idle/ambient animations
+        # Only include ageInTicks-driven bones (NOT limbSwing-driven walk bones)
+        for state in states:
+            if not state.is_idle:
+                continue
+            
+            # Filter to only non-walk (ageInTicks-only) bones for idle animations
+            idle_state = self._filter_idle_bones(state)
+            
+            if idle_state.bone_assignments:
+                # Determine animation name based on state
+                base_name = state.name
+                # Clean up naming: remove redundant suffixes
+                clean_name = base_name
+                if clean_name.endswith('_walk'):
+                    clean_name = clean_name[:-5]  # Remove _walk suffix
                 
-                if walk_state.bone_assignments:
-                    anim_name = f"animation.{model_name}.{walk_name}"
-                    bones_data = self._sample_animation(walk_state, is_walk=True)
-                    if bones_data:
+                # Map common state names to standard animation names
+                anim_name_suffix = clean_name if clean_name else 'idle'
+                
+                anim_name = f"animation.{model_name}.{anim_name_suffix}"
+                bones_data = self._sample_animation(idle_state, is_walk=False)
+                if bones_data:
+                    # Don't overwrite if already exists (dedup)
+                    if anim_name not in animations:
                         animations[anim_name] = {
                             "loop": "loop",
                             "animation_length": self._calculate_animation_length(bones_data),
                             "bones": bones_data,
                         }
-                
-                # Idle animation name
-                idle_name = base_name.replace('_walk', '') if base_name.endswith('_walk') else base_name
-                
-                if idle_state.bone_assignments:
-                    anim_name = f"animation.{model_name}.{idle_name}"
-                    bones_data = self._sample_animation(idle_state, is_walk=False)
-                    if bones_data:
-                        animations[anim_name] = {
-                            "loop": "loop",
-                            "animation_length": self._calculate_animation_length(bones_data),
-                            "bones": bones_data,
-                        }
+                    else:
+                        # Merge bones into existing animation (different states may
+                        # animate different bones in idle)
+                        existing_bones = animations[anim_name].get("bones", {})
+                        for bone_name, channels in bones_data.items():
+                            if bone_name not in existing_bones:
+                                existing_bones[bone_name] = channels
+                        # Update animation_length if needed
+                        new_length = self._calculate_animation_length(bones_data)
+                        if new_length > animations[anim_name].get("animation_length", 0):
+                            animations[anim_name]["animation_length"] = new_length
+        
+        # Phase 3: Handle states that are neither walk nor idle (rare edge cases)
+        for state in states:
+            if state.is_walk or state.is_idle:
+                continue
             
-            elif state.is_walk:
-                walk_name = f"{base_name}_walk" if not base_name.endswith('_walk') else base_name
-                anim_name = f"animation.{model_name}.{walk_name}"
-                bones_data = self._sample_animation(state, is_walk=True)
-                if bones_data:
-                    animations[anim_name] = {
-                        "loop": "loop",
-                        "animation_length": self._calculate_animation_length(bones_data),
-                        "bones": bones_data,
-                    }
-            
-            elif state.is_idle:
-                anim_name = f"animation.{model_name}.{base_name}"
-                bones_data = self._sample_animation(state, is_walk=False)
-                if bones_data:
+            # This state has neither limbSwing nor ageInTicks - likely a static pose
+            # Create it as a simple animation
+            bones_data = self._sample_animation(state, is_walk=False)
+            if bones_data:
+                anim_name = f"animation.{model_name}.{state.name}"
+                if anim_name not in animations:
                     animations[anim_name] = {
                         "loop": "loop",
                         "animation_length": self._calculate_animation_length(bones_data),
