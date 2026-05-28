@@ -231,9 +231,10 @@ def enforce_loop_continuity(sampled_data: Dict, duration: float) -> Dict:
                 first_val = keyframes[0][1]
                 last_val = keyframes[-1][1]
                 # If the difference is small but non-zero, snap the last to match first
-                # Use 1.0 degree threshold for rotation channels (hair oscillations can be ~10° off)
-                # and 0.1 for position channels (position offsets are much smaller)
-                threshold = 1.0 if channel.startswith('r') else 0.1
+                # With proper cycle-aligned duration, start/end should naturally match
+                # within floating point error. Use 0.1 degree threshold for rotation channels
+                # and 0.01 for position channels (much tighter than before)
+                threshold = 0.1 if channel.startswith('r') else 0.01
                 if abs(first_val - last_val) < threshold:
                     keyframes[-1] = (keyframes[-1][0], first_val)
     return sampled_data
@@ -1143,15 +1144,18 @@ def generate_all_animations() -> dict:
 
     # --- IDLE animation ---
     print("  Generating idle animation...")
-    # Walk cycle period = 2π / (0.3*0.9*0.5*20) = 2.327s
-    # Use 9 complete walk cycles for seamless walking loop
-    idle_duration = 9 * (2 * math.pi / 2.7)  # 20.944s = 9 complete walk cycles
+    # Walk cycle period = 2π / (walk_speed * limb_swing_rate)
+    # where walk_speed = 0.3 * GS, limb_swing_rate = limbSwingAmount * TICKS_PER_SECOND
+    # For GS=0.9, limbSwingAmount=0.5: period = 2π/(0.27 * 10) = 2.327s
+    # Use 1 complete walk cycle for crisp looping animation
+    idle_walk_period = 2 * math.pi / (0.3 * 0.9 * 0.5 * TICKS_PER_SECOND)  # ~2.327s
+    idle_duration = idle_walk_period  # Single complete walk cycle
     
     idle_data = sample_animation(
         lambda t: eval_idle(t, limb_swing_amount=0.5),
         duration=idle_duration,
         samples_per_second=60.0,
-        dp_epsilon=0.15
+        dp_epsilon=0.08
     )
     # Enforce loop continuity
     idle_data = enforce_loop_continuity(idle_data, idle_duration)
@@ -1164,16 +1168,17 @@ def generate_all_animations() -> dict:
 
     # --- ATTACK animation ---
     print("  Generating attack animation...")
-    # Walk cycle period for attack: 2π / (0.3*1.0*0.5*20) = 2.094s
-    # Use 10 complete walk cycles for seamless loop
-    attack_walk_period = 2 * math.pi / (0.3 * 1.0 * 0.5 * 20)
-    attack_duration = 10 * attack_walk_period  # ~20.944s
+    # Walk cycle period for attack: 2π / (0.3*GS*limbSwingAmount*TICKS_PER_SECOND)
+    # For GS=1.0, limbSwingAmount=0.5: period = 2π/(0.3*1.0*0.5*20) = 2.094s
+    # Use 1 complete walk cycle for crisp looping animation
+    attack_walk_period = 2 * math.pi / (0.3 * 1.0 * 0.5 * TICKS_PER_SECOND)
+    attack_duration = attack_walk_period  # Single complete walk cycle
     
     attack_data = sample_animation(
         lambda t: eval_attack(t, limb_swing_amount=0.5),
         duration=attack_duration,
         samples_per_second=60.0,
-        dp_epsilon=0.15
+        dp_epsilon=0.08
     )
     attack_data = enforce_loop_continuity(attack_data, attack_duration)
     
@@ -1187,15 +1192,15 @@ def generate_all_animations() -> dict:
     print("  Generating fly animation...")
     # Flight wing flap period: cos(0.08 * ageInTicks * 2.5)
     # Angular frequency: 0.08 * 20 * 2.5 = 4.0 rad/s → period = π/2 ≈ 1.571s
-    # Use 4 complete wing cycles for seamless loop
+    # Use 2 complete wing cycles for better looping
     fly_wing_period = 2 * math.pi / 4.0
-    fly_duration = 4 * fly_wing_period  # 6.283s = 4 complete wing cycles
+    fly_duration = 2 * fly_wing_period  # 3.14s = 2 complete wing cycles
     
     fly_data = sample_animation(
         eval_fly,
         duration=fly_duration,
         samples_per_second=60.0,
-        dp_epsilon=0.12  # Tighter epsilon for wing flap detail
+        dp_epsilon=0.08  # Tight epsilon for wing flap detail
     )
     fly_data = enforce_loop_continuity(fly_data, fly_duration)
     
