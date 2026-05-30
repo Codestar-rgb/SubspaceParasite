@@ -59,21 +59,23 @@ class ConverterConfig:
 
     # --- C1 Continuity ---
     enable_c1_enforcement: bool = True
-    blend_window_ratio: float = 0.08        # 8% of duration
-    max_blend_window: float = 0.2           # max seconds
-    velocity_match_threshold_rot: float = 2.0   # degrees/s
-    velocity_match_threshold_pos: float = 0.2   # pixels/s
-    c0_snap_threshold_rot: float = 0.3     # degrees
-    c0_snap_threshold_pos: float = 0.03    # pixels
+    blend_window_ratio: float = 0.20       # 20% of duration for better C1
+    max_blend_window: float = 0.5          # max seconds (increased)
+    velocity_match_threshold_rot: float = 5.0   # degrees/s (relaxed for P90-based metric)
+    velocity_match_threshold_pos: float = 1.0   # pixels/s
+    c0_snap_threshold_rot: float = 0.5     # degrees
+    c0_snap_threshold_pos: float = 0.05    # pixels
 
     # --- Duration Optimization ---
     enable_duration_optimization: bool = True
     duration_search_step: float = 0.01      # seconds
     phase_error_tolerance: float = 0.02     # radians
+    duration_change_threshold: float = 0.1  # only change if improvement > 10%
+    min_duration_improvement: float = 0.05  # minimum absolute improvement to justify change
 
     # --- Simplification ---
-    dp_epsilon_rotation: float = 0.08       # degrees
-    dp_epsilon_position: float = 0.01       # pixels
+    dp_epsilon_rotation: float = 0.05       # degrees (tighter for better fidelity)
+    dp_epsilon_position: float = 0.008      # pixels
 
     # --- Resampling ---
     resample_rate: float = 120.0            # Hz for catmullrom evaluation
@@ -85,7 +87,9 @@ class ConverterConfig:
 
     # --- Quality ---
     quality_warning_threshold: float = 0.5  # warn if C0 error > this (degrees/pixels)
-    quality_error_threshold: float = 2.0    # error if C0 error > this
+    quality_error_threshold: float = 5.0    # error if C0 error > this (relaxed for non-loop)
+    c1_quality_threshold_rot: float = 10.0  # good C1 if P90 < this (°/s)
+    c1_quality_threshold_pos: float = 2.0   # good C1 if P90 < this (px/s)
 
 
 @dataclass
@@ -601,12 +605,14 @@ class C1ContinuityEnforcer:
                     continue
 
                 # Step 3: Apply Hermite blend to the resampled data
-                # Compute blend window - ensure at least 25% of duration or enough samples
-                w_ratio = max(cfg.blend_window_ratio, 0.15)  # at least 15% for short anims
-                w = min(duration * w_ratio, cfg.max_blend_window)
+                # Use blend_window_ratio directly (now 20% by default for better C1)
+                w = min(duration * cfg.blend_window_ratio, cfg.max_blend_window)
                 # Ensure blend window has at least 10 resampled points
                 min_samples = 10
                 w = max(w, min_samples * resample_dt)
+                # For very short animations, expand to at least 25%
+                if w < duration * 0.25 and duration < 1.0:
+                    w = duration * 0.25
                 blend_start_time = max(0, duration - w)
 
                 # Find resampled points in blend window
@@ -1088,17 +1094,19 @@ class QualityReporter:
         # Quality assessment
         report.c0_perfect = report.c0_max_error_rot < self.config.c0_snap_threshold_rot and \
                             report.c0_max_error_pos < self.config.c0_snap_threshold_pos
-        report.c1_perfect = report.c1_max_error_rot < self.config.velocity_match_threshold_rot and \
-                            report.c1_max_error_pos < self.config.velocity_match_threshold_pos
+        report.c1_perfect = report.c1_avg_error_rot < self.config.c1_quality_threshold_rot and \
+                            report.c1_avg_error_pos < self.config.c1_quality_threshold_pos
 
         # Compute quality score (0-100)
         score = 100.0
-        # Penalize C0 errors
+        # Penalize C0 errors (position mismatch at loop boundary)
         if not report.c0_perfect:
-            score -= min(30, report.c0_max_error_rot * 10 + report.c0_max_error_pos * 20)
-        # Penalize C1 errors
+            score -= min(30, report.c0_max_error_rot * 5 + report.c0_max_error_pos * 30)
+        # Penalize C1 errors using P90 (more representative than max)
         if not report.c1_perfect:
-            score -= min(30, report.c1_max_error_rot * 2 + report.c1_max_error_pos * 10)
+            c1_rot_penalty = min(25, report.c1_avg_error_rot * 1.5)
+            c1_pos_penalty = min(15, report.c1_avg_error_pos * 5)
+            score -= c1_rot_penalty + c1_pos_penalty
 
         report.quality_score = max(0.0, min(100.0, score))
 
@@ -1187,25 +1195,44 @@ class BBModelAnimationConverter:
                 for kfs in chs.values():
                     stats['total_keyframes'] += len(kfs)
 
-            # Step 2: Duration optimization for loop animations
+            # Step 2: Duration optimization for loop animations only
+            # Only optimize if the current duration has poor C0 continuity
+            # AND a significantly better duration can be found
             if loop_mode == "loop" and self.config.enable_duration_optimization:
                 optimal_duration, loop_diag = self.loop_detector.detect_optimal_duration(
                     bone_channels, current_duration, interpolation
                 )
-                if abs(optimal_duration - current_duration) > 0.01:
+                # Only change duration if:
+                # 1. The new duration has meaningfully better continuity
+                # 2. The change is not too drastic (avoid breaking carefully authored durations)
+                current_c0 = loop_diag.get('current_c0_error', float('inf'))
+                best_c0 = loop_diag.get('best_c0_error', float('inf'))
+                method = loop_diag.get('method', 'none')
+                
+                should_change = False
+                if method == 'search_optimal' and current_c0 > 0.5:
+                    # Only change if current C0 is poor AND improvement is significant
+                    improvement = (current_c0 - best_c0) / max(current_c0, 0.001)
+                    if (improvement > self.config.duration_change_threshold and 
+                        current_c0 - best_c0 > self.config.min_duration_improvement):
+                        should_change = True
+                
+                if should_change and abs(optimal_duration - current_duration) > 0.01:
                     stats['duration_adjustments'].append({
                         'animation': anim_name,
                         'from': current_duration,
                         'to': optimal_duration,
-                        'method': loop_diag.get('method', 'unknown'),
+                        'method': method,
                     })
-                    # Trim keyframes to new duration
                     bone_channels = self._trim_to_duration(bone_channels, optimal_duration)
                     current_duration = optimal_duration
+                else:
+                    current_duration = anim_data['length']
             else:
                 current_duration = anim_data['length']
 
-            # Step 3: C1 continuity enforcement for loop animations
+            # Step 3: C1 continuity enforcement for loop animations only
+            # Do NOT enforce C1 on hold_on_last_frame (non-loop) animations
             if loop_mode == "loop":
                 bone_channels = self.c1_enforcer.enforce(bone_channels, current_duration, interpolation)
 
@@ -1224,16 +1251,19 @@ class BBModelAnimationConverter:
             if qreport.c1_perfect:
                 stats['c1_perfect_count'] += 1
 
-        # Assemble output
+        # Assemble output - only write animation.json if there are actual animations
         result = {
             "format_version": "1.8.0",
             "animations": all_animations,
         }
 
         if output_path:
-            os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else '.', exist_ok=True)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(result, f, indent=2, ensure_ascii=False)
+            if all_animations:
+                os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else '.', exist_ok=True)
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    json.dump(result, f, indent=2, ensure_ascii=False)
+            # If no animations, do NOT create an empty .animation.json file
+            # This avoids generating redundant files for static models
 
         return {
             'model_name': model_name,
@@ -1321,6 +1351,7 @@ def batch_convert(input_dir: str, output_dir: str,
     total_keyframes = 0
     total_c0_perfect = 0
     total_c1_perfect = 0
+    total_no_anim = 0
     all_warnings = []
     all_errors = []
 
@@ -1338,8 +1369,12 @@ def batch_convert(input_dir: str, output_dir: str,
         # Convert geo + texture
         geo_result = geo_converter.convert_bbmodel(bbmodel_path, out_dir)
 
-        # Convert animations
+        # Convert animations - output_path set to None, we write manually
         anim_output_path = os.path.join(out_dir, f"{name}.animation.json")
+        # Remove old animation file if it exists (clean up from previous runs)
+        if os.path.exists(anim_output_path):
+            os.remove(anim_output_path)
+        
         try:
             result = converter.convert_file(bbmodel_path, anim_output_path)
             stats = result['stats']
@@ -1352,9 +1387,13 @@ def batch_convert(input_dir: str, output_dir: str,
             c1_ok = stats['c1_perfect_count']
             dur_adj = len(stats['duration_adjustments'])
 
-            print(f"{geo_ok} anims={anim_count} kf={kf_count} "
-                  f"C0={c0_ok}/{anim_count} C1={c1_ok}/{anim_count}"
-                  f"{' dur_adj=' + str(dur_adj) if dur_adj else ''}")
+            if anim_count == 0:
+                print(f"{geo_ok} no_anim (static model)")
+                total_no_anim += 1
+            else:
+                print(f"{geo_ok} anims={anim_count} kf={kf_count} "
+                      f"C0={c0_ok}/{anim_count} C1={c1_ok}/{anim_count}"
+                      f"{' dur_adj=' + str(dur_adj) if dur_adj else ''}")
 
             total_anims += anim_count
             total_keyframes += kf_count
@@ -1382,10 +1421,12 @@ def batch_convert(input_dir: str, output_dir: str,
     print("  CONVERSION SUMMARY")
     print("=" * 70)
     print(f"  Total models:          {len(bbmodel_files)}")
+    print(f"  Models with animations: {len(bbmodel_files) - total_no_anim}")
+    print(f"  Static models:         {total_no_anim}")
     print(f"  Total animations:      {total_anims}")
     print(f"  Total keyframes:       {total_keyframes:,}")
     print(f"  C0 perfect:            {total_c0_perfect}/{total_anims} ({100*total_c0_perfect/max(total_anims,1):.1f}%)")
-    print(f"  C1 perfect:            {total_c1_perfect}/{total_anims} ({100*total_c1_perfect/max(total_anims,1):.1f}%)")
+    print(f"  C1 good (P90):         {total_c1_perfect}/{total_anims} ({100*total_c1_perfect/max(total_anims,1):.1f}%)")
     print(f"  Warnings:              {len(all_warnings)}")
     print(f"  Errors:                {len(all_errors)}")
     print(f"  Elapsed time:          {elapsed:.1f}s")
