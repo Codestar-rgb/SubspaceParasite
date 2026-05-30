@@ -1547,3 +1547,34 @@ Stage Summary:
 - C0 perfect: 364/365 (99.7%) - maintained
 - ZIP: db/SDMCXKIFFNEK.zip (4.6 MB, 437 files: 154 geo + 129 anim + 154 PNG)
 - Keyframes: 78,443 total across 365 animations
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Comprehensively upgrade universal animation converter and convert all MROLF-TGNBF .bbmodel files
+
+Work Log:
+- Read and analyzed bbmodel_animation_converter.py (1460 lines) to identify improvement areas
+- Fixed critical C1 continuity math bug: smootherstep was being applied to Hermite parameter BEFORE computing basis functions, which WARPED the curve and broke endpoint velocity guarantees
+- Changed to use LINEAR parameter s directly in Hermite basis functions (h00, h10, h01, h11)
+- Added symmetric dual-endpoint C1 blending: end blend transitions toward (p_start, v_start), start blend transitions from periodic bridge state toward original start
+- Added autocorrelation-based period detection (_detect_periods_autocorrelation) for more robust loop detection
+- Added "good enough" early exit when C0 < 0.5° and C1 < 5°/s
+- Added intelligent empty animation detection and skipping (36 animations skipped)
+- Added case-insensitive animation name deduplication (69 duplicates merged)
+- Added exact duplicate animation data merging
+- Added AnimationNameNormalizer class for GeckoLib convention: animation.<namespace>.<entity>.<state>
+- Added new ConverterConfig fields: autocorrelation_enabled, early_exit_c0_rot, early_exit_c1_rot, skip_empty_animations, deduplicate_case_insensitive, merge_duplicate_animations, normalize_animation_names, animation_namespace
+- Adjusted blend_window_ratio from 20% to 10% per side (dual-endpoint), max_blend_window from 0.5s to 0.25s per side
+- Ran batch conversion on all 154 .bbmodel files in MROLF-TGNBF/
+- Results: 120 models with animations, 34 static models, 260 total animations, 193,182 keyframes
+- C0 perfect: 259/260 (99.6%), C1 good (P90): 194/260 (74.6%)
+- 36 empty animations skipped, 69 duplicates merged
+- Repackaged SDMCXKIFFNEK.zip with 428 files (154 geo.json + 120 animation.json + 154 png)
+
+Stage Summary:
+- Universal animation converter v2 complete at /home/z/my-project/converter/bbmodel_animation_converter.py (2017 lines)
+- Key fix: Hermite basis functions now use linear parameter (no smootherstep warp)
+- New features: dual-endpoint C1 blend, autocorrelation period detection, empty/duplicate handling, name normalization
+- All 154 models converted and packaged in SDMCXKIFFNEK.zip
+- Quality: 99.6% C0 perfect, 74.6% C1 good
