@@ -1,0 +1,80 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.hull.walk": {
+      "loop": "loop",
+      "animation_length": 0.6667,
+      "bones": {
+        "jointFLL": {
+          "rotation": {
+            "x": {
+              "0.0000": 4.2112,
+              "0.2389": 3.1014,
+              "0.6667": 4.2112
+            }
+          }
+        },
+        "jointFRL": {
+          "rotation": {
+            "x": {
+              "0.0000": -4.2112,
+              "0.2389": -3.1014,
+              "0.6667": -4.2112
+            }
+          }
+        },
+        "jointBLL": {
+          "rotation": {
+            "x": {
+              "0.0000": -4.2112,
+              "0.2389": -3.1014,
+              "0.6667": -4.2112
+            }
+          }
+        },
+        "jointBRL": {
+          "rotation": {
+            "x": {
+              "0.0000": 4.2112,
+              "0.2389": 3.1014,
+              "0.6667": 4.2112
+            }
+          }
+        },
+        "mainbody": {
+          "rotation": {
+            "x": {
+              "0.0000": -1.1736,
+              "0.5667": 1.409777,
+              "0.6667": -1.1736
+            }
+          },
+          "position": {
+            "y": {
+              "0.0000": -0.224,
+              "0.5056": 0.224,
+              "0.5917": 0.115527,
+              "0.6417": -0.218935,
+              "0.6667": -0.224
+            }
+          }
+        }
+      }
+    },
+    "animation.hull.idle": {
+      "loop": "loop",
+      "animation_length": 2.3921,
+      "bones": {}
+    },
+    "animation.hull.evolved": {
+      "loop": "loop",
+      "animation_length": 1.3483,
+      "bones": {}
+    },
+    "animation.hull.attack": {
+      "loop": "loop",
+      "animation_length": 1.3483,
+      "bones": {}
+    }
+  }
+}
