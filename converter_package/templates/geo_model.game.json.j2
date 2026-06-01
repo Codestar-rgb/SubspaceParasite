@@ -1,0 +1,73 @@
+{#-
+  Geo Model Game Format Template (GeckoLib 4.x)
+  ==============================================
+  Produces the game-format .geo.json for GeckoLib 1.20.1 runtime loading.
+
+  Expected variables:
+    - identifier: str        Model identifier (e.g. "model.kirin")
+    - texture_width: int     Texture atlas width in pixels
+    - texture_height: int    Texture atlas height in pixels
+    - bones: list            List of bone dicts from _prepare_bones_for_template()
+    - indent: int            JSON indentation level (default: 2)
+
+  Each bone dict has:
+    - name: str
+    - pivot: list[float]     [x, y, z]
+    - has_parent: bool
+    - parent: str
+    - has_rotation: bool
+    - rotation: list[float]  [rx, ry, rz] in degrees
+    - has_cubes: bool
+    - cubes: list[dict]      (if has_cubes)
+
+  Each cube dict has:
+    - origin: list[float]    [x, y, z]
+    - size: list[float]      [w, h, d]
+    - uv: dict               face -> {uv: [u,v], uv_size: [w,h]}
+    - has_mirror: bool
+    - has_inflate: bool
+    - inflate: float
+-#}
+{
+  "format_version": "1.12.0",
+  "model": {
+    "identifier": {{ identifier | tojson }},
+    "texture_width": {{ texture_width | tojson }},
+    "texture_height": {{ texture_height | tojson }},
+    "bones": [
+{% for bone in bones %}
+      {
+        "name": {{ bone.name | tojson }},
+        "pivot": {{ bone.pivot | tojson }}
+{% if bone.has_parent %},
+        "parent": {{ bone.parent | tojson }}
+{% endif %}
+{% if bone.has_rotation %},
+        "rotation": {{ bone.rotation | tojson }}
+{% endif %}
+{% if bone.has_cubes %},
+        "cubes": [
+{% for cube in bone.cubes %}
+          {
+            "origin": {{ cube.origin | tojson }},
+            "size": {{ cube.size | tojson }},
+            "uv": {
+{% for face_name in ['north', 'south', 'west', 'east', 'up', 'down'] %}
+              "{{ face_name }}": {{ cube.uv[face_name] | tojson }}{{ "," if not loop.last else "" }}
+{% endfor %}
+            }
+{% if cube.has_mirror %},
+            "mirror": true
+{% endif %}
+{% if cube.has_inflate %},
+            "inflate": {{ cube.inflate | tojson }}
+{% endif %}
+          }{{ "," if not loop.last else "" }}
+{% endfor %}
+        ]
+{% endif %}
+      }{{ "," if not loop.last else "" }}
+{% endfor %}
+    ]
+  }
+}

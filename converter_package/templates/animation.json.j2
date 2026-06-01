@@ -1,0 +1,122 @@
+{#-
+  GeckoLib Animation JSON Template
+  ==================================
+  Produces the .animation.json output for GeckoLib 1.20.1 runtime loading.
+
+  Expected variables:
+    - format_version: str           Animation format version (default: "1.8.0")
+    - animations: list              List of animation dicts
+
+  Each animation dict has:
+    - name: str                     Animation identifier (e.g. "animation.model.idle")
+    - loop: str                     Loop mode: "loop", "hold_on_last_frame", or "play_once"
+    - animation_length: float       Total animation length in seconds
+    - override_previous: bool       Whether to override previous animations (optional)
+    - bones: list                   List of bone animation dicts
+
+  Each bone animation dict has:
+    - name: str                     Bone name matching geo.json
+    - rotation: dict                Axis -> keyframe data
+    - position: dict                Axis -> keyframe data (optional)
+    - scale: dict                   Axis -> keyframe data (optional)
+    - has_position: bool            Whether position channel exists
+    - has_scale: bool               Whether scale channel exists
+
+  Keyframe data format (per axis):
+    - keyframes: list of {time: float, value: float, easing: str(optional)}
+      OR
+    - single_value: float          Static value for the entire animation
+
+  Animation-level event data (optional):
+    - sound_effects: list of {time: float, effect: str}
+    - particle_effects: list of {time: float, effect: str, locator: str( optional)}
+-#}
+{
+  "format_version": {{ format_version | tojson }},
+  "animations": {
+{% for anim in animations %}
+    {{ anim.name | tojson }}: {
+{% if anim.loop %}
+      "loop": {{ anim.loop | tojson }},
+{% endif %}
+      "animation_length": {{ anim.animation_length | tojson }},
+{% if anim.override_previous %}
+      "override_previous": true,
+{% endif %}
+      "bones": {
+{% for bone in anim.bones %}
+        {{ bone.name | tojson }}: {
+{% if bone.rotation %}
+          "rotation": {
+{% for axis_name, axis_data in bone.rotation.items() %}
+{% if axis_data.single_value is defined %}
+            "{{ axis_name }}": {{ axis_data.single_value | tojson }}{{ "," if not loop.last else "" }}
+{% elif axis_data.keyframes %}
+            "{{ axis_name }}": {
+{% for kf in axis_data.keyframes %}
+{% if kf.easing is defined %}
+              "{{ "%.4f" | format(kf.time) }}": {"vector": {{ kf.value | tojson }}, "easing": {{ kf.easing | tojson }}}{{ "," if not loop.last else "" }}
+{% else %}
+              "{{ "%.4f" | format(kf.time) }}": {{ kf.value | tojson }}{{ "," if not loop.last else "" }}
+{% endif %}
+{% endfor %}
+            }{{ "," if not loop.last else "" }}
+{% endif %}
+{% endfor %}
+          }{{ "," if bone.has_position or bone.has_scale else "" }}
+{% endif %}
+{% if bone.position %}
+          "position": {
+{% for axis_name, axis_data in bone.position.items() %}
+{% if axis_data.single_value is defined %}
+            "{{ axis_name }}": {{ axis_data.single_value | tojson }}{{ "," if not loop.last else "" }}
+{% elif axis_data.keyframes %}
+            "{{ axis_name }}": {
+{% for kf in axis_data.keyframes %}
+{% if kf.easing is defined %}
+              "{{ "%.4f" | format(kf.time) }}": {"vector": {{ kf.value | tojson }}, "easing": {{ kf.easing | tojson }}}{{ "," if not loop.last else "" }}
+{% else %}
+              "{{ "%.4f" | format(kf.time) }}": {{ kf.value | tojson }}{{ "," if not loop.last else "" }}
+{% endif %}
+{% endfor %}
+            }{{ "," if not loop.last else "" }}
+{% endif %}
+{% endfor %}
+          }{{ "," if bone.has_scale else "" }}
+{% endif %}
+{% if bone.scale %}
+          "scale": {
+{% for axis_name, axis_data in bone.scale.items() %}
+{% if axis_data.single_value is defined %}
+            "{{ axis_name }}": {{ axis_data.single_value | tojson }}{{ "," if not loop.last else "" }}
+{% elif axis_data.keyframes %}
+            "{{ axis_name }}": {
+{% for kf in axis_data.keyframes %}
+{% if kf.easing is defined %}
+              "{{ "%.4f" | format(kf.time) }}": {"vector": {{ kf.value | tojson }}, "easing": {{ kf.easing | tojson }}}{{ "," if not loop.last else "" }}
+{% else %}
+              "{{ "%.4f" | format(kf.time) }}": {{ kf.value | tojson }}{{ "," if not loop.last else "" }}
+{% endif %}
+{% endfor %}
+            }{{ "," if not loop.last else "" }}
+{% endif %}
+{% endfor %}
+          }
+{% endif %}
+        }{{ "," if not loop.last else "" }}
+{% endfor %}
+      }{% if anim.sound_effects %},
+      "sound_effects": {
+{% for sfx in anim.sound_effects %}
+        "{{ "%.4f" | format(sfx.time) }}": {"effect": {{ sfx.effect | tojson }}}{{ "," if not loop.last else "" }}
+{% endfor %}
+      }{% endif %}{% if anim.particle_effects %},
+      "particle_effects": {
+{% for pfx in anim.particle_effects %}
+        "{{ "%.4f" | format(pfx.time) }}": {"effect": {{ pfx.effect | tojson }}{% if pfx.locator %}, "locator": {{ pfx.locator | tojson }}{% endif %}}{{ "," if not loop.last else "" }}
+{% endfor %}
+      }{% endif %}
+    }{{ "," if not loop.last else "" }}
+{% endfor %}
+  }
+}

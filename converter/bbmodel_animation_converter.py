@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 """
-BBModelAnimationConverter - Universal Animation Converter (v2)
+BBModelAnimationConverter - Universal Animation Converter (v13)
 ==============================================================
 Converts Blockbench .bbmodel animation keyframes to GeckoLib .animation.json
 format with automatic loop continuity enforcement, C1 velocity matching,
-duration optimization, and comprehensive quality feedback.
+C2 acceleration matching, duration optimization, and comprehensive quality feedback.
 
 Key Features:
-  - Direct .bbmodel → .animation.json conversion (no Java source needed)
-  - C0 + C1 continuity enforcement at loop boundaries (fixes bounce-back/stutter)
+  - Direct .bbmodel -> .animation.json conversion (no Java source needed)
+  - C0 + C1 + C2 continuity enforcement at loop boundaries
   - FIXED: Hermite basis functions used with LINEAR parameter (no smootherstep warp)
   - Symmetric dual-endpoint C1 blending (start AND end blend windows)
+  - v13: Quintic Hermite C2 acceleration matching in blend windows
   - Automatic loop duration detection with autocorrelation-based period analysis
-  - "Good enough" early exit when C0 < 0.5° and C1 < 5°/s
+  - v13: Walk-specific period detection heuristics
+  - v13: Periodic boundary conditions for Catmull-Rom resampling of loop animations
+  - v13: Walk animation automatic upsampling for sparse keyframes
+  - v13: Smart duplicate merging - keeps all unique names as aliases
+  - v13: Animation-type-aware DP epsilon (idle=1.5x, attack=0.8x, walk=1.0x)
+  - "Good enough" early exit when C0 < 0.5 deg and C1 < 5 deg/s
   - Intelligent empty/duplicate animation detection and deduplication
-  - Animation name normalization following GeckoLib convention
+  - v13: Fixed name normalization double-namespace bug
   - Catmullrom spline evaluation for accurate resampling
   - Channel-type-aware simplification (different epsilon for rotation vs position)
   - Comprehensive quality metrics and feedback reporting
@@ -47,6 +53,35 @@ TICKS_PER_SECOND = 20.0
 RAD_TO_DEG = 180.0 / math.pi
 DEG_TO_RAD = math.pi / 180.0
 
+# v13: Animation type classification patterns
+WALK_NAME_PATTERNS = re.compile(
+    r'(walk|run|move|stride|trot|gallop|sprint|jog|amble|pace|canter)',
+    re.IGNORECASE
+)
+IDLE_NAME_PATTERNS = re.compile(
+    r'(idle|rest|sleep|stand|breathe|pose|ambient)',
+    re.IGNORECASE
+)
+ATTACK_NAME_PATTERNS = re.compile(
+    r'(attack|hit|strike|slash|punch|kick|bite|slam|smash)',
+    re.IGNORECASE
+)
+
+
+def classify_animation_type(name: str) -> str:
+    """Classify an animation name into a type for type-aware processing.
+
+    Returns one of: 'walk', 'idle', 'attack', 'generic'
+    """
+    name_lower = name.lower()
+    if WALK_NAME_PATTERNS.search(name_lower):
+        return 'walk'
+    if IDLE_NAME_PATTERNS.search(name_lower):
+        return 'idle'
+    if ATTACK_NAME_PATTERNS.search(name_lower):
+        return 'attack'
+    return 'generic'
+
 
 # ============================================================================
 # Configuration
@@ -72,6 +107,11 @@ class ConverterConfig:
     c0_snap_threshold_rot: float = 0.5     # degrees
     c0_snap_threshold_pos: float = 0.05    # pixels
 
+    # --- C2 Continuity (v13) ---
+    enable_c2_enforcement: bool = True     # v13: enable C2 acceleration matching
+    c2_blend_window_ratio: float = 0.15    # v13: wider blend window for C2 (15% per side)
+    c2_accel_threshold_rot: float = 50.0   # v13: degrees/s^2 threshold for C2
+
     # --- Duration Optimization ---
     enable_duration_optimization: bool = True
     duration_search_step: float = 0.01      # seconds
@@ -82,12 +122,26 @@ class ConverterConfig:
     early_exit_c0_rot: float = 0.5         # degrees - "good enough" C0 for early exit
     early_exit_c1_rot: float = 5.0         # degrees/s - "good enough" C1 for early exit
 
+    # --- Walk Period Detection (v13) ---
+    walk_period_heuristic: bool = True      # v13: use walk-specific period heuristic
+    common_walk_durations: tuple = (0.5, 0.667, 1.0, 1.5, 2.0)  # v13: common walk cycle durations
+
     # --- Simplification ---
     dp_epsilon_rotation: float = 0.05       # degrees (tighter for better fidelity)
     dp_epsilon_position: float = 0.008      # pixels
 
+    # --- v13: Animation-type-aware DP epsilon multipliers ---
+    dp_epsilon_idle_multiplier: float = 1.5    # idle: can afford more simplification
+    dp_epsilon_attack_multiplier: float = 0.8  # attack: need more precision
+    dp_epsilon_walk_multiplier: float = 1.0    # walk: standard
+
     # --- Resampling ---
     resample_rate: float = 120.0            # Hz for catmullrom evaluation
+
+    # --- v13: Walk Upsampling ---
+    enable_walk_upsampling: bool = True       # v13: auto-upsample sparse walk animations
+    walk_upsample_max_kf: int = 6            # v13: upsample if <=6 kf per channel
+    walk_upsample_fps: float = 30.0          # v13: target fps for upsampled walk anims
 
     # --- Output ---
     keyframe_precision: int = 4             # decimal places for time
@@ -104,6 +158,7 @@ class ConverterConfig:
     skip_empty_animations: bool = True       # skip animations with no meaningful data
     deduplicate_case_insensitive: bool = True  # merge "idle" / "Idle" variants
     merge_duplicate_animations: bool = True  # merge identical animations
+    keep_duplicate_aliases: bool = True      # v13: keep duplicate names as aliases
 
     # --- Name Normalization ---
     normalize_animation_names: bool = True   # normalize to GeckoLib convention
@@ -132,9 +187,17 @@ class AnimationQualityReport:
     c1_avg_error_pos: float = 0.0
     c1_perfect: bool = True
 
+    # v13: C2 continuity (acceleration match at loop boundary)
+    c2_max_error_rot: float = 0.0           # degrees/s^2
+    c2_avg_error_rot: float = 0.0
+    c2_perfect: bool = True
+
     # Duration quality
     duration_phase_error: float = 0.0
     duration_optimal: bool = True
+
+    # v13: Animation type
+    animation_type: str = 'generic'
 
     # Overall
     quality_score: float = 100.0            # 0-100
@@ -151,6 +214,8 @@ class CatmullRomEvaluator:
 
     Used for resampling animations with catmullrom interpolation
     to find optimal loop points and enforce continuity.
+
+    v13: Added periodic boundary condition support for loop animations.
     """
 
     @staticmethod
@@ -197,15 +262,47 @@ class CatmullRomEvaluator:
                (3 * t2 - 2 * t) * v12
 
     @staticmethod
+    def evaluate_second_derivative(t: float, p0: float, p1: float,
+                                   p2: float, p3: float,
+                                   dt: float = 1.0) -> float:
+        """Evaluate second derivative of Catmull-Rom spline at parameter t in [0,1].
+
+        v13: Added for C2 continuity checking.
+
+        Args:
+            t: Parameter in [0, 1]
+            p0, p1, p2, p3: Control points
+            dt: Segment duration for proper scaling
+
+        Returns:
+            Second derivative value.
+        """
+        v01 = 0.5 * (p2 - p0)
+        v12 = 0.5 * (p3 - p1)
+
+        # Second derivative of Catmull-Rom
+        d2 = (12 * t - 6) * p1 + \
+             (6 * t - 4) * v01 + \
+             (-12 * t + 6) * p2 + \
+             (6 * t - 2) * v12
+
+        return d2 / (dt * dt) if dt > 1e-12 else 0.0
+
+    @staticmethod
     def resample_channel(keyframes: List[Tuple[float, float]],
                          target_times: List[float],
-                         interpolation: str = "catmullrom") -> List[Tuple[float, float]]:
+                         interpolation: str = "catmullrom",
+                         periodic: bool = False) -> List[Tuple[float, float]]:
         """Resample a channel at specified time points.
+
+        v13: Added 'periodic' parameter for loop animations.
+        When periodic=True, boundary control points wrap around.
 
         Args:
             keyframes: [(time, value), ...] sorted by time
             target_times: Time points to sample at
             interpolation: "catmullrom" or "linear"
+            periodic: v13 - if True, use wrap-around for boundary control points
 
         Returns:
             [(time, value), ...] at target times.
@@ -244,12 +341,33 @@ class CatmullRomEvaluator:
 
             s = (t - k0[0]) / dt
 
-            if interpolation == "catmullrom" and n >= 4:
-                # Get control points
-                p0_val = keyframes[max(0, seg_idx - 1)][1]
+            if interpolation == "catmullrom" and n >= 3:
+                # v13: Get control points with periodic boundary support
+                if periodic and n >= 3:
+                    # v13: Wrap-around for boundary control points
+                    if seg_idx == 0:
+                        # At first segment: p0 wraps from end
+                        p0_val = keyframes[-1][1]
+                    else:
+                        p0_val = keyframes[seg_idx - 1][1]
+
+                    if seg_idx + 2 >= n:
+                        # At last segment: p3 wraps from start
+                        p3_val = keyframes[0][1]
+                    else:
+                        p3_val = keyframes[seg_idx + 2][1]
+                else:
+                    # Original non-periodic behavior
+                    if n < 4:
+                        # Fall back to linear for <4 keyframes if not periodic
+                        val = k0[1] + s * (k1[1] - k0[1])
+                        result.append((t, val))
+                        continue
+                    p0_val = keyframes[max(0, seg_idx - 1)][1]
+                    p3_val = keyframes[min(n - 1, seg_idx + 2)][1]
+
                 p1_val = k0[1]
                 p2_val = k1[1]
-                p3_val = keyframes[min(n - 1, seg_idx + 2)][1]
 
                 val = CatmullRomEvaluator.evaluate(s, p0_val, p1_val, p2_val, p3_val)
                 result.append((t, val))
@@ -275,10 +393,10 @@ class AutoLoopDetector:
     Uses high-rate resampling of the existing keyframes to evaluate
     continuity at candidate durations.
 
-    Improvements (v2):
-    - Prioritizes original animation length if C0/C1 are already good
-    - Uses autocorrelation for more reliable period detection
-    - Early exits when C0 < 0.5° and C1 < 5°/s ("good enough")
+    Improvements (v13):
+    - Walk-specific period heuristic for common walk cycle durations
+    - Prioritizes sub-multiples matching common walk durations
+    - Improved early exit for walk animations
     """
 
     def __init__(self, config: ConverterConfig = None):
@@ -288,14 +406,18 @@ class AutoLoopDetector:
         self,
         bone_channels: Dict[str, Dict[str, List[Tuple[float, float]]]],
         current_duration: float,
-        interpolation: str = "catmullrom"
+        interpolation: str = "catmullrom",
+        anim_name: str = ""
     ) -> Tuple[float, Dict[str, Any]]:
         """Find the optimal loop duration for an animation.
+
+        v13: Added anim_name parameter for type-specific heuristics.
 
         Args:
             bone_channels: {bone: {channel: [(t, v), ...]}}
             current_duration: Current animation length in seconds
             interpolation: Interpolation type for resampling
+            anim_name: v13 - animation name for type-specific detection
 
         Returns:
             (optimal_duration, diagnostics_dict)
@@ -308,6 +430,36 @@ class AutoLoopDetector:
             'best_c0_error': float('inf'),
             'best_c1_error': float('inf'),
         }
+
+        # v13: Walk-specific heuristic
+        anim_type = classify_animation_type(anim_name)
+        is_walk = anim_type == 'walk'
+
+        if is_walk and cfg.walk_period_heuristic:
+            # v13: If animation name contains walk/run and duration < 2s,
+            # the duration is likely already correct as a single stride cycle
+            if current_duration <= 2.0:
+                # Verify with a quick continuity check
+                sample_rate = cfg.resample_rate
+                n_samples = int(current_duration * sample_rate)
+                target_times = [i / sample_rate for i in range(n_samples + 1)]
+                resampled = {}
+                for bone_name, channels in bone_channels.items():
+                    resampled[bone_name] = {}
+                    for channel, keyframes in channels.items():
+                        resampled[bone_name][channel] = CatmullRomEvaluator.resample_channel(
+                            keyframes, target_times, interpolation, periodic=True
+                        )
+                c0_err, c1_err = self._evaluate_continuity(
+                    resampled, current_duration, sample_rate
+                )
+                # For short walk animations, accept the current duration
+                # as it's likely a carefully authored stride cycle
+                if c0_err < cfg.loop_position_tolerance_rot * 2:
+                    diagnostics['method'] = 'v13_walk_period_heuristic'
+                    diagnostics['best_c0_error'] = c0_err
+                    diagnostics['best_c1_error'] = c1_err
+                    return current_duration, diagnostics
 
         # Resample all channels at high rate for evaluation
         sample_rate = cfg.resample_rate
@@ -329,7 +481,7 @@ class AutoLoopDetector:
         diagnostics['current_c1_error'] = c1_err
 
         # "Good enough" early exit: if original duration already satisfies
-        # C0 < 0.5° and C1 < 5°/s, accept it immediately
+        # C0 < 0.5 deg and C1 < 5 deg/s, accept it immediately
         if c0_err < cfg.early_exit_c0_rot and c1_err < cfg.early_exit_c1_rot:
             diagnostics['method'] = 'early_exit_good_enough'
             return current_duration, diagnostics
@@ -350,6 +502,19 @@ class AutoLoopDetector:
             T = current_duration / n
             if T >= cfg.min_loop_duration:
                 candidates.append(T)
+
+        # v13: Method 1.5: Prioritize common walk cycle durations
+        if is_walk and cfg.walk_period_heuristic:
+            for walk_dur in cfg.common_walk_durations:
+                if cfg.min_loop_duration <= walk_dur <= cfg.max_loop_duration:
+                    candidates.append(walk_dur)
+                # Also try sub-multiples of current that are near common walk durations
+                for n in range(1, 10):
+                    T = current_duration / n
+                    for wd in cfg.common_walk_durations:
+                        if abs(T - wd) < 0.05 and cfg.min_loop_duration <= T <= cfg.max_loop_duration:
+                            candidates.append(T)
+                            candidates.append(wd)
 
         # Method 2: Multiples of short periods found in the data
         # Use autocorrelation if enabled, else fallback to zero-crossing
@@ -624,7 +789,7 @@ class AutoLoopDetector:
 # ============================================================================
 
 class C1ContinuityEnforcer:
-    """Enforces C1 (velocity) continuity at loop boundaries.
+    """Enforces C1 (velocity) and C2 (acceleration) continuity at loop boundaries.
 
     The core problem:
       At the end of a looping animation, position may match (C0) but
@@ -635,27 +800,64 @@ class C1ContinuityEnforcer:
       Use cubic Hermite interpolation in blend windows near BOTH the start
       AND end of the animation to create a proper periodic bridge.
 
-      - At the END: blend toward (p_start, v_start) values
-      - At the START: blend from values that smoothly connect to the end state
-      - This symmetric dual-endpoint approach creates true periodic continuity
+    v13 Enhancement - C2 Continuity:
+      After the C0+C1 Hermite blend, apply a second pass using quintic
+      Hermite interpolation which supports C2 (acceleration matching).
+      The quintic Hermite basis requires 6 constraints: p0, v0, a0, p1, v1, a1.
 
-    CRITICAL FIX (v2):
-      The Hermite basis functions h00, h10, h01, h11 ALREADY provide smooth
-      C1 interpolation by construction. Applying smootherstep to the parameter
-      BEFORE computing Hermite basis functions WARPS the curve and causes the
-      derivatives at the endpoints to no longer match the target velocities.
-
-      The fix: use the LINEAR parameter s directly in the Hermite basis
-      functions. Do NOT apply smootherstep before Hermite computation.
+      Quintic Hermite basis functions (parameter s in [0,1]):
+        h00 = 1 - 10s^3 + 15s^4 - 6s^5
+        h10 = s - 6s^3 + 8s^4 - 3s^5
+        h20 = 0.5s^2 - 1.5s^3 + 1.5s^4 - 0.5s^5
+        h01 = 10s^3 - 15s^4 + 6s^5
+        h11 = -4s^3 + 7s^4 - 3s^5
+        h21 = 0.5s^3 - s^4 + 0.5s^5
 
     This provides:
       - C0: Perfect position match (last keyframe snaps to first)
       - C1: Smooth velocity transition (Hermite blend in window)
-      - C2: Natural acceleration (Hermite curve is C2 smooth within window)
+      - C2: Smooth acceleration transition (quintic Hermite in window)
     """
 
     def __init__(self, config: ConverterConfig = None):
         self.config = config or ConverterConfig()
+
+    @staticmethod
+    def _quintic_hermite(s: float, p0: float, v0: float, a0: float,
+                         p1: float, v1: float, a1: float,
+                         dt: float) -> float:
+        """Evaluate quintic Hermite interpolation.
+
+        v13: Supports C2 continuity by matching position, velocity, and acceleration.
+
+        Args:
+            s: Parameter in [0, 1]
+            p0, v0, a0: Start position, velocity, acceleration
+            p1, v1, a1: End position, velocity, acceleration
+            dt: Time span for velocity/acceleration scaling
+
+        Returns:
+            Interpolated value.
+        """
+        s2 = s * s
+        s3 = s2 * s
+        s4 = s3 * s
+        s5 = s4 * s
+
+        # Quintic Hermite basis functions
+        h00 = 1 - 10*s3 + 15*s4 - 6*s5
+        h10 = s - 6*s3 + 8*s4 - 3*s5
+        h20 = 0.5*s2 - 1.5*s3 + 1.5*s4 - 0.5*s5
+        h01 = 10*s3 - 15*s4 + 6*s5
+        h11 = -4*s3 + 7*s4 - 3*s5
+        h21 = 0.5*s3 - s4 + 0.5*s5
+
+        return (h00 * p0 +
+                h10 * dt * v0 +
+                h20 * dt * dt * a0 +
+                h01 * p1 +
+                h11 * dt * v1 +
+                h21 * dt * dt * a1)
 
     def enforce(
         self,
@@ -663,21 +865,16 @@ class C1ContinuityEnforcer:
         duration: float,
         interpolation: str = "catmullrom"
     ) -> Dict[str, Dict[str, List[Tuple[float, float]]]]:
-        """Apply symmetric dual-endpoint C1 continuity enforcement to all channels.
+        """Apply symmetric dual-endpoint C1+C2 continuity enforcement to all channels.
 
         Strategy:
           1. Resample each channel at high rate using catmullrom/linear interpolation
-          2. Compute start/end velocity from resampled data
-          3. If velocity mismatch detected:
-             a. Apply Hermite blend at the END: transition from original end
-                state toward (p_start, v_start)
-             b. Apply Hermite blend at the START: transition from values that
-                smoothly connect to the end state toward original start
+             with periodic boundary conditions (v13)
+          2. Compute start/end velocity and acceleration from resampled data
+          3. If velocity/acceleration mismatch detected:
+             a. Apply quintic Hermite blend at the END (v13: C2-capable)
+             b. Apply quintic Hermite blend at the START (v13: C2-capable)
           4. Replace original keyframes with resampled + blended data
-
-        The dual-endpoint blending creates a proper periodic bridge:
-          End blend:    p_end → p_start,  v_end → v_start
-          Start blend:  (periodic_start) → p_start, (periodic_v0) → v_start
 
         Args:
             bone_channels: {bone: {channel: [(t, v), ...]}}
@@ -685,7 +882,7 @@ class C1ContinuityEnforcer:
             interpolation: Interpolation type for resampling
 
         Returns:
-            Modified bone_channels with C1 continuity enforced.
+            Modified bone_channels with C1+C2 continuity enforced.
         """
         cfg = self.config
         if not cfg.enable_c1_enforcement:
@@ -698,16 +895,21 @@ class C1ContinuityEnforcer:
 
                 is_rotation = channel in ('rx', 'ry', 'rz', 'x', 'y', 'z')
 
-                # Step 1: Resample at high rate for velocity estimation
+                # Step 1: Resample at high rate for velocity/acceleration estimation
+                # v13: Use periodic boundary conditions for better boundary estimation
                 n_resample = max(int(duration * cfg.resample_rate), 60)
                 resample_dt = duration / n_resample
                 resample_times = [i * resample_dt for i in range(n_resample + 1)]
+
+                # v13: Use periodic resampling for loop animations
+                is_loop = True  # this method is only called for loop animations
                 resampled = CatmullRomEvaluator.resample_channel(
-                    keyframes, resample_times, interpolation
+                    keyframes, resample_times, interpolation,
+                    periodic=is_loop
                 )
 
-                # Step 2: Compute velocities at start and end from resampled data
-                if len(resampled) < 5:
+                # Step 2: Compute velocities and accelerations at start and end
+                if len(resampled) < 7:
                     continue
 
                 p0 = resampled[0][1]
@@ -717,12 +919,18 @@ class C1ContinuityEnforcer:
                 v0 = (-3*resampled[0][1] + 4*resampled[1][1] - resampled[2][1]) / (2*resample_dt)
                 vT = (3*resampled[-1][1] - 4*resampled[-2][1] + resampled[-3][1]) / (2*resample_dt)
 
+                # v13: Acceleration estimation using 3-point formula
+                # a = (f(x+h) - 2f(x) + f(x-h)) / h^2
+                a0 = (resampled[2][1] - 2*resampled[1][1] + resampled[0][1]) / (resample_dt * resample_dt)
+                aT = (resampled[-1][1] - 2*resampled[-2][1] + resampled[-3][1]) / (resample_dt * resample_dt)
+
                 # Check if C1 enforcement is needed
                 c0_thresh = cfg.c0_snap_threshold_rot if is_rotation else cfg.c0_snap_threshold_pos
                 c1_thresh = cfg.velocity_match_threshold_rot if is_rotation else cfg.velocity_match_threshold_pos
 
                 c0_diff = abs(p0 - pT)
                 c1_diff = abs(v0 - vT)
+                c2_diff = abs(a0 - aT)  # v13: acceleration mismatch
 
                 if c0_diff < c0_thresh and c1_diff < c1_thresh:
                     # Already good enough - just snap C0
@@ -734,8 +942,12 @@ class C1ContinuityEnforcer:
                         ]
                     continue
 
-                # Step 3: Compute blend window size (per side for dual-endpoint)
-                w = min(duration * cfg.blend_window_ratio, cfg.max_blend_window)
+                # v13: Determine blend window - wider for C2 enforcement
+                if cfg.enable_c2_enforcement and c2_diff > cfg.c2_accel_threshold_rot:
+                    # Use wider window for C2 blend
+                    w = min(duration * cfg.c2_blend_window_ratio, cfg.max_blend_window * 1.5)
+                else:
+                    w = min(duration * cfg.blend_window_ratio, cfg.max_blend_window)
                 # Ensure blend window has at least 10 resampled points per side
                 min_samples = 10
                 w = max(w, min_samples * resample_dt)
@@ -747,7 +959,7 @@ class C1ContinuityEnforcer:
                     w = duration * 0.4
 
                 # ============================================================
-                # END BLEND: blend from (p_end, v_end) toward (p_start, v_start)
+                # END BLEND
                 # ============================================================
                 end_blend_start_time = max(0, duration - w)
 
@@ -759,7 +971,6 @@ class C1ContinuityEnforcer:
                         break
 
                 if end_blend_start_idx >= 1 and end_blend_start_idx < len(resampled) - 1:
-                    # Get blend boundary values at start of end-blend window
                     p_end_blend_start = resampled[end_blend_start_idx][1]
                     t_end_blend_start = resampled[end_blend_start_idx][0]
 
@@ -771,51 +982,57 @@ class C1ContinuityEnforcer:
                          resampled[end_blend_start_idx - 1][0])
                     )
 
+                    # v13: Acceleration at end-blend start
+                    a_end_blend_start = (
+                        (resampled[end_blend_start_idx + 1][1] -
+                         2*resampled[end_blend_start_idx][1] +
+                         resampled[end_blend_start_idx - 1][1]) /
+                        ((resampled[end_blend_start_idx + 1][0] -
+                          resampled[end_blend_start_idx - 1][0]) / 2) ** 2
+                    )
+
                     # Target: position at end = p0, velocity at end = v0
                     p_end_blend_end = p0
                     v_end_blend_end = v0
+                    # v13: acceleration at end should match start
+                    a_end_blend_end = a0
 
                     w_end_actual = duration - t_end_blend_start
                     if w_end_actual > 1e-12:
-                        # Apply Hermite blend using LINEAR parameter s
-                        # Do NOT apply smootherstep - Hermite already provides C1
+                        # v13: Use quintic Hermite if C2 enforcement enabled
+                        use_c2 = (cfg.enable_c2_enforcement and
+                                  abs(a_end_blend_start - a0) > cfg.c2_accel_threshold_rot)
+
                         for i in range(end_blend_start_idx, len(resampled)):
                             t, v = resampled[i]
-                            s = (t - t_end_blend_start) / w_end_actual  # linear 0→1
+                            s = (t - t_end_blend_start) / w_end_actual
                             s = max(0.0, min(1.0, s))
 
-                            # Hermite basis functions with LINEAR parameter s
-                            # h00(s) = 2s³ - 3s² + 1
-                            # h10(s) = s³ - 2s² + s
-                            # h01(s) = -2s³ + 3s²
-                            # h11(s) = s³ - s²
-                            s2 = s * s
-                            s3 = s2 * s
-
-                            h00 = 2 * s3 - 3 * s2 + 1
-                            h10 = s3 - 2 * s2 + s
-                            h01 = -2 * s3 + 3 * s2
-                            h11 = s3 - s2
-
-                            new_val = (h00 * p_end_blend_start +
-                                       h10 * w_end_actual * v_end_blend_start +
-                                       h01 * p_end_blend_end +
-                                       h11 * w_end_actual * v_end_blend_end)
+                            if use_c2:
+                                # v13: Quintic Hermite for C2 continuity
+                                new_val = self._quintic_hermite(
+                                    s,
+                                    p_end_blend_start, v_end_blend_start, a_end_blend_start,
+                                    p_end_blend_end, v_end_blend_end, a_end_blend_end,
+                                    w_end_actual
+                                )
+                            else:
+                                # Cubic Hermite (C0+C1 only)
+                                s2 = s * s
+                                s3 = s2 * s
+                                h00 = 2 * s3 - 3 * s2 + 1
+                                h10 = s3 - 2 * s2 + s
+                                h01 = -2 * s3 + 3 * s2
+                                h11 = s3 - s2
+                                new_val = (h00 * p_end_blend_start +
+                                           h10 * w_end_actual * v_end_blend_start +
+                                           h01 * p_end_blend_end +
+                                           h11 * w_end_actual * v_end_blend_end)
 
                             resampled[i] = (t, new_val)
 
                 # ============================================================
-                # START BLEND: blend from periodic start state toward original start
-                #
-                # At the start of the animation, we want the velocity to
-                # smoothly arrive from the end state. So we blend:
-                #   From: (p_T_periodic, v_T_periodic) = values that would
-                #         naturally follow from the end of the animation
-                #   To:   (p0, v0) = original start position and velocity
-                #
-                # The "periodic start position" is the value that would make
-                # the start smoothly continue from the end. We use the end
-                # value after end-blend as the incoming position.
+                # START BLEND
                 # ============================================================
                 start_blend_end_time = min(w, duration)
 
@@ -827,30 +1044,10 @@ class C1ContinuityEnforcer:
                         break
 
                 if start_blend_end_idx >= 1 and start_blend_end_idx < len(resampled) - 1:
-                    # The incoming position at t=0 should smoothly connect
-                    # to the end of the previous loop iteration.
-                    # After the end blend, the value at t=duration is p0 (= p_start)
-                    # and velocity at t=duration is v0 (= v_start).
-                    # So the "incoming" position at t<0 (i.e., wrapping around)
-                    # would continue from the end state.
-                    #
-                    # For the start blend, we set:
-                    #   - Start of blend (t=0): position = p0, velocity = v0
-                    #     (matching what the previous loop iteration ends with)
-                    #   - End of blend (t=w): position = resampled value at t=w
-                    #     (original unblended data)
-                    #   - Velocity at end of blend: original velocity at t=w
-                    #
-                    # This means: at t=0, the curve matches the end state exactly,
-                    # and it transitions to the original curve within the start window.
-
-                    # Get the original values at end of start-blend window
                     p_start_blend_end = resampled[start_blend_end_idx][1]
                     t_start_blend_end = resampled[start_blend_end_idx][0]
 
                     # Velocity at start-blend end via central difference
-                    # Note: resampled[start_blend_end_idx] is still unblended
-                    # for the start window (end blend was only at end of animation)
                     v_start_blend_end = (
                         (resampled[start_blend_end_idx + 1][1] -
                          resampled[start_blend_end_idx - 1][1]) /
@@ -858,42 +1055,58 @@ class C1ContinuityEnforcer:
                          resampled[start_blend_end_idx - 1][0])
                     )
 
+                    # v13: Acceleration at start-blend end
+                    a_start_blend_end = (
+                        (resampled[start_blend_end_idx + 1][1] -
+                         2*resampled[start_blend_end_idx][1] +
+                         resampled[start_blend_end_idx - 1][1]) /
+                        ((resampled[start_blend_end_idx + 1][0] -
+                          resampled[start_blend_end_idx - 1][0]) / 2) ** 2
+                    )
+
                     # Start of blend: matches the end state (periodic bridge)
                     p_start_blend_start = p0
                     v_start_blend_start = v0
+                    a_start_blend_start = a0  # v13
 
                     w_start_actual = t_start_blend_end
                     if w_start_actual > 1e-12:
-                        # Apply Hermite blend using LINEAR parameter s
+                        # v13: Use quintic Hermite if C2 enforcement enabled
+                        use_c2 = (cfg.enable_c2_enforcement and
+                                  abs(a_start_blend_end - a0) > cfg.c2_accel_threshold_rot)
+
                         for i in range(0, start_blend_end_idx + 1):
                             t, v = resampled[i]
-                            s = (t - 0.0) / w_start_actual  # linear 0→1
+                            s = (t - 0.0) / w_start_actual
                             s = max(0.0, min(1.0, s))
 
-                            # Hermite basis functions with LINEAR parameter s
-                            s2 = s * s
-                            s3 = s2 * s
-
-                            h00 = 2 * s3 - 3 * s2 + 1
-                            h10 = s3 - 2 * s2 + s
-                            h01 = -2 * s3 + 3 * s2
-                            h11 = s3 - s2
-
-                            new_val = (h00 * p_start_blend_start +
-                                       h10 * w_start_actual * v_start_blend_start +
-                                       h01 * p_start_blend_end +
-                                       h11 * w_start_actual * v_start_blend_end)
+                            if use_c2:
+                                # v13: Quintic Hermite for C2 continuity
+                                new_val = self._quintic_hermite(
+                                    s,
+                                    p_start_blend_start, v_start_blend_start, a_start_blend_start,
+                                    p_start_blend_end, v_start_blend_end, a_start_blend_end,
+                                    w_start_actual
+                                )
+                            else:
+                                # Cubic Hermite (C0+C1 only)
+                                s2 = s * s
+                                s3 = s2 * s
+                                h00 = 2 * s3 - 3 * s2 + 1
+                                h10 = s3 - 2 * s2 + s
+                                h01 = -2 * s3 + 3 * s2
+                                h11 = s3 - s2
+                                new_val = (h00 * p_start_blend_start +
+                                           h10 * w_start_actual * v_start_blend_start +
+                                           h01 * p_start_blend_end +
+                                           h11 * w_start_actual * v_start_blend_end)
 
                             resampled[i] = (t, new_val)
 
                 # Step 4: Replace original keyframes with resampled + blended data
-                # We need to reconstruct keyframes from the resampled data,
-                # keeping original keyframes outside both blend windows,
-                # and using resampled data inside the blend windows.
                 new_keyframes = []
 
                 # Add original keyframes that are outside both blend windows
-                # (i.e., between start_blend_end_time and end_blend_start_time)
                 for t, v in keyframes:
                     if t >= start_blend_end_time - 1e-8 and t <= end_blend_start_time + 1e-8:
                         new_keyframes.append((t, v))
@@ -933,7 +1146,6 @@ class C1ContinuityEnforcer:
                 deduped = []
                 for t, v in new_keyframes:
                     if deduped and abs(t - deduped[-1][0]) < 0.001:
-                        # Keep the later value (overwrite)
                         deduped[-1] = (t, v)
                     else:
                         deduped.append((t, v))
@@ -960,7 +1172,10 @@ class C1ContinuityEnforcer:
 # ============================================================================
 
 class DouglasPeuckerSimplifier:
-    """Channel-type-aware Douglas-Peucker simplification."""
+    """Channel-type-aware Douglas-Peucker simplification.
+
+    v13: Animation-type-aware epsilon multipliers.
+    """
 
     def __init__(self, config: ConverterConfig = None):
         self.config = config or ConverterConfig()
@@ -1015,13 +1230,31 @@ class DouglasPeuckerSimplifier:
 
         return [points[i] for i in sorted(keep)]
 
-    def get_epsilon(self, channel: str) -> float:
-        """Get channel-appropriate DP epsilon."""
+    def get_epsilon(self, channel: str, animation_type: str = 'generic') -> float:
+        """Get channel-appropriate and animation-type-aware DP epsilon.
+
+        v13: Applies animation-type multipliers.
+        Idle: 1.5x epsilon (more simplification)
+        Attack: 0.8x epsilon (less simplification)
+        Walk: 1.0x epsilon (standard)
+        """
         cfg = self.config
         if channel in ('rx', 'ry', 'rz', 'x', 'y', 'z'):
-            return cfg.dp_epsilon_rotation
+            base_epsilon = cfg.dp_epsilon_rotation
         else:
-            return cfg.dp_epsilon_position
+            base_epsilon = cfg.dp_epsilon_position
+
+        # v13: Apply animation-type multiplier
+        if animation_type == 'idle':
+            multiplier = cfg.dp_epsilon_idle_multiplier
+        elif animation_type == 'attack':
+            multiplier = cfg.dp_epsilon_attack_multiplier
+        elif animation_type == 'walk':
+            multiplier = cfg.dp_epsilon_walk_multiplier
+        else:
+            multiplier = 1.0
+
+        return base_epsilon * multiplier
 
 
 # ============================================================================
@@ -1033,9 +1266,13 @@ class AnimationNameNormalizer:
 
     GeckoLib convention: animation.<namespace>.<entity>.<state>
     Examples:
-      - "idle" → "animation.<entity>.idle"
-      - "animation.model.idle" → "animation.<entity>.idle"
-      - "walk_cycle" → "animation.<entity>.walk_cycle"
+      - "idle" -> "animation.<namespace>.<entity>.idle"
+      - "animation.model.idle" -> "animation.<namespace>.<entity>.idle"
+      - "walk_cycle" -> "animation.<namespace>.<entity>.walk_cycle"
+
+    v13 FIX: Fixed double-namespace bug where "animation.ferCow.walk"
+    became "animation.fercow.fercow.walk" instead of "animation.fercow.fercow.walk"
+    Now properly detects entity part from the original name.
     """
 
     # Common prefixes that are redundant in GeckoLib format
@@ -1063,6 +1300,10 @@ class AnimationNameNormalizer:
                   namespace: str = "") -> str:
         """Normalize an animation name to GeckoLib convention.
 
+        v13 FIX: If the original name already has the GeckoLib format
+        (animation.<something>.<state>), just clean it up rather than
+        reconstructing from scratch which caused double-namespace bugs.
+
         Args:
             name: Original animation name
             model_name: Model/entity name for constructing the namespace
@@ -1074,44 +1315,69 @@ class AnimationNameNormalizer:
         if not name:
             return name
 
-        # Strip whitespace
-        state = name.strip()
+        original = name.strip()
 
-        # Remove redundant prefixes (case-insensitive)
+        # v13 FIX: Check if the name already follows GeckoLib convention
+        # Pattern: animation.<part1>[.<part2>][...].<state>
+        # If it starts with "animation." and has 3+ dot-separated parts,
+        # it's likely already in GeckoLib format. Just normalize casing.
+        if original.lower().startswith('animation.'):
+            parts = original.split('.')
+            if len(parts) >= 3:
+                # Already in GeckoLib format: animation.<ns/entity>.<entity>.<state>
+                # or animation.<entity>.<state>
+                # Just normalize each part: lowercase, clean special chars
+                cleaned_parts = ['animation']
+                for part in parts[1:]:
+                    cleaned = re.sub(r'[^a-zA-Z0-9_]', '_', part)
+                    cleaned_parts.append(cleaned)  # preserve original casing for entity names
+                # Apply state aliases only to the LAST part (state name)
+                last = cleaned_parts[-1].lower()
+                if last in AnimationNameNormalizer.STATE_ALIASES:
+                    cleaned_parts[-1] = AnimationNameNormalizer.STATE_ALIASES[last]
+                return '.'.join(cleaned_parts)
+
+        # For simple names (no "animation." prefix), construct GeckoLib format
+        state = original
+
+        # Remove redundant prefixes
         for prefix in AnimationNameNormalizer.REDUNDANT_PREFIXES:
             if state.lower().startswith(prefix):
                 state = state[len(prefix):]
                 break
 
-        # If the name still has dots, it might already be partially normalized
-        # e.g., "animation.entity.idle" → keep "entity.idle" as the suffix
+        # Parse dot-separated parts for entity/state
         parts = state.split('.')
         if len(parts) >= 2:
-            # Check if the first part looks like a namespace/entity
-            # If so, use the last part as the state
+            # e.g., "ferCow.walk" -> entity from first part, state from last
+            entity_part = '.'.join(parts[:-1])
             state = parts[-1]
+        else:
+            entity_part = ""
 
         # Apply state aliases
         state_lower = state.lower()
         if state_lower in AnimationNameNormalizer.STATE_ALIASES:
             state = AnimationNameNormalizer.STATE_ALIASES[state_lower]
 
-        # Clean the state name: replace spaces/hyphens with underscores
+        # Clean the state name
         state = re.sub(r'[\s\-]+', '_', state)
-
-        # Remove any remaining special characters except underscores and alphanumerics
         state = re.sub(r'[^a-zA-Z0-9_]', '', state)
 
-        # Build the normalized name
-        entity = model_name if model_name else "entity"
+        # Determine entity
+        if entity_part:
+            entity = entity_part
+        else:
+            entity = model_name if model_name else "entity"
+
         # Clean entity name
         entity = re.sub(r'[^a-zA-Z0-9_]', '_', entity)
-        entity = entity.lower()
 
+        # Determine namespace
         if namespace:
             ns = namespace.lower()
         else:
-            ns = entity
+            ns = entity.lower()
 
         return f"animation.{ns}.{entity}.{state}"
 
@@ -1128,10 +1394,9 @@ class BBModelAnimationExtractor:
       - Each keyframe has time, channel, interpolation, data_points with x/y/z
       - Supports linear and catmullrom interpolation
 
-    Improvements (v2):
-      - Intelligent empty animation detection (skip animations with no data)
-      - Case-insensitive name deduplication
-      - Duplicate animation merging
+    Improvements (v13):
+      - Smart duplicate merging: keeps all unique names as aliases
+      - Duplicate animations are output as separate entries with same data
     """
 
     def __init__(self, config: ConverterConfig = None):
@@ -1153,12 +1418,13 @@ class BBModelAnimationExtractor:
                                 channel: [(t, v), ...]
                             }
                         },
-                        'interpolation': str,  # dominant interpolation type
-                        'is_empty': bool,      # v2: flag for empty animations
+                        'interpolation': str,
+                        'is_empty': bool,
                     }
                 },
-                'skipped_empty': List[str],     # v2: names of skipped empty anims
-                'deduplicated': List[str],      # v2: names of deduplicated anims
+                'skipped_empty': List[str],
+                'deduplicated': List[str],
+                'duplicate_aliases': Dict[str, str],  # v13: alias -> canonical name
             }
         """
         with open(bbmodel_path, 'r', encoding='utf-8') as f:
@@ -1192,7 +1458,6 @@ class BBModelAnimationExtractor:
                     dp = data_points[0]
 
                     # Extract per-axis values
-                    # bbmodel format: x, y, z for rotation/position
                     if channel == 'rotation':
                         x_val = self._parse_float(dp.get('x', 0))
                         y_val = self._parse_float(dp.get('y', 0))
@@ -1252,15 +1517,15 @@ class BBModelAnimationExtractor:
         animations = {}
         skipped_empty = []
         deduplicated = []
+        duplicate_aliases = {}  # v13: alias_name -> canonical_name
 
         if self.config.deduplicate_case_insensitive:
             # Case-insensitive deduplication
-            seen_lower = {}  # lowercase_name → canonical_name
+            seen_lower = {}  # lowercase_name -> canonical_name
             for anim_name, anim_data in raw_animations.items():
                 lower_name = anim_name.lower()
                 if lower_name in seen_lower:
                     canonical = seen_lower[lower_name]
-                    # Merge: keep the one with more keyframes
                     existing_kf_count = sum(
                         len(kfs) for chs in animations[canonical]['bone_channels'].values()
                         for kfs in chs.values()
@@ -1270,7 +1535,6 @@ class BBModelAnimationExtractor:
                         for kfs in chs.values()
                     )
                     if new_kf_count > existing_kf_count:
-                        # Replace with the one that has more data
                         animations[canonical] = anim_data
                         deduplicated.append(anim_name)
                     else:
@@ -1281,17 +1545,23 @@ class BBModelAnimationExtractor:
         else:
             animations = raw_animations
 
-        # Merge exact duplicates (same name, same data)
+        # v13: Smart duplicate merging - keep all unique names as aliases
         if self.config.merge_duplicate_animations:
-            # This is handled implicitly by the dict - same name keys are overwritten
-            # But we also check for animations with identical bone channel data
             data_signatures = {}
             final_animations = {}
             for anim_name, anim_data in animations.items():
                 sig = self._compute_animation_signature(anim_data)
                 if sig in data_signatures:
-                    # Duplicate data found - keep the first one, mark the second
-                    deduplicated.append(anim_name)
+                    # v13: Instead of dropping, keep as alias
+                    canonical_name = data_signatures[sig]
+                    if self.config.keep_duplicate_aliases:
+                        # Keep duplicate as a separate animation entry with same data
+                        # This ensures mod code referencing the specific name still works
+                        final_animations[anim_name] = anim_data
+                        duplicate_aliases[anim_name] = canonical_name
+                        deduplicated.append(f"{anim_name} (alias of {canonical_name})")
+                    else:
+                        deduplicated.append(anim_name)
                 else:
                     data_signatures[sig] = anim_name
                     final_animations[anim_name] = anim_data
@@ -1312,6 +1582,7 @@ class BBModelAnimationExtractor:
             'animations': animations,
             'skipped_empty': skipped_empty,
             'deduplicated': deduplicated,
+            'duplicate_aliases': duplicate_aliases,
         }
 
     @staticmethod
@@ -1329,19 +1600,15 @@ class BBModelAnimationExtractor:
             for channel, keyframes in channels.items():
                 if not keyframes:
                     continue
-                # Check if any keyframe has a non-zero value
                 for t, v in keyframes:
-                    # For rotation channels, check against a small threshold
                     if channel.startswith('r') or channel in ('x', 'y', 'z'):
-                        if abs(v) > 0.01:  # 0.01 degrees threshold
+                        if abs(v) > 0.01:
                             return False
-                    # For position channels
                     elif channel.startswith('o'):
-                        if abs(v) > 0.001:  # 0.001 pixels threshold
+                        if abs(v) > 0.001:
                             return False
-                    # For scale channels
                     elif channel.startswith('s'):
-                        if abs(v - 1.0) > 0.001:  # scale of 1.0 is identity
+                        if abs(v - 1.0) > 0.001:
                             return False
 
         return True
@@ -1378,7 +1645,10 @@ class BBModelAnimationExtractor:
 # ============================================================================
 
 class GeckoLibJSONBuilder:
-    """Builds GeckoLib 1.20.1 .animation.json format from processed channel data."""
+    """Builds GeckoLib 1.20.1 .animation.json format from processed channel data.
+
+    v13: Animation-type-aware DP epsilon for better idle/walk/attack simplification.
+    """
 
     def __init__(self, config: ConverterConfig = None):
         self.config = config or ConverterConfig()
@@ -1386,14 +1656,18 @@ class GeckoLibJSONBuilder:
 
     def build(self, anim_name: str, loop_mode: str,
               bone_channels: Dict[str, Dict[str, List[Tuple[float, float]]]],
-              duration: float) -> dict:
+              duration: float,
+              animation_type: str = 'generic') -> dict:
         """Build a GeckoLib animation entry.
+
+        v13: Added animation_type parameter for type-aware simplification.
 
         Args:
             anim_name: Animation name (e.g., "animation.model.idle")
             loop_mode: "loop" or "hold_on_last_frame"
             bone_channels: {bone: {channel: [(t, v), ...]}}
             duration: Animation duration
+            animation_type: v13 - 'walk', 'idle', 'attack', or 'generic'
 
         Returns:
             GeckoLib animation dict.
@@ -1402,7 +1676,7 @@ class GeckoLibJSONBuilder:
         bones_dict = {}
 
         for bone_name, channels in bone_channels.items():
-            bone_entry = self._build_bone_entry(bone_name, channels, cfg)
+            bone_entry = self._build_bone_entry(bone_name, channels, cfg, animation_type)
             if bone_entry:
                 bones_dict[bone_name] = bone_entry
 
@@ -1414,8 +1688,12 @@ class GeckoLibJSONBuilder:
 
     def _build_bone_entry(self, bone_name: str,
                           channels: Dict[str, List[Tuple[float, float]]],
-                          config: ConverterConfig) -> Optional[Dict]:
-        """Build a GeckoLib bone entry."""
+                          config: ConverterConfig,
+                          animation_type: str = 'generic') -> Optional[Dict]:
+        """Build a GeckoLib bone entry.
+
+        v13: Uses animation-type-aware DP epsilon.
+        """
         rot_channels = {}
         pos_channels = {}
 
@@ -1423,8 +1701,8 @@ class GeckoLibJSONBuilder:
             if not keyframes:
                 continue
 
-            # Apply DP simplification
-            epsilon = self.dp_simplifier.get_epsilon(channel)
+            # v13: Apply animation-type-aware DP simplification
+            epsilon = self.dp_simplifier.get_epsilon(channel, animation_type)
             simplified = self.dp_simplifier.simplify(keyframes, epsilon)
 
             # Check if all values are near-zero
@@ -1432,7 +1710,7 @@ class GeckoLibJSONBuilder:
             if max_abs < config.filter_zero_threshold:
                 continue
 
-            axis = channel[-1]  # rx→x, ry→y, rz→z, ox→x, oy→y, oz→z
+            axis = channel[-1]  # rx->x, ry->y, rz->z, ox->x, oy->y, oz->z
 
             kf_dict = {
                 f"{t:.{config.keyframe_precision}f}": round(v, config.value_precision)
@@ -1444,8 +1722,7 @@ class GeckoLibJSONBuilder:
             elif channel in ('ox', 'oy', 'oz'):
                 pos_channels[axis] = kf_dict
             elif channel in ('sx', 'sy', 'sz'):
-                # Scale - rarely used but supported
-                rot_channels[axis] = kf_dict  # GeckoLib uses same structure
+                rot_channels[axis] = kf_dict
 
         bone_entry = {}
         if rot_channels:
@@ -1461,7 +1738,10 @@ class GeckoLibJSONBuilder:
 # ============================================================================
 
 class QualityReporter:
-    """Generates quality reports for converted animations."""
+    """Generates quality reports for converted animations.
+
+    v13: Added C2 continuity metrics and animation type classification.
+    """
 
     def __init__(self, config: ConverterConfig = None):
         self.config = config or ConverterConfig()
@@ -1482,6 +1762,8 @@ class QualityReporter:
         Returns:
             AnimationQualityReport with metrics.
         """
+        anim_type = classify_animation_type(anim_name)
+
         report = AnimationQualityReport(
             animation_name=anim_name,
             duration=duration,
@@ -1490,12 +1772,14 @@ class QualityReporter:
                 len(kfs) for chs in bone_channels.values()
                 for kfs in chs.values()
             ),
+            animation_type=anim_type,
         )
 
         c0_errors_rot = []
         c0_errors_pos = []
         c1_errors_rot = []
         c1_errors_pos = []
+        c2_errors_rot = []  # v13
 
         for bone_name, channels in bone_channels.items():
             for channel, keyframes in channels.items():
@@ -1513,19 +1797,17 @@ class QualityReporter:
                 else:
                     c0_errors_pos.append(c0_err)
 
-                # Velocity estimation using resampling for accuracy
-                # Simple finite differences on sparse keyframes are inaccurate,
-                # so resample at a higher rate for better velocity estimation
+                # Velocity and acceleration estimation using resampling
                 if len(keyframes) >= 2 and duration > 0:
-                    # Quick resample for velocity estimation
                     n_s = min(120, max(20, int(duration * 30)))
                     s_dt = duration / n_s
                     s_times = [i * s_dt for i in range(n_s + 1)]
+                    # v13: Use periodic resampling for loop animations
                     s_data = CatmullRomEvaluator.resample_channel(
-                        keyframes, s_times, "catmullrom"
+                        keyframes, s_times, "catmullrom", periodic=True
                     )
                     if len(s_data) >= 5:
-                        # 3-point forward/backward difference
+                        # 3-point forward/backward difference for velocity
                         v0 = (-3*s_data[0][1] + 4*s_data[1][1] - s_data[2][1]) / (2*s_dt)
                         vT = (3*s_data[-1][1] - 4*s_data[-2][1] + s_data[-3][1]) / (2*s_dt)
                         c1_err = abs(vT - v0)
@@ -1533,6 +1815,14 @@ class QualityReporter:
                             c1_errors_rot.append(c1_err)
                         else:
                             c1_errors_pos.append(c1_err)
+
+                        # v13: Acceleration estimation
+                        if len(s_data) >= 7:
+                            a0 = (s_data[2][1] - 2*s_data[1][1] + s_data[0][1]) / (s_dt * s_dt)
+                            aT = (s_data[-1][1] - 2*s_data[-2][1] + s_data[-3][1]) / (s_dt * s_dt)
+                            c2_err = abs(aT - a0)
+                            if is_rotation:
+                                c2_errors_rot.append(c2_err)
 
         # Compute statistics
         if c0_errors_rot:
@@ -1544,7 +1834,6 @@ class QualityReporter:
         if c1_errors_rot:
             sorted_c1 = sorted(c1_errors_rot)
             report.c1_max_error_rot = sorted_c1[-1]
-            # Use P90 instead of max for a more representative C1 metric
             p90_idx = int(len(sorted_c1) * 0.9)
             report.c1_avg_error_rot = sorted_c1[min(p90_idx, len(sorted_c1)-1)]
         if c1_errors_pos:
@@ -1552,6 +1841,12 @@ class QualityReporter:
             report.c1_max_error_pos = sorted_c1[-1]
             p90_idx = int(len(sorted_c1) * 0.9)
             report.c1_avg_error_pos = sorted_c1[min(p90_idx, len(sorted_c1)-1)]
+
+        # v13: C2 statistics
+        if c2_errors_rot:
+            report.c2_max_error_rot = max(c2_errors_rot)
+            report.c2_avg_error_rot = sum(c2_errors_rot) / len(c2_errors_rot)
+            report.c2_perfect = report.c2_avg_error_rot < self.config.c2_accel_threshold_rot
 
         # Quality assessment
         report.c0_perfect = report.c0_max_error_rot < self.config.c0_snap_threshold_rot and \
@@ -1561,32 +1856,40 @@ class QualityReporter:
 
         # Compute quality score (0-100)
         score = 100.0
-        # Penalize C0 errors (position mismatch at loop boundary)
         if not report.c0_perfect:
             score -= min(30, report.c0_max_error_rot * 5 + report.c0_max_error_pos * 30)
-        # Penalize C1 errors using P90 (more representative than max)
         if not report.c1_perfect:
             c1_rot_penalty = min(25, report.c1_avg_error_rot * 1.5)
             c1_pos_penalty = min(15, report.c1_avg_error_pos * 5)
             score -= c1_rot_penalty + c1_pos_penalty
+        # v13: C2 penalty
+        if not report.c2_perfect and c2_errors_rot:
+            c2_penalty = min(10, report.c2_avg_error_rot * 0.01)
+            score -= c2_penalty
 
         report.quality_score = max(0.0, min(100.0, score))
 
         # Generate warnings/errors
         if report.c0_max_error_rot > self.config.quality_error_threshold:
             report.errors.append(
-                f"C0 rotation error too large: {report.c0_max_error_rot:.3f}° "
-                f"(threshold: {self.config.quality_error_threshold}°)"
+                f"C0 rotation error too large: {report.c0_max_error_rot:.3f} deg "
+                f"(threshold: {self.config.quality_error_threshold} deg)"
             )
         elif report.c0_max_error_rot > self.config.quality_warning_threshold:
             report.warnings.append(
-                f"C0 rotation error: {report.c0_max_error_rot:.3f}°"
+                f"C0 rotation error: {report.c0_max_error_rot:.3f} deg"
             )
 
         if not report.c1_perfect:
             report.warnings.append(
-                f"C1 velocity mismatch: rot={report.c1_max_error_rot:.2f}°/s, "
+                f"C1 velocity mismatch: rot={report.c1_max_error_rot:.2f} deg/s, "
                 f"pos={report.c1_max_error_pos:.3f}px/s"
+            )
+
+        # v13: C2 warning
+        if not report.c2_perfect and c2_errors_rot:
+            report.warnings.append(
+                f"C2 acceleration mismatch: rot={report.c2_max_error_rot:.2f} deg/s^2"
             )
 
         return report
@@ -1603,10 +1906,20 @@ class BBModelAnimationConverter:
       1. Extract animations from .bbmodel (with empty/duplicate handling)
       2. Normalize animation names to GeckoLib convention
       3. For loop animations: detect optimal loop duration
-      4. Enforce C1 continuity at loop boundaries (symmetric dual-endpoint)
-      5. Simplify keyframes
-      6. Build GeckoLib .animation.json
-      7. Generate quality report
+      4. v13: Upsample sparse walk animations
+      5. Enforce C1+C2 continuity at loop boundaries
+      6. Simplify keyframes (animation-type-aware)
+      7. Build GeckoLib .animation.json
+      8. Generate quality report
+
+    v13 Improvements:
+      - Fixed name normalization double-namespace bug
+      - Walk animation upsampling for sparse keyframes
+      - Periodic boundary conditions in Catmull-Rom resampling
+      - C2 acceleration continuity enforcement
+      - Walk-specific period detection heuristics
+      - Smart duplicate merging with aliases
+      - Animation-type-aware DP epsilon
     """
 
     def __init__(self, config: ConverterConfig = None):
@@ -1645,10 +1958,13 @@ class BBModelAnimationConverter:
             'total_keyframes': 0,
             'c0_perfect_count': 0,
             'c1_perfect_count': 0,
+            'c2_perfect_count': 0,  # v13
             'duration_adjustments': [],
             'skipped_empty': extracted.get('skipped_empty', []),
             'deduplicated': extracted.get('deduplicated', []),
+            'duplicate_aliases': extracted.get('duplicate_aliases', {}),  # v13
             'name_normalizations': [],
+            'walk_upsampled': [],  # v13
         }
 
         for anim_name, anim_data in extracted['animations'].items():
@@ -1656,6 +1972,9 @@ class BBModelAnimationConverter:
             current_duration = anim_data['length']
             loop_mode = anim_data['loop']
             interpolation = anim_data['interpolation']
+
+            # v13: Classify animation type
+            anim_type = classify_animation_type(anim_name)
 
             # Step 2: Normalize animation name
             if self.config.normalize_animation_names:
@@ -1675,22 +1994,17 @@ class BBModelAnimationConverter:
                     stats['total_keyframes'] += len(kfs)
 
             # Step 3: Duration optimization for loop animations only
-            # Only optimize if the current duration has poor C0 continuity
-            # AND a significantly better duration can be found
             if loop_mode == "loop" and self.config.enable_duration_optimization:
                 optimal_duration, loop_diag = self.loop_detector.detect_optimal_duration(
-                    bone_channels, current_duration, interpolation
+                    bone_channels, current_duration, interpolation,
+                    anim_name=anim_name  # v13: pass name for type-specific heuristics
                 )
-                # Only change duration if:
-                # 1. The new duration has meaningfully better continuity
-                # 2. The change is not too drastic (avoid breaking carefully authored durations)
                 current_c0 = loop_diag.get('current_c0_error', float('inf'))
                 best_c0 = loop_diag.get('best_c0_error', float('inf'))
                 method = loop_diag.get('method', 'none')
 
                 should_change = False
                 if method in ('search_optimal', 'search_early_exit_good_enough') and current_c0 > 0.5:
-                    # Only change if current C0 is poor AND improvement is significant
                     improvement = (current_c0 - best_c0) / max(current_c0, 0.001)
                     if (improvement > self.config.duration_change_threshold and
                         current_c0 - best_c0 > self.config.min_duration_improvement):
@@ -1710,18 +2024,35 @@ class BBModelAnimationConverter:
             else:
                 current_duration = anim_data['length']
 
-            # Step 4: C1 continuity enforcement for loop animations only
-            # Do NOT enforce C1 on hold_on_last_frame (non-loop) animations
+            # v13 Step 4: Walk upsampling for sparse animations
+            if (loop_mode == "loop" and
+                anim_type == 'walk' and
+                self.config.enable_walk_upsampling and
+                current_duration > 0):
+                # Check if any channel has sparse keyframes
+                min_kf_per_channel = float('inf')
+                for chs in bone_channels.values():
+                    for kfs in chs.values():
+                        min_kf_per_channel = min(min_kf_per_channel, len(kfs))
+
+                if min_kf_per_channel <= self.config.walk_upsample_max_kf and min_kf_per_channel >= 2:
+                    bone_channels = self._upsample_walk_animation(
+                        bone_channels, current_duration, interpolation
+                    )
+                    stats['walk_upsampled'].append(anim_name)
+
+            # Step 5: C1+C2 continuity enforcement for loop animations only
             if loop_mode == "loop":
                 bone_channels = self.c1_enforcer.enforce(bone_channels, current_duration, interpolation)
 
-            # Step 5: Build GeckoLib JSON
+            # Step 6: Build GeckoLib JSON (v13: with animation type)
             anim_json = self.json_builder.build(
-                anim_name, loop_mode, bone_channels, current_duration
+                anim_name, loop_mode, bone_channels, current_duration,
+                animation_type=anim_type  # v13
             )
             all_animations[anim_name] = anim_json
 
-            # Step 6: Quality report
+            # Step 7: Quality report
             qreport = self.quality_reporter.report(anim_name, bone_channels, current_duration)
             quality_reports[anim_name] = qreport
 
@@ -1729,8 +2060,10 @@ class BBModelAnimationConverter:
                 stats['c0_perfect_count'] += 1
             if qreport.c1_perfect:
                 stats['c1_perfect_count'] += 1
+            if qreport.c2_perfect:
+                stats['c2_perfect_count'] += 1
 
-        # Assemble output - only write animation.json if there are actual animations
+        # Assemble output
         result = {
             "format_version": "1.8.0",
             "animations": all_animations,
@@ -1741,8 +2074,6 @@ class BBModelAnimationConverter:
                 os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else '.', exist_ok=True)
                 with open(output_path, 'w', encoding='utf-8') as f:
                     json.dump(result, f, indent=2, ensure_ascii=False)
-            # If no animations, do NOT create an empty .animation.json file
-            # This avoids generating redundant files for static models
 
         return {
             'model_name': model_name,
@@ -1750,6 +2081,48 @@ class BBModelAnimationConverter:
             'quality_reports': quality_reports,
             'stats': stats,
         }
+
+    def _upsample_walk_animation(
+        self,
+        bone_channels: Dict[str, Dict[str, List[Tuple[float, float]]]],
+        duration: float,
+        interpolation: str
+    ) -> Dict[str, Dict[str, List[Tuple[float, float]]]]:
+        """v13: Upsample sparse walk animations using catmullrom with periodic boundaries.
+
+        For walk animations with few keyframes, resample at 30fps using
+        periodic catmullrom to create smooth playback.
+
+        Args:
+            bone_channels: {bone: {channel: [(t, v), ...]}}
+            duration: Animation duration
+            interpolation: Interpolation type
+
+        Returns:
+            Upsampled bone_channels.
+        """
+        target_fps = self.config.walk_upsample_fps
+        n_frames = max(int(duration * target_fps), 10)
+        dt = duration / n_frames
+        target_times = [i * dt for i in range(n_frames + 1)]
+
+        result = {}
+        for bone_name, channels in bone_channels.items():
+            result[bone_name] = {}
+            for channel, keyframes in channels.items():
+                if len(keyframes) < 2:
+                    result[bone_name][channel] = keyframes
+                    continue
+                # Resample with periodic boundaries
+                upsampled = CatmullRomEvaluator.resample_channel(
+                    keyframes, target_times, interpolation, periodic=True
+                )
+                # Ensure first and last values match for periodicity
+                if upsampled:
+                    upsampled[-1] = (duration, upsampled[0][1])
+                result[bone_name][channel] = upsampled
+
+        return result
 
     def _trim_to_duration(
         self,
@@ -1767,7 +2140,6 @@ class BBModelAnimationConverter:
                 if trimmed and abs(trimmed[-1][0] - duration) > 0.0001:
                     # Interpolate value at duration
                     if len(keyframes) > 1:
-                        # Find surrounding keyframes
                         for i in range(len(keyframes) - 1):
                             if keyframes[i][0] <= duration <= keyframes[i + 1][0]:
                                 dt = keyframes[i + 1][0] - keyframes[i][0]
@@ -1795,13 +2167,16 @@ def batch_convert(input_dir: str, output_dir: str,
       - Save to output directory maintaining directory structure
     """
     print("=" * 70)
-    print("  Universal BBModel Animation Converter (v2)")
-    print("  .bbmodel → .animation.json with C1 Continuity")
+    print("  Universal BBModel Animation Converter (v13)")
+    print("  .bbmodel -> .animation.json with C1+C2 Continuity")
     print("  GeckoLib Format for MC 1.20.1 Forge Mod Development")
     print("  [FIXED] Hermite basis with linear parameter (no smootherstep warp)")
-    print("  [NEW] Symmetric dual-endpoint C1 blending")
-    print("  [NEW] Autocorrelation period detection + early exit")
-    print("  [NEW] Empty/duplicate animation handling + name normalization")
+    print("  [v13] Quintic Hermite C2 acceleration matching")
+    print("  [v13] Periodic boundary Catmull-Rom for loop animations")
+    print("  [v13] Walk upsampling + walk period heuristics")
+    print("  [v13] Smart duplicate merging with aliases")
+    print("  [v13] Animation-type-aware DP epsilon")
+    print("  [v13] Fixed name normalization double-namespace bug")
     print("=" * 70)
     print()
 
@@ -1809,8 +2184,12 @@ def batch_convert(input_dir: str, output_dir: str,
     converter = BBModelAnimationConverter(cfg)
 
     # Import geo converter
-    from bbmodel_to_geo import BBModelToGeo
-    geo_converter = BBModelToGeo()
+    try:
+        from bbmodel_to_geo import BBModelToGeo
+        geo_converter = BBModelToGeo()
+    except ImportError:
+        geo_converter = None
+        print("  WARNING: bbmodel_to_geo not found, skipping geo conversion")
 
     # Find all .bbmodel files
     bbmodel_files = []
@@ -1825,12 +2204,19 @@ def batch_convert(input_dir: str, output_dir: str,
     print(f"Found {len(bbmodel_files)} .bbmodel files")
     print(f"Configuration:")
     print(f"  C1 enforcement: {'ON' if cfg.enable_c1_enforcement else 'OFF'}")
+    print(f"  C2 enforcement: {'ON' if cfg.enable_c2_enforcement else 'OFF'}")
     print(f"  Duration optimization: {'ON' if cfg.enable_duration_optimization else 'OFF'}")
     print(f"  Autocorrelation: {'ON' if cfg.autocorrelation_enabled else 'OFF'}")
+    print(f"  Walk period heuristic: {'ON' if cfg.walk_period_heuristic else 'OFF'}")
+    print(f"  Walk upsampling: {'ON' if cfg.enable_walk_upsampling else 'OFF'}")
     print(f"  Blend window: {cfg.blend_window_ratio*100:.0f}% per side (max {cfg.max_blend_window}s)")
-    print(f"  DP epsilon: rot={cfg.dp_epsilon_rotation}°, pos={cfg.dp_epsilon_position}px")
+    print(f"  C2 blend window: {cfg.c2_blend_window_ratio*100:.0f}% per side")
+    print(f"  DP epsilon: rot={cfg.dp_epsilon_rotation} deg, pos={cfg.dp_epsilon_position}px")
+    print(f"  DP multipliers: idle={cfg.dp_epsilon_idle_multiplier}x, "
+          f"attack={cfg.dp_epsilon_attack_multiplier}x, walk={cfg.dp_epsilon_walk_multiplier}x")
     print(f"  Skip empty: {'ON' if cfg.skip_empty_animations else 'OFF'}")
     print(f"  Deduplicate (case-insensitive): {'ON' if cfg.deduplicate_case_insensitive else 'OFF'}")
+    print(f"  Keep duplicate aliases: {'ON' if cfg.keep_duplicate_aliases else 'OFF'}")
     print(f"  Name normalization: {'ON' if cfg.normalize_animation_names else 'OFF'}")
     print()
 
@@ -1838,9 +2224,11 @@ def batch_convert(input_dir: str, output_dir: str,
     total_keyframes = 0
     total_c0_perfect = 0
     total_c1_perfect = 0
+    total_c2_perfect = 0
     total_no_anim = 0
     total_skipped_empty = 0
     total_deduplicated = 0
+    total_walk_upsampled = 0
     all_warnings = []
     all_errors = []
 
@@ -1856,11 +2244,16 @@ def batch_convert(input_dir: str, output_dir: str,
               end=" ", flush=True)
 
         # Convert geo + texture
-        geo_result = geo_converter.convert_bbmodel(bbmodel_path, out_dir)
+        geo_ok = "-"
+        if geo_converter:
+            try:
+                geo_result = geo_converter.convert_bbmodel(bbmodel_path, out_dir)
+                geo_ok = "+" if geo_result.get('success') else "-"
+            except Exception:
+                geo_ok = "-"
 
-        # Convert animations - output_path set to None, we write manually
+        # Convert animations
         anim_output_path = os.path.join(out_dir, f"{name}.animation.json")
-        # Remove old animation file if it exists (clean up from previous runs)
         if os.path.exists(anim_output_path):
             os.remove(anim_output_path)
 
@@ -1868,18 +2261,19 @@ def batch_convert(input_dir: str, output_dir: str,
             result = converter.convert_file(bbmodel_path, anim_output_path)
             stats = result['stats']
 
-            # Quality summary
-            geo_ok = "+" if geo_result.get('success') else "-"
             anim_count = stats['total_animations']
             kf_count = stats['total_keyframes']
             c0_ok = stats['c0_perfect_count']
             c1_ok = stats['c1_perfect_count']
+            c2_ok = stats.get('c2_perfect_count', 0)
             dur_adj = len(stats['duration_adjustments'])
             skipped = len(stats.get('skipped_empty', []))
             deduped = len(stats.get('deduplicated', []))
+            walk_up = len(stats.get('walk_upsampled', []))
 
             total_skipped_empty += skipped
             total_deduplicated += deduped
+            total_walk_upsampled += walk_up
 
             if anim_count == 0:
                 if skipped > 0:
@@ -1895,14 +2289,17 @@ def batch_convert(input_dir: str, output_dir: str,
                     extras += f" skip={skipped}"
                 if deduped:
                     extras += f" dedup={deduped}"
+                if walk_up:
+                    extras += f" walk_up={walk_up}"
                 print(f"{geo_ok} anims={anim_count} kf={kf_count} "
-                      f"C0={c0_ok}/{anim_count} C1={c1_ok}/{anim_count}"
+                      f"C0={c0_ok}/{anim_count} C1={c1_ok}/{anim_count} C2={c2_ok}/{anim_count}"
                       f"{extras}")
 
             total_anims += anim_count
             total_keyframes += kf_count
             total_c0_perfect += c0_ok
             total_c1_perfect += c1_ok
+            total_c2_perfect += c2_ok
 
             # Collect warnings/errors
             for anim_name, qr in result['quality_reports'].items():
@@ -1922,7 +2319,7 @@ def batch_convert(input_dir: str, output_dir: str,
     # Summary
     print()
     print("=" * 70)
-    print("  CONVERSION SUMMARY")
+    print("  CONVERSION SUMMARY (v13)")
     print("=" * 70)
     print(f"  Total models:            {len(bbmodel_files)}")
     print(f"  Models with animations:  {len(bbmodel_files) - total_no_anim}")
@@ -1931,8 +2328,10 @@ def batch_convert(input_dir: str, output_dir: str,
     print(f"  Total keyframes:         {total_keyframes:,}")
     print(f"  C0 perfect:              {total_c0_perfect}/{total_anims} ({100*total_c0_perfect/max(total_anims,1):.1f}%)")
     print(f"  C1 good (P90):           {total_c1_perfect}/{total_anims} ({100*total_c1_perfect/max(total_anims,1):.1f}%)")
+    print(f"  C2 good:                 {total_c2_perfect}/{total_anims} ({100*total_c2_perfect/max(total_anims,1):.1f}%)")
     print(f"  Empty skipped:           {total_skipped_empty}")
     print(f"  Duplicates merged:       {total_deduplicated}")
+    print(f"  Walk upsampled:          {total_walk_upsampled}")
     print(f"  Warnings:                {len(all_warnings)}")
     print(f"  Errors:                  {len(all_errors)}")
     print(f"  Elapsed time:            {elapsed:.1f}s")
@@ -1954,7 +2353,7 @@ def batch_convert(input_dir: str, output_dir: str,
 
     print()
     print("=" * 70)
-    print("  DONE - Universal BBModel Animation Converter (v2)")
+    print("  DONE - Universal BBModel Animation Converter (v13)")
     print("=" * 70)
 
     return len(all_errors) == 0
@@ -1968,7 +2367,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Universal BBModel Animation Converter with C1 Continuity (v2)"
+        description="Universal BBModel Animation Converter with C1+C2 Continuity (v13)"
     )
     parser.add_argument("--input", required=True,
                         help="Input directory with .bbmodel files")
@@ -1976,12 +2375,20 @@ def main():
                         help="Output directory for .animation.json + .geo.json + .png")
     parser.add_argument("--no-c1", action="store_true",
                         help="Disable C1 continuity enforcement")
+    parser.add_argument("--no-c2", action="store_true",
+                        help="Disable C2 continuity enforcement (v13)")
     parser.add_argument("--no-duration-opt", action="store_true",
                         help="Disable duration optimization")
     parser.add_argument("--no-autocorr", action="store_true",
                         help="Disable autocorrelation period detection")
+    parser.add_argument("--no-walk-heuristic", action="store_true",
+                        help="Disable walk period heuristic (v13)")
+    parser.add_argument("--no-walk-upsample", action="store_true",
+                        help="Disable walk animation upsampling (v13)")
     parser.add_argument("--blend-ratio", type=float, default=0.10,
                         help="C1 blend window ratio per side (default: 0.10)")
+    parser.add_argument("--c2-blend-ratio", type=float, default=0.15,
+                        help="C2 blend window ratio per side (default: 0.15)")
     parser.add_argument("--dp-rot", type=float, default=0.05,
                         help="DP epsilon for rotation (degrees, default: 0.05)")
     parser.add_argument("--dp-pos", type=float, default=0.008,
@@ -1990,6 +2397,8 @@ def main():
                         help="Don't skip empty animations")
     parser.add_argument("--no-dedup", action="store_true",
                         help="Disable case-insensitive deduplication")
+    parser.add_argument("--no-aliases", action="store_true",
+                        help="Don't keep duplicate names as aliases (v13)")
     parser.add_argument("--no-name-norm", action="store_true",
                         help="Disable animation name normalization")
     parser.add_argument("--namespace", type=str, default="",
@@ -1998,13 +2407,18 @@ def main():
 
     config = ConverterConfig(
         enable_c1_enforcement=not args.no_c1,
+        enable_c2_enforcement=not args.no_c2,
         enable_duration_optimization=not args.no_duration_opt,
         autocorrelation_enabled=not args.no_autocorr,
+        walk_period_heuristic=not args.no_walk_heuristic,
+        enable_walk_upsampling=not args.no_walk_upsample,
         blend_window_ratio=args.blend_ratio,
+        c2_blend_window_ratio=args.c2_blend_ratio,
         dp_epsilon_rotation=args.dp_rot,
         dp_epsilon_position=args.dp_pos,
         skip_empty_animations=not args.no_skip_empty,
         deduplicate_case_insensitive=not args.no_dedup,
+        keep_duplicate_aliases=not args.no_aliases,
         normalize_animation_names=not args.no_name_norm,
         animation_namespace=args.namespace,
     )
