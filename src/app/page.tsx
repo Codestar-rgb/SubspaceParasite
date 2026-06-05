@@ -176,6 +176,195 @@ interface AnimationJson {
   };
 }
 
+// ─── Creature Download Tab Component ─────────────────────────────────────────
+
+// Category mapping: id → { zh, en } from zh_cn.lang
+// venkrolSIV is correctly in 威慑种 (deterrent), NOT 衍生种 (derived)
+// ata = 狂疫虫 (inborn), unvo = 哨戒爪 (deterrent) — NOT swapped
+const CREATURE_CATEGORIES: Record<string, { zh: string; en: string }> = {
+  inborn: { zh: "先天种", en: "Inborn" },
+  deterrent: { zh: "威慑种", en: "Deterrent" },
+  derived: { zh: "衍生种", en: "Derived" },
+  primitive: { zh: "原始种", en: "Primitive" },
+  adapted: { zh: "适应种", en: "Adapted" },
+  pure: { zh: "纯粹种", en: "Pure" },
+  ancient: { zh: "远古种", en: "Ancient" },
+  awakened: { zh: "觉醒种", en: "Awakened" },
+  feral: { zh: "狂化种", en: "Feral" },
+  crude: { zh: "粗制种", en: "Crude" },
+  infected: { zh: "感染种", en: "Infected" },
+  hijacked: { zh: "劫持种", en: "Hijacked" },
+  focused: { zh: "聚焦种", en: "Focused" },
+  abomination: { zh: "憎恶种", en: "Abomination" },
+  projectile: { zh: "抛射物", en: "Projectile" },
+  misc: { zh: "其他", en: "Misc" },
+};
+
+const CATEGORY_ORDER = [
+  "inborn", "deterrent", "derived", "primitive", "adapted",
+  "pure", "ancient", "awakened", "feral", "crude",
+  "infected", "hijacked", "focused", "abomination", "projectile", "misc",
+];
+
+interface CreatureInfo {
+  id: string;
+  nameZh: string;
+  nameEn: string;
+  category: string;
+  hasGeo: boolean;
+  hasAnimation: boolean;
+  hasTexture: boolean;
+}
+
+interface CategoryGroup {
+  id: string;
+  nameZh: string;
+  nameEn: string;
+  creatures: CreatureInfo[];
+}
+
+function CreatureDownloadTab() {
+  const [categories, setCategories] = useState<CategoryGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set(["inborn", "deterrent", "derived"]));
+
+  useEffect(() => {
+    fetch("/api/creatures")
+      .then((res) => res.json())
+      .then((data) => {
+        setCategories(data.categories || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const toggleCat = (catId: string) => {
+    setExpandedCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(catId)) next.delete(catId);
+      else next.add(catId);
+      return next;
+    });
+  };
+
+  const downloadCreatureFile = (category: string, creature: string, type: string, filename: string) => {
+    const url = `/api/download?category=${encodeURIComponent(category)}&creature=${encodeURIComponent(creature)}&type=${type}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const downloadAllForCreature = (creature: CreatureInfo) => {
+    const cat = creature.category;
+    const id = creature.id;
+    if (creature.hasGeo) downloadCreatureFile(cat, id, "geo", `${id}.geo.json`);
+    if (creature.hasAnimation) setTimeout(() => downloadCreatureFile(cat, id, "animation", `${id}.animation.json`), 200);
+    if (creature.hasTexture) setTimeout(() => downloadCreatureFile(cat, id, "texture", `${id}.png`), 400);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-40">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    );
+  }
+
+  const totalCreatures = categories.reduce((sum, c) => sum + c.creatures.length, 0);
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold">Creature Model Downloads</h2>
+        <p className="text-sm text-muted-foreground">
+          GeckoLib model files for all {totalCreatures} creatures across {categories.length} categories.
+          Categories match the SRParasites zh_cn.lang file.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {categories.map((cat) => {
+          const isExpanded = expandedCats.has(cat.id);
+          const animCount = cat.creatures.filter((c) => c.hasAnimation).length;
+
+          return (
+            <Card key={cat.id}>
+              <CardHeader
+                className="py-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => toggleCat(cat.id)}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {isExpanded ? (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    )}
+                    <div>
+                      <CardTitle className="text-sm">
+                        {cat.nameZh} ({cat.nameEn})
+                      </CardTitle>
+                      <CardDescription>
+                        {cat.creatures.length} creatures • {animCount} with animations
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <Badge variant="outline">{cat.creatures.length}</Badge>
+                </div>
+              </CardHeader>
+
+              {isExpanded && (
+                <CardContent className="pt-0">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {cat.creatures.map((creature) => (
+                      <div
+                        key={creature.id}
+                        className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/30"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{creature.nameZh}</p>
+                          <p className="text-xs text-muted-foreground font-mono truncate">
+                            {creature.id}
+                          </p>
+                          <div className="flex gap-1 mt-1">
+                            {creature.hasGeo && (
+                              <Badge variant="secondary" className="h-4 px-1 text-[9px]">geo</Badge>
+                            )}
+                            {creature.hasAnimation && (
+                              <Badge variant="secondary" className="h-4 px-1 text-[9px]">anim</Badge>
+                            )}
+                            {creature.hasTexture && (
+                              <Badge variant="secondary" className="h-4 px-1 text-[9px]">tex</Badge>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0 ml-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadAllForCreature(creature);
+                          }}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function ConverterPage() {
@@ -453,10 +642,14 @@ export default function ConverterPage() {
 
         {/* Main Tabs */}
         <Tabs defaultValue="files" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-5 max-w-xl">
+          <TabsList className="grid w-full grid-cols-6 max-w-2xl">
             <TabsTrigger value="files" className="gap-1">
               <Download className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Game Files</span>
+            </TabsTrigger>
+            <TabsTrigger value="creatures" className="gap-1">
+              <Layers className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Creatures</span>
             </TabsTrigger>
             <TabsTrigger value="model" className="gap-1">
               <Box className="h-3.5 w-3.5" />
@@ -848,6 +1041,11 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* ===== Creatures Download Tab ===== */}
+          <TabsContent value="creatures" className="space-y-6">
+            <CreatureDownloadTab />
           </TabsContent>
 
           {/* ===== Model Tab ===== */}

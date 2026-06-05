@@ -1,0 +1,421 @@
+{
+  "timestamp": "2026-06-05T17:42:34.929402+00:00",
+  "total_models": 2,
+  "total_animations": 9,
+  "c0_perfect_rate": 0.2222222222222222,
+  "c1_perfect_rate": 0.3333333333333333,
+  "naturalness_avg": 0.7772752154437813,
+  "naturalness_below_threshold": 1,
+  "amplitude_retention_avg": 0.9841684411535598,
+  "amplitude_below_threshold": 0,
+  "thresholds_used": "lenient",
+  "grade_distribution": {
+    "D": 4,
+    "F": 3,
+    "A": 2
+  },
+  "category_summaries": {
+    "idle": {
+      "count": 2,
+      "avg_quality_score": 56.425,
+      "avg_naturalness": 0.6570056575585468,
+      "c0_perfect_rate": 0.0,
+      "c1_perfect_rate": 0.5,
+      "avg_amplitude_retention": 1.0
+    },
+    "attack": {
+      "count": 1,
+      "avg_quality_score": 50.11,
+      "avg_naturalness": 0.8042010048467919,
+      "c0_perfect_rate": 0.0,
+      "c1_perfect_rate": 0.0,
+      "avg_amplitude_retention": 1.0
+    },
+    "fly": {
+      "count": 2,
+      "avg_quality_score": 72.11,
+      "avg_naturalness": 0.8412997823756212,
+      "c0_perfect_rate": 0.5,
+      "c1_perfect_rate": 0.5,
+      "avg_amplitude_retention": 0.9287579851910197
+    },
+    "other": {
+      "count": 4,
+      "avg_quality_score": 61.22,
+      "avg_naturalness": 0.7986662635697259,
+      "c0_perfect_rate": 0.25,
+      "c1_perfect_rate": 0.25,
+      "avg_amplitude_retention": 1.0
+    }
+  },
+  "critical_issues": [
+    {
+      "model": "heblu",
+      "animation": "animation.model.fly",
+      "description": "C0 error 41.46 deg exceeds 5 deg critical threshold",
+      "severity": "critical",
+      "metric": "c0_max_error_rot",
+      "value": 41.459616
+    },
+    {
+      "model": "heblu",
+      "animation": "animation.model.cosmic",
+      "description": "C0 error 27.43 deg exceeds 5 deg critical threshold",
+      "severity": "critical",
+      "metric": "c0_max_error_rot",
+      "value": 27.430737999999998
+    },
+    {
+      "model": "heblu",
+      "animation": "animation.model.idle",
+      "description": "C0 error 27.41 deg exceeds 5 deg critical threshold",
+      "severity": "critical",
+      "metric": "c0_max_error_rot",
+      "value": 27.408995
+    },
+    {
+      "model": "heblu",
+      "animation": "animation.model.attack",
+      "description": "C0 error 24.13 deg exceeds 5 deg critical threshold",
+      "severity": "critical",
+      "metric": "c0_max_error_rot",
+      "value": 24.132876
+    },
+    {
+      "model": "heblu",
+      "animation": "animation.model.shaking",
+      "description": "C0 error 24.00 deg exceeds 5 deg critical threshold",
+      "severity": "critical",
+      "metric": "c0_max_error_rot",
+      "value": 23.998241
+    },
+    {
+      "model": "heblu",
+      "animation": "animation.model.cosmic_shaking",
+      "description": "C0 error 24.00 deg exceeds 5 deg critical threshold",
+      "severity": "critical",
+      "metric": "c0_max_error_rot",
+      "value": 23.998241
+    },
+    {
+      "model": "kirin",
+      "animation": "animation.srparasites.kirin.idle",
+      "description": "C0 error 14.77 deg exceeds 5 deg critical threshold",
+      "severity": "critical",
+      "metric": "c0_max_error_rot",
+      "value": 14.767063
+    }
+  ],
+  "important_issues": [
+    {
+      "model": "heblu",
+      "animation": "animation.model.fly",
+      "description": "C1 error 127.74 deg/s is >3x threshold (15.00)",
+      "severity": "important",
+      "metric": "c1_max_error_rot",
+      "value": 127.73963283352235
+    },
+    {
+      "model": "heblu",
+      "animation": "animation.model.cosmic",
+      "description": "C1 error 75.13 deg/s is >3x threshold (15.00)",
+      "severity": "important",
+      "metric": "c1_max_error_rot",
+      "value": 75.13364518518517
+    },
+    {
+      "model": "heblu",
+      "animation": "animation.model.idle",
+      "description": "C1 error 69.84 deg/s is >3x threshold (15.00)",
+      "severity": "important",
+      "metric": "c1_max_error_rot",
+      "value": 69.8407914724809
+    },
+    {
+      "model": "heblu",
+      "animation": "animation.model.attack",
+      "description": "C1 error 53.60 deg/s is >3x threshold (15.00)",
+      "severity": "important",
+      "metric": "c1_max_error_rot",
+      "value": 53.599812912756235
+    },
+    {
+      "model": "heblu",
+      "animation": "animation.model.shaking",
+      "description": "C1 error 50.43 deg/s is >3x threshold (15.00)",
+      "severity": "important",
+      "metric": "c1_max_error_rot",
+      "value": 50.43093483788938
+    },
+    {
+      "model": "heblu",
+      "animation": "animation.model.cosmic_shaking",
+      "description": "C1 error 49.04 deg/s is >3x threshold (15.00)",
+      "severity": "important",
+      "metric": "c1_max_error_rot",
+      "value": 49.042824009466685
+    }
+  ],
+  "improvement_over_previous": null,
+  "animation_metrics": {
+    "kirin/animation.srparasites.kirin.idle": {
+      "model_name": "kirin",
+      "animation_name": "animation.srparasites.kirin.idle",
+      "c0_max_error_rot": 14.767063,
+      "c0_max_error_pos": 0.0,
+      "c0_perfect": false,
+      "c1_max_error_rot": 1.1001831457542908,
+      "c1_p90_error_rot": 1.1001831457542908,
+      "c1_perfect": true,
+      "naturalness_score": 0.5111384193694593,
+      "naturalness_method": "curvature_smoothness",
+      "amplitude_retention_avg": 1.0,
+      "amplitude_retention_min": 1.0,
+      "channels_with_amplitude_loss": [],
+      "expected_bones": 39,
+      "actual_bones": 39,
+      "missing_bones": [],
+      "expected_duration": 6.2832,
+      "actual_duration": 6.2832,
+      "quality_score": 62.78,
+      "quality_grade": "D",
+      "issues": [
+        "C0_ERROR: max rotation error 14.7671 deg (threshold 0.5)",
+        "LOW_NATURALNESS: score 0.5111 (threshold 0.6)"
+      ]
+    },
+    "heblu/animation.model.idle": {
+      "model_name": "heblu",
+      "animation_name": "animation.model.idle",
+      "c0_max_error_rot": 27.408995,
+      "c0_max_error_pos": 0.0,
+      "c0_perfect": false,
+      "c1_max_error_rot": 69.8407914724809,
+      "c1_p90_error_rot": 69.8407914724809,
+      "c1_perfect": false,
+      "naturalness_score": 0.8028728957476343,
+      "naturalness_method": "curvature_smoothness",
+      "amplitude_retention_avg": 1.0,
+      "amplitude_retention_min": 1.0,
+      "channels_with_amplitude_loss": [],
+      "expected_bones": 83,
+      "actual_bones": 83,
+      "missing_bones": [],
+      "expected_duration": 2.3271,
+      "actual_duration": 2.3271,
+      "quality_score": 50.07,
+      "quality_grade": "D",
+      "issues": [
+        "C0_ERROR: max rotation error 27.4090 deg (threshold 0.5)",
+        "C1_ERROR: max rotation error 69.8408 deg/s (threshold 5.0)"
+      ]
+    },
+    "heblu/animation.model.attack": {
+      "model_name": "heblu",
+      "animation_name": "animation.model.attack",
+      "c0_max_error_rot": 24.132876,
+      "c0_max_error_pos": 0.0,
+      "c0_perfect": false,
+      "c1_max_error_rot": 53.599812912756235,
+      "c1_p90_error_rot": 53.599812912756235,
+      "c1_perfect": false,
+      "naturalness_score": 0.8042010048467919,
+      "naturalness_method": "curvature_smoothness",
+      "amplitude_retention_avg": 1.0,
+      "amplitude_retention_min": 1.0,
+      "channels_with_amplitude_loss": [],
+      "expected_bones": 83,
+      "actual_bones": 83,
+      "missing_bones": [],
+      "expected_duration": 2.0944,
+      "actual_duration": 2.0944,
+      "quality_score": 50.11,
+      "quality_grade": "D",
+      "issues": [
+        "C0_ERROR: max rotation error 24.1329 deg (threshold 0.5)",
+        "C1_ERROR: max rotation error 53.5998 deg/s (threshold 5.0)"
+      ]
+    },
+    "heblu/animation.model.fly": {
+      "model_name": "heblu",
+      "animation_name": "animation.model.fly",
+      "c0_max_error_rot": 41.459616,
+      "c0_max_error_pos": 0.0,
+      "c0_perfect": false,
+      "c1_max_error_rot": 127.73963283352235,
+      "c1_p90_error_rot": 40.233043832204075,
+      "c1_perfect": false,
+      "naturalness_score": 0.8391351710787811,
+      "naturalness_method": "curvature_smoothness",
+      "amplitude_retention_avg": 0.9120614249274939,
+      "amplitude_retention_min": 0.0,
+      "channels_with_amplitude_loss": [
+        "jointN1/rotation/x",
+        "jointN2/rotation/x",
+        "jointN3/rotation/x",
+        "jointN4/rotation/x",
+        "jointN5/rotation/x",
+        "hjointD_1/rotation/z",
+        "hjointF_1/rotation/z",
+        "hjointB_1/rotation/z",
+        "hjointH_1/rotation/z",
+        "hjointA_1/rotation/z",
+        "hjointE_1/rotation/z"
+      ],
+      "expected_bones": 83,
+      "actual_bones": 83,
+      "missing_bones": [],
+      "expected_duration": 3.1416,
+      "actual_duration": 3.1416,
+      "quality_score": 49.22,
+      "quality_grade": "F",
+      "issues": [
+        "C0_ERROR: max rotation error 41.4596 deg (threshold 0.5)",
+        "C1_ERROR: max rotation error 127.7396 deg/s (threshold 5.0)",
+        "AMPLITUDE_LOSS: min retention 0.0000 (threshold 0.8)"
+      ]
+    },
+    "heblu/animation.model.vomit": {
+      "model_name": "heblu",
+      "animation_name": "animation.model.vomit",
+      "c0_max_error_rot": 0.0,
+      "c0_max_error_pos": 0.0,
+      "c0_perfect": true,
+      "c1_max_error_rot": 0.0,
+      "c1_p90_error_rot": 0.0,
+      "c1_perfect": true,
+      "naturalness_score": 0.827583118554833,
+      "naturalness_method": "curvature_smoothness",
+      "amplitude_retention_avg": 1.0,
+      "amplitude_retention_min": 1.0,
+      "channels_with_amplitude_loss": [],
+      "expected_bones": 83,
+      "actual_bones": 83,
+      "missing_bones": [],
+      "expected_duration": 4.0,
+      "actual_duration": 4.0,
+      "quality_score": 95.69,
+      "quality_grade": "A",
+      "issues": []
+    },
+    "heblu/animation.model.fly_vomit": {
+      "model_name": "heblu",
+      "animation_name": "animation.model.fly_vomit",
+      "c0_max_error_rot": 0.0,
+      "c0_max_error_pos": 0.0,
+      "c0_perfect": true,
+      "c1_max_error_rot": 0.0,
+      "c1_p90_error_rot": 0.0,
+      "c1_perfect": true,
+      "naturalness_score": 0.8434643936724613,
+      "naturalness_method": "curvature_smoothness",
+      "amplitude_retention_avg": 0.9454545454545454,
+      "amplitude_retention_min": 0.0,
+      "channels_with_amplitude_loss": [
+        "hjointD_1/rotation/z",
+        "hjointF_1/rotation/z",
+        "hjointB_1/rotation/z",
+        "hjointH_1/rotation/z",
+        "hjointA_1/rotation/z",
+        "hjointE_1/rotation/z"
+      ],
+      "expected_bones": 83,
+      "actual_bones": 83,
+      "missing_bones": [],
+      "expected_duration": 4.0,
+      "actual_duration": 4.0,
+      "quality_score": 95.0,
+      "quality_grade": "A",
+      "issues": [
+        "AMPLITUDE_LOSS: min retention 0.0000 (threshold 0.8)"
+      ]
+    },
+    "heblu/animation.model.shaking": {
+      "model_name": "heblu",
+      "animation_name": "animation.model.shaking",
+      "c0_max_error_rot": 23.998241,
+      "c0_max_error_pos": 0.10749,
+      "c0_perfect": false,
+      "c1_max_error_rot": 50.43093483788938,
+      "c1_p90_error_rot": 50.43093483788938,
+      "c1_perfect": false,
+      "naturalness_score": 0.7754638701131665,
+      "naturalness_method": "curvature_smoothness",
+      "amplitude_retention_avg": 1.0,
+      "amplitude_retention_min": 1.0,
+      "channels_with_amplitude_loss": [],
+      "expected_bones": 83,
+      "actual_bones": 83,
+      "missing_bones": [],
+      "expected_duration": 2.0,
+      "actual_duration": 2.0,
+      "quality_score": 49.39,
+      "quality_grade": "F",
+      "issues": [
+        "C0_ERROR: max rotation error 23.9982 deg (threshold 0.5)",
+        "C1_ERROR: max rotation error 50.4309 deg/s (threshold 5.0)"
+      ]
+    },
+    "heblu/animation.model.cosmic": {
+      "model_name": "heblu",
+      "animation_name": "animation.model.cosmic",
+      "c0_max_error_rot": 27.430737999999998,
+      "c0_max_error_pos": 0.173202,
+      "c0_perfect": false,
+      "c1_max_error_rot": 75.13364518518517,
+      "c1_p90_error_rot": 75.13364518518517,
+      "c1_perfect": false,
+      "naturalness_score": 0.8178030955385374,
+      "naturalness_method": "curvature_smoothness",
+      "amplitude_retention_avg": 1.0,
+      "amplitude_retention_min": 1.0,
+      "channels_with_amplitude_loss": [],
+      "expected_bones": 83,
+      "actual_bones": 83,
+      "missing_bones": [],
+      "expected_duration": 4.0,
+      "actual_duration": 4.0,
+      "quality_score": 50.45,
+      "quality_grade": "D",
+      "issues": [
+        "C0_ERROR: max rotation error 27.4307 deg (threshold 0.5)",
+        "C1_ERROR: max rotation error 75.1336 deg/s (threshold 5.0)"
+      ]
+    },
+    "heblu/animation.model.cosmic_shaking": {
+      "model_name": "heblu",
+      "animation_name": "animation.model.cosmic_shaking",
+      "c0_max_error_rot": 23.998241,
+      "c0_max_error_pos": 0.10749,
+      "c0_perfect": false,
+      "c1_max_error_rot": 49.042824009466685,
+      "c1_p90_error_rot": 49.042824009466685,
+      "c1_perfect": false,
+      "naturalness_score": 0.7738149700723669,
+      "naturalness_method": "curvature_smoothness",
+      "amplitude_retention_avg": 1.0,
+      "amplitude_retention_min": 1.0,
+      "channels_with_amplitude_loss": [],
+      "expected_bones": 83,
+      "actual_bones": 83,
+      "missing_bones": [],
+      "expected_duration": 2.0,
+      "actual_duration": 2.0,
+      "quality_score": 49.35,
+      "quality_grade": "F",
+      "issues": [
+        "C0_ERROR: max rotation error 23.9982 deg (threshold 0.5)",
+        "C1_ERROR: max rotation error 49.0428 deg/s (threshold 5.0)"
+      ]
+    }
+  },
+  "thresholds": {
+    "mode": "lenient",
+    "c0_rot": 0.5,
+    "c1_rot": 5.0,
+    "naturalness": 0.6,
+    "amplitude_retention": 0.8,
+    "c0_pos": 0.01,
+    "c1_pos": 0.3
+  }
+}

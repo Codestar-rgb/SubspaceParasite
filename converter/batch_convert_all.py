@@ -325,7 +325,7 @@ def main():
         exact_duplicate_consolidation=True,
         # v18 NEW: Walk-Specific C1 Lightweight Enforcement
         walk_lightweight_c1=True,
-        walk_c1_transition_zone_ratio=0.05,
+        walk_c1_transition_zone_ratio=0.08,
         walk_c1_cosine_bridge=True,
         # v18 NEW: Smart Walk Duration Preservation
         walk_preserve_original_duration=True,
@@ -334,6 +334,15 @@ def main():
         naturalness_density_adjustment=True,
         # v18 NEW: Loop Boundary Smooth Bridge
         loop_smooth_bridge_enabled=True,
+        # =============================================
+        # v19 NEW: C1 3-Layer Restructured Enforcement
+        # =============================================
+        peak_preservation_threshold=0.10,
+        layer1_c0_target_rot=0.5,
+        layer1_c1_target_rot=3.0,
+        layer3_zone_ratio=0.375,
+        naturalness_method='curvature_smoothness',
+        track_amplitude_retention=True,
     )
 
     # Create animation converter instance

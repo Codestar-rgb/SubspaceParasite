@@ -219,24 +219,38 @@ def analyze_dominant_periods(eval_func, test_duration: float = 30.0,
     return round(best_duration, 4)
 
 
-def enforce_loop_continuity(sampled_data: Dict, duration: float) -> Dict:
+def enforce_loop_continuity(sampled_data: Dict, duration: float,
+                            force: bool = False) -> Dict:
     """Ensure the first and last keyframes match for seamless looping.
     
     For loop animations, the value at t=0 and t=duration should be identical.
     We adjust the last keyframe to match the first.
+    
+    When force=True, we always snap the last keyframe to match the first,
+    regardless of the difference. This is needed for animations whose
+    oscillation frequencies don't naturally align at the chosen duration
+    (e.g. vomit animation with incommensurate cosine frequencies).
+    
+    When force=False, we only snap if the difference is small, as
+    cycle-aligned durations should naturally match within threshold.
     """
     for bone_name, channels in sampled_data.items():
         for channel, keyframes in channels.items():
             if len(keyframes) >= 2:
                 first_val = keyframes[0][1]
                 last_val = keyframes[-1][1]
-                # If the difference is small but non-zero, snap the last to match first
-                # With proper cycle-aligned duration, start/end should naturally match
-                # within floating point error. Use 0.1 degree threshold for rotation channels
-                # and 0.01 for position channels (much tighter than before)
-                threshold = 0.1 if channel.startswith('r') else 0.01
-                if abs(first_val - last_val) < threshold:
+                diff = abs(first_val - last_val)
+                if force:
+                    # Always snap for forced continuity
                     keyframes[-1] = (keyframes[-1][0], first_val)
+                else:
+                    # If the difference is small but non-zero, snap the last to match first
+                    # With proper cycle-aligned duration, start/end should naturally match
+                    # within floating point error. Use 0.1 degree threshold for rotation channels
+                    # and 0.01 for position channels (much tighter than before)
+                    threshold = 0.1 if channel.startswith('r') else 0.01
+                    if diff < threshold:
+                        keyframes[-1] = (keyframes[-1][0], first_val)
     return sampled_data
 
 
@@ -1211,8 +1225,13 @@ def generate_all_animations() -> dict:
     print(f"    Bones: {fly_bone_count}, Duration: {fly_duration}s")
 
     # --- VOMIT animation (ground) ---
+    # The vomit animation loops while vomit > 0, so it must use "loop" mode.
+    # However, the oscillation frequencies (0.061, 0.082, 0.079, 0.123, 0.233,
+    # 0.1435, 0.2, etc.) are incommensurate, so no natural loop duration exists
+    # where all channels return to their start values. We force C0 continuity
+    # by snapping the last keyframe to match the first (force=True).
     print("  Generating vomit animation (ground)...")
-    vomit_duration = 4.0  # Finite duration, hold_on_last_frame
+    vomit_duration = 4.0  # Practical loop duration; C0 forced via snap
     
     vomit_data = sample_animation(
         lambda t: eval_vomit(t, raining=False, flying=False),
@@ -1220,12 +1239,13 @@ def generate_all_animations() -> dict:
         samples_per_second=60.0,
         dp_epsilon=0.08  # Very tight epsilon for neck articulation detail
     )
+    vomit_data = enforce_loop_continuity(vomit_data, vomit_duration, force=True)
     
     animations["animation.model.vomit"] = build_animation_json(
-        "animation.model.vomit", "hold_on_last_frame", vomit_data, vomit_duration
+        "animation.model.vomit", "loop", vomit_data, vomit_duration
     )
     vomit_bone_count = len(animations["animation.model.vomit"]["bones"])
-    print(f"    Bones: {vomit_bone_count}, Duration: {vomit_duration}s")
+    print(f"    Bones: {vomit_bone_count}, Duration: {vomit_duration}s (loop, C0 forced)")
 
     # --- FLY VOMIT animation ---
     print("  Generating fly_vomit animation...")
@@ -1237,12 +1257,13 @@ def generate_all_animations() -> dict:
         samples_per_second=60.0,
         dp_epsilon=0.08
     )
+    fly_vomit_data = enforce_loop_continuity(fly_vomit_data, fly_vomit_duration, force=True)
     
     animations["animation.model.fly_vomit"] = build_animation_json(
-        "animation.model.fly_vomit", "hold_on_last_frame", fly_vomit_data, fly_vomit_duration
+        "animation.model.fly_vomit", "loop", fly_vomit_data, fly_vomit_duration
     )
     fly_vomit_bone_count = len(animations["animation.model.fly_vomit"]["bones"])
-    print(f"    Bones: {fly_vomit_bone_count}, Duration: {fly_vomit_duration}s")
+    print(f"    Bones: {fly_vomit_bone_count}, Duration: {fly_vomit_duration}s (loop, C0 forced)")
 
     # --- SHAKING animation ---
     print("  Generating shaking animation...")
