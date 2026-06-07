@@ -77,3 +77,37 @@ Stage Summary:
 - Catmullrom interpolation: 97.3% of walk channels
 - All 154 models converted successfully with 0 errors
 - Frontend updated to v20
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Clean up MROLF-TGNBF/MROLF-TGNBF-OUTPUT folders and create MCMOD-SRP with latest Blockbench files
+
+Work Log:
+- Deleted MROLF-TGNBF/ folder (161MB, 154 old .bbmodel files)
+- Deleted MROLF-TGNBF-OUTPUT/ folder (46MB, old .geo.json/.animation.json/.png output)
+- Deleted MROLF-TGNBF.tar.gz (2.8MB old archive)
+- Deleted converted_output/ (old output folder, 462 files)
+- Deleted converter_package/ and converter_package.tar.gz (old package copies)
+- Deleted Qom-Inseac/ (old directory)
+- Deleted old root-level archives: MinecraftModelMigrator-Pro-backup.zip, MinecraftModelMigrator-Pro.zip, batch_output.tar.gz, koasc-edcvb-push.bundle (31MB), koasc-edcvb-updated.tar.gz, SDMCXKIFFNEK.zip, cfr.jar
+- Deleted old root-level scripts: convert_bedrock.py, download_srp_textures.py, export_creature_zips.py
+- Deleted old log files: batch_output.log, batch_simple.log, batch_v20.log, batch_v21.log
+- Deleted test directories in db/output/: test_esor, test_esor_v16, test_lencia, test_lencia_v16
+- Deleted old debug/individual model files in db/: heblu_debug.bbmodel, kirin_debug.bbmodel, etc.
+- Deleted public/converted/ (old test bbmodel files)
+- Deleted db/*.zip (157 source model archives, no longer needed)
+- Deleted converter/MinecraftModelMigrator-Pro.zip and converter/__pycache__
+- Created MCMOD-SRP/ directory with 16 category subdirectories
+- Generated 154 .bbmodel files from db/output/ (geo.json + animation.json + png) using bbmodel_generator.py
+  - Adapted format: transformed minecraft:geometry → model format for bbmodel_generator
+  - 0 errors, all 154 models generated successfully
+  - 295 total animations: idle(135), walk(71), attack(25), sleeping(19), evolved(16), death(12), etc.
+- Cleaned up temporary generate_bbmodels.py script
+
+Stage Summary:
+- MROLF-TGNBF and MROLF-TGNBF-OUTPUT folders completely removed
+- All old/useless files and archives cleaned up
+- MCMOD-SRP/ created with 154 latest .bbmodel files (95MB)
+- 16 categories: abomination(2), adapted(12), ancient(3), awakened(2), crude(11), derived(2), deterrent(20), feral(9), focused(2), hijacked(3), inborn(11), infected(29), misc(20), primitive(12), projectile(1), pure(15)
+- db/output/ preserved with latest .geo.json/.animation.json/.png files (49MB)
