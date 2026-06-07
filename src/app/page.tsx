@@ -572,7 +572,7 @@ export default function ConverterPage() {
                 Entity Converter - GeckoLib 1.20.1
               </h1>
               <p className="text-sm text-muted-foreground">
-                MC 1.12.2 ModelBase → GeckoLib 4.x Conversion • 154 Models • 0 Errors • v19 Batch
+                MC 1.12.2 ModelBase → GeckoLib 4.x Conversion • 154 Models • 0 Errors • v20 Batch
               </p>
             </div>
           </div>

@@ -563,7 +563,7 @@ class ConverterConfig:
 
     # --- v15 NEW Configuration ---
     # Improvement 1: Walk Animation Over-Simplification Fix
-    walk_min_output_keyframes: int = 12               # Minimum keyframes per channel for walk animations after DP
+    walk_min_output_keyframes: int = 16               # Minimum keyframes per channel for walk animations after DP (v19: raised from 12)
     walk_dp_epsilon_factor: float = 0.15              # v16: reduced from 0.2 to keep more keyframes for walk
 
     # Improvement 2: C1 Continuity for High-Bounce Animations
@@ -5979,10 +5979,14 @@ class GeckoLibJSONBuilder:
               duration: float,
               is_static: bool = False,
               is_near_empty: bool = False,
-              is_walk_anim: bool = False) -> dict:
+              is_walk_anim: bool = False,
+              already_normalized: bool = False) -> dict:
         """Build a GeckoLib animation entry.
 
         v15: Added is_walk_anim parameter for walk-aware DP simplification.
+        v19: Added already_normalized parameter — when True (after walk keyframe
+             normalization), skip DP simplification and velocity enforcement to
+             preserve the evenly-spaced keyframes produced by normalization.
         """
         cfg = self.config
         bones_dict = {}
@@ -5991,7 +5995,8 @@ class GeckoLibJSONBuilder:
             bone_entry = self._build_bone_entry(bone_name, channels, cfg,
                                                  loop_mode=loop_mode,
                                                  duration=duration,
-                                                 is_walk_anim=is_walk_anim)
+                                                 is_walk_anim=is_walk_anim,
+                                                 already_normalized=already_normalized)
             if bone_entry:
                 bones_dict[bone_name] = bone_entry
 
@@ -6035,7 +6040,8 @@ class GeckoLibJSONBuilder:
                           config: ConverterConfig,
                           loop_mode: str = "loop",
                           duration: float = 0.0,
-                          is_walk_anim: bool = False) -> Optional[Dict]:
+                          is_walk_anim: bool = False,
+                          already_normalized: bool = False) -> Optional[Dict]:
         """Build a GeckoLib bone entry.
 
         v13 FIX: Douglas-Peucker simplification operates in (time, value) 2D space.
@@ -6052,6 +6058,11 @@ class GeckoLibJSONBuilder:
         - Uses epsilon * walk_dp_epsilon_factor (5x less aggressive)
         - Enforces minimum keyframe density (walk_min_output_keyframes=12)
         - Re-inserts evenly-spaced keyframes from original if below minimum
+
+        v19 FIX: When already_normalized=True (after walk keyframe normalization),
+        skip DP simplification and velocity enforcement entirely. The normalization
+        step has already produced evenly-spaced keyframes with proper C0 continuity,
+        and running DP simplification would destroy the even spacing, causing stuttering.
         """
         rot_channels = {}
         pos_channels = {}
@@ -6060,8 +6071,14 @@ class GeckoLibJSONBuilder:
             if not keyframes:
                 continue
 
-            # v15: Walk-aware DP simplification
-            if is_walk_anim:
+            # v19 FIX: When already_normalized=True (after walk keyframe normalization),
+            # skip DP simplification entirely. The normalization step has produced
+            # evenly-spaced keyframes with proper C0 continuity. Running DP
+            # simplification would destroy the even spacing, causing stuttering.
+            if is_walk_anim and already_normalized:
+                simplified = list(keyframes)  # Use keyframes as-is
+            elif is_walk_anim:
+                # v15: Walk-aware DP simplification
                 simplified = self._walk_aware_simplify(
                     keyframes, channel, duration, config
                 )
@@ -6076,17 +6093,34 @@ class GeckoLibJSONBuilder:
             if max_abs < config.filter_zero_threshold:
                 continue
 
-            if loop_mode == "loop" and len(simplified) >= 3 and duration > 0:
+            # v19 FIX: Skip velocity enforcement for already-normalized walks.
+            # The normalization step already ensures proper C0 continuity and
+            # velocity matching. Re-enforcing would add extra keyframes that
+            # break the even spacing.
+            if (loop_mode == "loop" and len(simplified) >= 3 and duration > 0
+                    and not (is_walk_anim and already_normalized)):
                 simplified = self._enforce_keyframe_velocity(
                     simplified, duration, channel, config
                 )
 
             axis = channel[-1]
 
-            kf_dict = {
-                f"{t:.{config.keyframe_precision}f}": round(v, config.value_precision)
-                for t, v in simplified
-            }
+            # v19 FIX: For walk animations, use catmullrom interpolation format.
+            # Walk animations require smooth motion — catmullrom interpolation
+            # ensures smooth curves between keyframes instead of linear segments.
+            if is_walk_anim:
+                kf_dict = {
+                    f"{t:.{config.keyframe_precision}f}": {
+                        "post": round(v, config.value_precision),
+                        "lerp_mode": "catmullrom"
+                    }
+                    for t, v in simplified
+                }
+            else:
+                kf_dict = {
+                    f"{t:.{config.keyframe_precision}f}": round(v, config.value_precision)
+                    for t, v in simplified
+                }
 
             if channel in ('rx', 'ry', 'rz'):
                 rot_channels[axis] = kf_dict
@@ -7591,7 +7625,7 @@ class BBModelAnimationConverter:
                 # Re-build after normalization
                 anim_json = self.json_builder.build(
                     anim_name, loop_mode, bone_channels, current_duration,
-                    is_walk_anim=True
+                    is_walk_anim=True, already_normalized=True
                 )
                 all_animations[anim_name] = anim_json
 
@@ -7954,7 +7988,8 @@ class BBModelAnimationConverter:
                             if isinstance(time_data, dict):
                                 # time_data = {'0.0': 5.0, '0.5': 10.0, ...}
                                 for time_key, val in time_data.items():
-                                    if isinstance(val, (int, float)) and abs(val) > 0.001:
+                                    numeric_val = self._numeric_val(val)
+                                    if isinstance(numeric_val, (int, float)) and abs(numeric_val) > 0.001:
                                         has_real_data = True
                                         break
                             elif isinstance(time_data, (int, float)) and abs(time_data) > 0.001:
@@ -8254,7 +8289,8 @@ class BBModelAnimationConverter:
                             for axis, time_data in channel_data.items():
                                 if isinstance(time_data, dict):
                                     for time_key, val in time_data.items():
-                                        if isinstance(val, (int, float)) and abs(val) > 0.01:
+                                        numeric_val = self._numeric_val(val)
+                                        if isinstance(numeric_val, (int, float)) and abs(numeric_val) > 0.01:
                                             has_real_data = True
                                             break
                                 elif isinstance(time_data, (int, float)) and abs(time_data) > 0.01:
@@ -8786,7 +8822,8 @@ class BBModelAnimationConverter:
                         for axis, time_data in channel_data.items():
                             if isinstance(time_data, dict):
                                 for time_key, val in time_data.items():
-                                    if isinstance(val, (int, float)):
+                                    numeric_val = self._numeric_val(val)
+                                    if isinstance(numeric_val, (int, float)):
                                         total_amplitude += abs(val)
                                         channel_count += 1
                                         if abs(val) > cfg.idle_static_amplitude_threshold:
@@ -8848,7 +8885,8 @@ class BBModelAnimationConverter:
                                 for axis, time_data in channel_data.items():
                                     if isinstance(time_data, dict):
                                         for time_key, val in time_data.items():
-                                            if isinstance(val, (int, float)) and abs(val) > 0.5:
+                                            numeric_val = self._numeric_val(val)
+                                            if isinstance(numeric_val, (int, float)) and abs(numeric_val) > 0.5:
                                                 has_other_real = True
                                                 break
                                     elif isinstance(time_data, (int, float)) and abs(time_data) > 0.5:
@@ -9048,7 +9086,8 @@ class BBModelAnimationConverter:
                             if isinstance(time_data, dict):
                                 total_kfs += len(time_data)
                                 for time_key, val in time_data.items():
-                                    if isinstance(val, (int, float)):
+                                    numeric_val = self._numeric_val(val)
+                                    if isinstance(numeric_val, (int, float)):
                                         total_amplitude += abs(val)
                             elif isinstance(time_data, (int, float)):
                                 total_kfs += 1
@@ -9449,7 +9488,8 @@ class BBModelAnimationConverter:
                             for axis, time_data in channel_data.items():
                                 if isinstance(time_data, dict):
                                     for time_key, val in time_data.items():
-                                        if isinstance(val, (int, float)) and abs(val) > 0.01:
+                                        numeric_val = self._numeric_val(val)
+                                        if isinstance(numeric_val, (int, float)) and abs(numeric_val) > 0.01:
                                             all_empty = False
                                             break
                                 elif isinstance(time_data, (int, float)) and abs(time_data) > 0.01:
@@ -9493,7 +9533,8 @@ class BBModelAnimationConverter:
                         for axis, time_data in channel_data.items():
                             if isinstance(time_data, dict):
                                 for time_key, val in time_data.items():
-                                    if isinstance(val, (int, float)) and abs(val) > threshold:
+                                    numeric_val = self._numeric_val(val)
+                                    if isinstance(numeric_val, (int, float)) and abs(numeric_val) > threshold:
                                         is_truly_static = False
                                         break
                                 if not is_truly_static:
@@ -9926,9 +9967,11 @@ class BBModelAnimationConverter:
                     else:
                         ratio = float('inf')
 
-                    # If spacing is already fairly even (ratio < 4) AND minimum spacing
+                    # If spacing is already fairly even (ratio < 2) AND minimum spacing
                     # is reasonable (> 0.02s), skip normalization
-                    if ratio < 4.0 and min_sp >= 0.02:
+                    # v19: Reduced from 4.0 to 2.0 — even a ratio of 2.0-4.0 can cause
+                    # visible stuttering with catmullrom interpolation
+                    if ratio < 2.0 and min_sp >= 0.02:
                         # Just clean up near-duplicates
                         cleaned = self._remove_near_duplicate_keyframes(
                             sorted_kfs, min_spacing
@@ -10435,6 +10478,17 @@ class BBModelAnimationConverter:
 
         return pairs
 
+    @staticmethod
+    def _numeric_val(val):
+        """Extract numeric value from keyframe data.
+
+        Handles both plain number format (14.0375) and dict format
+        with lerp_mode ({"post": 14.0375, "lerp_mode": "catmullrom"}).
+        """
+        if isinstance(val, dict):
+            return val.get('post', val.get('vector', 0))
+        return val
+
     def _remove_truly_static_animations(
         self,
         all_animations: Dict[str, Any],
@@ -10465,7 +10519,9 @@ class BBModelAnimationConverter:
                         for axis, time_data in channel_data.items():
                             if isinstance(time_data, dict):
                                 for time_key, val in time_data.items():
-                                    if isinstance(val, (int, float)) and abs(val) > threshold:
+                                    # Handle both plain number and dict with lerp_mode
+                                    numeric_val = self._numeric_val(val)
+                                    if isinstance(numeric_val, (int, float)) and abs(numeric_val) > threshold:
                                         is_truly_static = False
                                         break
                                 if not is_truly_static:
@@ -10514,7 +10570,9 @@ class BBModelAnimationConverter:
                     for axis, time_data in channel_data.items():
                         if isinstance(time_data, dict):
                             for time_key, val in time_data.items():
-                                if isinstance(val, (int, float)) and abs(val) > threshold:
+                                # Handle both plain number and dict with lerp_mode
+                                numeric_val = self._numeric_val(val)
+                                if isinstance(numeric_val, (int, float)) and abs(numeric_val) > threshold:
                                     return False
                         elif isinstance(time_data, (int, float)) and abs(time_data) > threshold:
                             return False

@@ -263,7 +263,7 @@ def main():
         # =============================================
         # v15 NEW: Walk-Aware DP Simplification
         # =============================================
-        walk_min_output_keyframes=12,
+        walk_min_output_keyframes=16,
         walk_dp_epsilon_factor=0.15,
         # v15 NEW: High-Bounce/Sleeping C1 Full Resample
         c1_full_resample_threshold=8.0,
