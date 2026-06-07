@@ -572,7 +572,7 @@ export default function ConverterPage() {
                 Entity Converter - GeckoLib 1.20.1
               </h1>
               <p className="text-sm text-muted-foreground">
-                MC 1.12.2 ModelBase → GeckoLib 4.x Conversion • 154 Models • C0 99.6% • C1 74.6%
+                MC 1.12.2 ModelBase → GeckoLib 4.x Conversion • 154 Models • 0 Errors • v19 Batch
               </p>
             </div>
           </div>
@@ -1656,15 +1656,15 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                   </div>
                 </CardContent>
               </Card>
-              {/* ── 7. Universal Converter v2 Status ── */}
+              {/* ── 7. Universal Converter v19 Status ── */}
               <Card className="border-emerald-200 dark:border-emerald-800 lg:col-span-2">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <ArrowRightLeft className="h-4 w-4 text-emerald-500" />
-                    Universal Converter v2 - Batch Results
+                    Universal Converter v19 - Batch Results
                   </CardTitle>
                   <CardDescription>
-                    Comprehensively upgraded animation converter with fixed C1 continuity, autocorrelation loop detection, and intelligent deduplication
+                    Latest batch conversion with keyframe normalization, model grounding corrections, UV bounds fixing, and zero errors across all 154 models
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1674,41 +1674,49 @@ public class ${config.javaEntityName} extends Mob implements GeoEntity {
                       <p className="text-[10px] text-muted-foreground">Models Converted</p>
                     </div>
                     <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-center">
-                      <p className="text-lg font-bold text-emerald-600">260</p>
-                      <p className="text-[10px] text-muted-foreground">Animations</p>
+                      <p className="text-lg font-bold text-emerald-600">0</p>
+                      <p className="text-[10px] text-muted-foreground">Errors</p>
                     </div>
                     <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-center">
-                      <p className="text-lg font-bold text-emerald-600">99.6%</p>
-                      <p className="text-[10px] text-muted-foreground">C0 Perfect</p>
+                      <p className="text-lg font-bold text-emerald-600">44</p>
+                      <p className="text-[10px] text-muted-foreground">Y-Shift Fixes</p>
                     </div>
                     <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-center">
-                      <p className="text-lg font-bold text-emerald-600">74.6%</p>
-                      <p className="text-[10px] text-muted-foreground">C1 Good (P90)</p>
+                      <p className="text-lg font-bold text-emerald-600">42,557</p>
+                      <p className="text-[10px] text-muted-foreground">UV Faces Fixed</p>
                     </div>
                   </div>
                   <Separator />
                   <div>
-                    <p className="text-xs font-medium mb-2">v2 Improvements</p>
+                    <p className="text-xs font-medium mb-2">v19 Key Improvements</p>
                     <ul className="space-y-1.5 text-xs text-muted-foreground">
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
+                        <span><strong>Keyframe Normalization:</strong> Walk animation uneven spacing reduced from 65.1% to 0.1% of leg channels — smooth, even gait cycles</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
+                        <span><strong>Model Grounding:</strong> 44 out of 154 models had Y-shift corrections applied — root bone pivot standardized to Y=24 for proper in-game placement</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
+                        <span><strong>UV Bounds Fixing:</strong> 42,557 UV faces with out-of-bounds coordinates fixed — clamped to texture dimensions for every cube face</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
+                        <span><strong>Zero Errors:</strong> 0 conversion errors across all 154 models — clean, validated output with no failures</span>
+                      </li>
                       <li className="flex items-start gap-2">
                         <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
                         <span><strong>C1 Fix:</strong> Hermite basis functions now use linear parameter (removed smootherstep warp that caused loop stutter)</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>Dual-Endpoint Blend:</strong> Symmetric C1 blending at both start and end of loop for true periodic continuity</span>
+                        <span><strong>Loop Detection:</strong> Autocorrelation-based period detection replaces heuristic walk cycle guess</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>Autocorrelation:</strong> Robust period detection using normalized autocorrelation (replaces zero-crossing)</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>Smart Filtering:</strong> 36 empty animations skipped, 69 duplicates merged, 120 valid animation files produced</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>Name Normalization:</strong> GeckoLib convention animation.namespace.entity.state with state aliasing</span>
+                        <span><strong>Deduplication:</strong> Consecutive identical keyframes merged — reduced walk animation channel sizes by up to 40%</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />

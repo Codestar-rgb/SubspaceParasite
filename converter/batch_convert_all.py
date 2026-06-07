@@ -421,6 +421,9 @@ def main():
         'errors': [],
         'warnings': [],
         'output_files': [],
+        # v19 NEW stats
+        'models_grounded': 0,
+        'uv_faces_fixed': 0,
     }
 
     start_time = time.time()
@@ -453,6 +456,22 @@ def main():
                 else:
                     stats['tex_fail'] += 1
                     status_parts.append("tex=NO")
+
+                # v19 NEW: Post-process geo.json to fix model grounding
+                # Shift all cube origins and pivots down so the model's lowest
+                # geometry point is at Y=0 (ground plane)
+                geo_path = geo_result.get('geo_path')
+                if geo_path and os.path.exists(geo_path):
+                    grounding_result = _fix_model_grounding(geo_path)
+                    if grounding_result['shifted']:
+                        stats['models_grounded'] = stats.get('models_grounded', 0) + 1
+                        status_parts.append(f"grounded(Y-{grounding_result['y_shift']:.1f})")
+
+                    # v19 NEW: Fix UV out-of-bounds issues
+                    uv_result = _fix_uv_bounds(geo_path)
+                    if uv_result['fixed_faces'] > 0:
+                        stats['uv_faces_fixed'] = stats.get('uv_faces_fixed', 0) + uv_result['fixed_faces']
+                        status_parts.append(f"uv_fix+{uv_result['fixed_faces']}")
 
                 # Track output files
                 if geo_result.get('geo_path'):
@@ -638,6 +657,11 @@ def main():
     print(f"  Unknown reclassified:          {stats['total_unknown_reclassified']}")
     print(f"  Walk half-cycle mirrored:      {stats['total_walk_half_cycle_mirrored']}")
     print(f"  Files skipped (all empty):     {stats['total_files_skipped_all_empty']}")
+    # v19 NEW stats
+    print(f"\n  --- v19 Improvements ---")
+    print(f"  Models grounded (Y-shifted):   {stats.get('models_grounded', 0)}")
+    print(f"  UV faces fixed (bounds clamp): {stats.get('uv_faces_fixed', 0)}")
+    print(f"  Walk keyframe normalization:   ON (even spacing, no stuttering)")
 
     if stats['quality_scores']:
         sorted_scores = sorted(stats['quality_scores'])
@@ -711,6 +735,149 @@ def main():
     # Return success if no critical errors
     critical_errors = [e for e in stats['errors'] if 'exception' in e.lower() or 'failed' in e.lower()]
     sys.exit(0 if len(critical_errors) == 0 else 1)
+
+
+def _fix_model_grounding(geo_path: str) -> dict:
+    """Fix model floating by shifting all geometry down so the lowest point is at Y=0.
+
+    In Bedrock/GeckoLib, Y=0 is the entity's ground plane. If the model's
+    lowest cube origin is above Y=0, the model will appear to float.
+
+    This function:
+    1. Finds the minimum Y coordinate across all cube origins
+    2. If min_y > 0.5, shifts all cube origins and bone pivots down by min_y
+    3. Adjusts visible_bounds_offset to account for the shift
+    4. Writes the corrected geo.json back to disk
+
+    Args:
+        geo_path: Path to the .geo.json file
+
+    Returns:
+        Dict with 'shifted' (bool) and 'y_shift' (float)
+    """
+    try:
+        with open(geo_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return {'shifted': False, 'y_shift': 0.0}
+
+    geom_list = data.get('minecraft:geometry', [])
+    if not geom_list:
+        return {'shifted': False, 'y_shift': 0.0}
+
+    geom = geom_list[0]
+    bones = geom.get('bones', [])
+    desc = geom.get('description', {})
+
+    # Find minimum Y across all cube origins (bottom face)
+    min_y = float('inf')
+    has_cubes = False
+    for bone in bones:
+        for cube in bone.get('cubes', []):
+            origin = cube.get('origin', [0, 0, 0])
+            min_y = min(min_y, origin[1])
+            has_cubes = True
+
+    if not has_cubes or min_y == float('inf'):
+        return {'shifted': False, 'y_shift': 0.0}
+
+    # Only shift if the model is significantly floating
+    if min_y <= 0.5:
+        return {'shifted': False, 'y_shift': 0.0}
+
+    y_shift = min_y
+
+    # Shift all cube origins down
+    for bone in bones:
+        # Shift cube origins
+        for cube in bone.get('cubes', []):
+            origin = cube.get('origin', [0, 0, 0])
+            cube['origin'] = [origin[0], origin[1] - y_shift, origin[2]]
+
+        # Shift bone pivots
+        pivot = bone.get('pivot', None)
+        if pivot:
+            bone['pivot'] = [pivot[0], pivot[1] - y_shift, pivot[2]]
+
+    # Adjust visible_bounds_offset
+    vbo = desc.get('visible_bounds_offset', [0, 0, 0])
+    desc['visible_bounds_offset'] = [vbo[0], vbo[1] - y_shift, vbo[2]]
+
+    # Write back
+    try:
+        with open(geo_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        return {'shifted': True, 'y_shift': y_shift}
+    except Exception:
+        return {'shifted': False, 'y_shift': 0.0}
+
+
+def _fix_uv_bounds(geo_path: str) -> dict:
+    """Fix UV coordinates that extend beyond texture bounds.
+
+    Some models have UV coordinates that go beyond the texture dimensions,
+    causing rendering artifacts. This function clamps UV coordinates to
+    stay within texture bounds.
+
+    Args:
+        geo_path: Path to the .geo.json file
+
+    Returns:
+        Dict with 'fixed_faces' (int count of fixed UV faces)
+    """
+    try:
+        with open(geo_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return {'fixed_faces': 0}
+
+    geom_list = data.get('minecraft:geometry', [])
+    if not geom_list:
+        return {'fixed_faces': 0}
+
+    geom = geom_list[0]
+    desc = geom.get('description', {})
+    tex_w = desc.get('texture_width', 256)
+    tex_h = desc.get('texture_height', 256)
+    bones = geom.get('bones', [])
+
+    fixed = 0
+    margin = 0.5  # Allow 0.5 pixel margin for rounding
+
+    for bone in bones:
+        for cube in bone.get('cubes', []):
+            uv = cube.get('uv', {})
+            for face_name, face_uv in uv.items():
+                if not isinstance(face_uv, dict):
+                    continue
+                u = face_uv.get('uv', [0, 0])
+                s = face_uv.get('uv_size', [0, 0])
+
+                # Clamp UV start coordinates
+                u_clamped = [
+                    max(-margin, min(u[0], tex_w - margin)),
+                    max(-margin, min(u[1], tex_h - margin))
+                ]
+
+                # Clamp UV size to not exceed texture bounds
+                s_clamped = [
+                    max(0.1, min(s[0], tex_w - u_clamped[0] + margin)),
+                    max(0.1, min(s[1], tex_h - u_clamped[1] + margin))
+                ]
+
+                if u_clamped != u or s_clamped != s:
+                    face_uv['uv'] = u_clamped
+                    face_uv['uv_size'] = s_clamped
+                    fixed += 1
+
+    if fixed > 0:
+        try:
+            with open(geo_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+    return {'fixed_faces': fixed}
 
 
 def _create_zip(output_files: list, base_dir: str, zip_path: str) -> None:

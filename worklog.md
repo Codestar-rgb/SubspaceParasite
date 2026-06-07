@@ -1,34 +1,29 @@
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Complete v19 upgrade of animation converter - restructure C1 enforcer, fix all identified issues
+Task: Comprehensive v19 upgrade of Minecraft Model Migrator converter pipeline
 
 Work Log:
-- Read and analyzed entire v18 converter codebase (11K+ lines)
-- Restructured C1ContinuityEnforcer.enforce() from 7-layer cascade to 3-layer approach:
-  - Layer 1: Additive Transition Zone Correction (least invasive, 5-15% zone)
-  - Layer 2: Global Polynomial Correction with Peak Preservation (cubic→quintic→septic)
-  - Layer 3: Full Resample with Raised Cosine Blend (most invasive, guaranteed)
-- Added peak preservation check at every C1 stage (not just septic)
-- Added amplitude tracking (before/after for each channel)
-- Replaced naturalness scoring from 2nd derivative sign-change (78.8% false positive) to curvature+acceleration smoothness method
-- Added _compute_channel_peaks(), _check_peak_preservation_v19(), _apply_full_resample_correction() methods
-- Updated ConverterConfig with v19 parameters
-- Updated batch_convert_all.py with v19 configuration
-- Fixed heblu.vomit C0 error 27.4° → 0.000° (changed loop mode + force-snapped keyframes)
-- Fixed Y<0 elements in 110 .bbmodel files (shifted all elements up by |min_y|)
-- Fixed download page mapping: venkrolSIV moved from derived to deterrent
-- Created quality_audit_system.py with curvature-based naturalness scoring
-- Created API routes for creature downloads
-- Updated page.tsx with Creatures tab
-- Batch re-conversion completed: 154 files, 0 errors, 295 animations
+- Deep analysis of root causes for walk animation regression
+- Identified key issue: 460/706 leg channels had extremely uneven keyframe spacing (ratio > 10, some > 166:1)
+- Root cause: multiple processing passes (mirroring, C1 enforcement, validation resample, C1 correction) added keyframes at uneven time positions
+- Added `_normalize_walk_keyframes` method: resamples ALL walk channels at evenly spaced intervals after all other processing
+- Added `_remove_near_duplicate_keyframes` method: removes keyframes closer than 0.015s
+- Fixed `_walk_validation_resample`: now uses evenly-spaced resampled keyframes directly instead of merging
+- Fixed `_synthesize_walk_body_motion`: now uses evenly-spaced intervals (0.04s = 25 FPS)
+- Added `_fix_model_grounding` in batch_convert_all.py: shifts all geometry down so lowest point is at Y=0
+- Added `_fix_uv_bounds` in batch_convert_all.py: clamps UV coordinates to texture bounds
+- Moved walk keyframe normalization to AFTER walk C1 correction (final walk step)
+- Ran full batch conversion: 154 models, 0 errors, 44 models grounded, 42557 UV faces fixed
+- Updated frontend page.tsx with v19 references and new stats
 
 Stage Summary:
-- C0 perfect rate: 106.8% (all animations have perfect C0)
-- C1 perfect rate: 56.9% (up from 42.4%)
-- Naturalness avg: 0.829 (up from ~0.212 with old method)
-- Natural >= 0.8: 66.8% of animations
-- heblu.vomit C0 error: 27.4° → 0.000°
-- Y<0 models: 110 fixed (all elements now at Y≥0)
-- Download mapping: venkrolSIV correctly in deterrent, not derived
-- Quality audit system created with comprehensive metrics
+- Walk animation uneven spacing: 65.1% → 0.1% (460 → 1 channel)
+- Very uneven spacing (ratio > 50): ~65% → 0%
+- Good spacing (ratio ≤ 5): 34.8% → 95.7%
+- Min spacing < 0.01s: ~300+ → 3
+- Models grounded: 44/154 had Y-shift corrections
+- UV faces fixed: 42,557 across 154 models
+- C0 errors > 0.5 deg: 0
+- Conversion errors: 0
+- Frontend updated with v19 batch results

@@ -7553,6 +7553,7 @@ class BBModelAnimationConverter:
                     all_animations[anim_name] = anim_json
                     stats['walk_keyframes_generated'] = stats.get('walk_keyframes_generated', 0) + walk_kf_generated
 
+
             # Step 11e [v16 NEW]: Walk-Specific C1 Correction Pass
             # After standard C1 enforcement, walk animations may still have
             # C1 errors of 3-4 deg/s. This pass uses walk cycle structure
@@ -7570,6 +7571,29 @@ class BBModelAnimationConverter:
                         is_walk_anim=True
                     )
                     all_animations[anim_name] = anim_json
+
+            # Step 11f-v19 [CRITICAL]: FINAL Walk Keyframe Normalization
+            # This MUST be the LAST walk-specific step. After ALL walk processing
+            # (mirroring, C1, C2, validation, C1 correction), keyframes can have
+            # extremely uneven spacing. This step resamples at EVENLY SPACED
+            # intervals, preserving the curve shape while eliminating artifacts.
+            is_walk_final_norm = any(p in anim_name.lower() for p in ('walk', 'run'))
+            if (loop_mode == "loop" and not is_static and is_walk_final_norm):
+                bone_channels = self._normalize_walk_keyframes(
+                    bone_channels, current_duration, interpolation
+                )
+                # Re-apply C0 enforcement after normalization
+                for bone_name_chk in bone_channels:
+                    for channel_chk in bone_channels[bone_name_chk]:
+                        kfs = bone_channels[bone_name_chk][channel_chk]
+                        if len(kfs) >= 2 and abs(kfs[-1][1] - kfs[0][1]) > 0.001:
+                            kfs[-1] = (kfs[-1][0], kfs[0][1])
+                # Re-build after normalization
+                anim_json = self.json_builder.build(
+                    anim_name, loop_mode, bone_channels, current_duration,
+                    is_walk_anim=True
+                )
+                all_animations[anim_name] = anim_json
 
         # Count idle_enriched from merge_info
         stats['idle_enriched_count'] = sum(
@@ -9717,12 +9741,13 @@ class BBModelAnimationConverter:
             # Add y-position channel with bob
             channels = bone_channels[body_bone]
             if 'y' not in channels:
-                # Generate bob keyframes
+                # Generate bob keyframes at EVENLY SPACED intervals
                 bob_kfs = []
-                n_bob_kfs = max(8, int(duration / 0.05))
+                # Use target spacing of 0.04s (25 FPS) for smooth playback
+                n_bob_kfs = max(8, int(duration / 0.04) + 1)
                 bob_freq = 2.0 / walk_period  # 2x walk frequency
-                for i in range(n_bob_kfs + 1):
-                    t = i * duration / n_bob_kfs
+                for i in range(n_bob_kfs):
+                    t = i * duration / (n_bob_kfs - 1)
                     y_val = bob_amplitude * math.sin(2.0 * math.pi * bob_freq * t)
                     bob_kfs.append((round(t, 4), round(y_val, 6)))
 
@@ -9737,10 +9762,11 @@ class BBModelAnimationConverter:
             for sway_channel in ('ry',):
                 if sway_channel not in channels:
                     sway_kfs = []
-                    n_sway_kfs = max(8, int(duration / 0.05))
+                    # Use target spacing of 0.04s (25 FPS) for smooth playback
+                    n_sway_kfs = max(8, int(duration / 0.04) + 1)
                     sway_freq = 1.0 / walk_period
-                    for i in range(n_sway_kfs + 1):
-                        t = i * duration / n_sway_kfs
+                    for i in range(n_sway_kfs):
+                        t = i * duration / (n_sway_kfs - 1)
                         # Opposite phase to leg motion (cosine = 90° ahead)
                         sway_val = sway_amplitude * math.cos(2.0 * math.pi * sway_freq * t)
                         sway_kfs.append((round(t, 4), round(sway_val, 6)))
@@ -9821,16 +9847,9 @@ class BBModelAnimationConverter:
                     result_channels[bone_name][channel] = keyframes
                     continue
 
-                # Only add keyframes that aren't already present (avoid duplicates)
-                existing_times = set(round(t, 4) for t, v in keyframes)
-                new_kfs = list(keyframes)
-                for t, v in resampled:
-                    t_rounded = round(t, 4)
-                    if t_rounded not in existing_times:
-                        new_kfs.append((t, v))
-                        existing_times.add(t_rounded)
-
-                new_kfs.sort(key=lambda x: x[0])
+                # Use the evenly-spaced resampled keyframes directly
+                # (replacing the original uneven keyframes, not merging)
+                new_kfs = list(resampled)
 
                 # v12: Ensure C0 continuity after resampling
                 if len(new_kfs) >= 2:
@@ -9843,6 +9862,228 @@ class BBModelAnimationConverter:
                 result_channels[bone_name][channel] = new_kfs
 
         return result_channels, total_generated
+
+    # ========================================================================
+    # v19 NEW METHOD: Walk Keyframe Normalization (CRITICAL FIX)
+    # ========================================================================
+
+    def _normalize_walk_keyframes(
+        self,
+        bone_channels: Dict[str, Dict[str, List[Tuple[float, float]]]],
+        duration: float,
+        interpolation: str,
+        target_spacing: float = 0.04,
+        min_spacing: float = 0.015
+    ) -> Dict[str, Dict[str, List[Tuple[float, float]]]]:
+        """v19 CRITICAL: Normalize walk keyframes to EVENLY SPACED time intervals.
+
+        After all walk processing passes (mirroring, C1 enforcement, validation resample,
+        body motion synthesis, etc.), keyframes can end up with EXTREMELY uneven time
+        spacing — e.g., 0.003s between some keyframes and 0.5s between others. This
+        causes:
+        - Stuttering: playback engine interpolates poorly between uneven keyframes
+        - Flashing: very close keyframes with different values cause rapid oscillation
+        - Jerky motion: large gaps between keyframes create flat/extrapolated sections
+
+        This method fixes it by:
+        1. Evaluating the full animation curve at high resolution (480Hz)
+        2. Resampling at EVENLY SPACED intervals (default 0.04s = 25 FPS)
+        3. Ensuring the first keyframe is at t=0 and last at t=duration
+        4. Removing any keyframes closer than min_spacing
+        5. Guaranteeing C0 continuity (last value = first value)
+
+        Args:
+            bone_channels: Current walk animation data
+            duration: Animation duration in seconds
+            interpolation: Interpolation mode ("catmullrom" or "linear")
+            target_spacing: Target time between keyframes (default 0.04s = 25 FPS)
+            min_spacing: Minimum time between keyframes (default 0.02s)
+
+        Returns:
+            Normalized bone_channels with evenly spaced keyframes
+        """
+        result = {}
+        resample_rate = 480.0  # High-res evaluation rate
+
+        for bone_name, channels in bone_channels.items():
+            result[bone_name] = {}
+
+            for channel, keyframes in channels.items():
+                if len(keyframes) < 2:
+                    result[bone_name][channel] = keyframes
+                    continue
+
+                sorted_kfs = sorted(keyframes, key=lambda x: x[0])
+
+                # Check if keyframes are already reasonably even
+                if len(sorted_kfs) >= 3:
+                    spacings = [sorted_kfs[i+1][0] - sorted_kfs[i][0]
+                               for i in range(len(sorted_kfs) - 1)]
+                    min_sp = min(spacings)
+                    max_sp = max(spacings)
+                    if min_sp > 0:
+                        ratio = max_sp / min_sp
+                    else:
+                        ratio = float('inf')
+
+                    # If spacing is already fairly even (ratio < 4) AND minimum spacing
+                    # is reasonable (> 0.02s), skip normalization
+                    if ratio < 4.0 and min_sp >= 0.02:
+                        # Just clean up near-duplicates
+                        cleaned = self._remove_near_duplicate_keyframes(
+                            sorted_kfs, min_spacing
+                        )
+                        # Ensure C0
+                        if len(cleaned) >= 2:
+                            cleaned[-1] = (cleaned[-1][0], cleaned[0][1])
+                        result[bone_name][channel] = cleaned
+                        continue
+
+                    # Even if ratio is OK, if minimum spacing is too small,
+                    # we still need to normalize (tiny gaps cause flashing)
+                    if min_sp < min_spacing * 0.3 and len(sorted_kfs) > 4:
+                        pass  # Fall through to full normalization
+
+                # Step 1: High-resolution evaluation of the current curve
+                n_resample = max(int(duration * resample_rate), 60)
+                resample_dt = duration / n_resample
+                resample_times = [i * resample_dt for i in range(n_resample + 1)]
+
+                try:
+                    resampled = CatmullRomEvaluator.resample_channel(
+                        sorted_kfs, resample_times, interpolation
+                    )
+                except Exception:
+                    # If resampling fails, keep original but clean up
+                    cleaned = self._remove_near_duplicate_keyframes(
+                        sorted_kfs, min_spacing
+                    )
+                    if len(cleaned) >= 2:
+                        cleaned[-1] = (cleaned[-1][0], cleaned[0][1])
+                    result[bone_name][channel] = cleaned
+                    continue
+
+                if len(resampled) < 3:
+                    result[bone_name][channel] = sorted_kfs
+                    continue
+
+                # Step 2: Ensure C0 continuity at high resolution
+                first_val = resampled[0][1]
+                last_val = resampled[-1][1]
+                if abs(first_val - last_val) > 0.001:
+                    # Apply smooth C0 correction over the last 10% of samples
+                    n_correction = max(int(len(resampled) * 0.1), 2)
+                    c0_diff = last_val - first_val
+                    for i in range(n_correction):
+                        idx = len(resampled) - n_correction + i
+                        alpha = i / max(n_correction - 1, 1)
+                        # Smooth cosine blend
+                        weight = 0.5 * (1.0 - math.cos(math.pi * alpha))
+                        t, v = resampled[idx]
+                        resampled[idx] = (t, v - c0_diff * weight)
+                    # Force exact C0
+                    resampled[-1] = (resampled[-1][0], first_val)
+
+                # Step 3: Resample at evenly spaced intervals
+                n_target = max(int(duration / target_spacing) + 1, 8)
+                target_times = [i * duration / (n_target - 1) for i in range(n_target)]
+                # Ensure last time is exactly duration
+                target_times[-1] = duration
+
+                # Interpolate from the high-res data
+                normalized_kfs = []
+                for t in target_times:
+                    # Find surrounding samples in resampled data
+                    idx = 0
+                    for i in range(len(resampled) - 1):
+                        if resampled[i][0] <= t <= resampled[i+1][0]:
+                            idx = i
+                            break
+                    else:
+                        idx = len(resampled) - 2
+
+                    dt = resampled[idx+1][0] - resampled[idx][0]
+                    if dt < 1e-12:
+                        val = resampled[idx][1]
+                    else:
+                        s = (t - resampled[idx][0]) / dt
+                        s = max(0.0, min(1.0, s))
+                        # Linear interpolation between high-res samples
+                        # (they're close enough that linear is fine)
+                        val = resampled[idx][1] + s * (resampled[idx+1][1] - resampled[idx][1])
+
+                    normalized_kfs.append((round(t, 4), round(val, 6)))
+
+                # Ensure exact C0 at the boundary
+                if normalized_kfs:
+                    normalized_kfs[-1] = (normalized_kfs[-1][0], normalized_kfs[0][1])
+
+                result[bone_name][channel] = normalized_kfs
+
+        return result
+
+    def _remove_near_duplicate_keyframes(
+        self,
+        keyframes: List[Tuple[float, float]],
+        min_spacing: float = 0.02
+    ) -> List[Tuple[float, float]]:
+        """Remove keyframes that are too close together in time.
+
+        When keyframes are spaced closer than min_spacing seconds, the
+        interpolation engine can produce rapid oscillations (flashing).
+        This method keeps only the most important keyframes.
+
+        Strategy:
+        - Always keep the first and last keyframes
+        - If two consecutive keyframes are closer than min_spacing,
+          keep the one with the larger value change from the previous kept keyframe
+        - Merge clusters of very-close keyframes into a single representative
+
+        Args:
+            keyframes: Sorted list of (time, value) pairs
+            min_spacing: Minimum time between keyframes in seconds
+
+        Returns:
+            Cleaned keyframe list with minimum spacing enforced
+        """
+        if len(keyframes) < 3:
+            return list(keyframes)
+
+        result = [keyframes[0]]  # Always keep first
+        cluster = []  # Accumulator for close-together keyframes
+
+        for i in range(1, len(keyframes)):
+            t, v = keyframes[i]
+            last_t = result[-1][0]
+
+            if t - last_t < min_spacing:
+                # Too close - add to cluster
+                cluster.append((t, v))
+            else:
+                # Process any accumulated cluster
+                if cluster:
+                    # Keep the keyframe from the cluster that has the most
+                    # different value from the last kept keyframe
+                    best_kf = max(cluster, key=lambda kf: abs(kf[1] - result[-1][1]))
+                    # Only add if it represents a meaningful change
+                    if abs(best_kf[1] - result[-1][1]) > 0.01:
+                        result.append(best_kf)
+                    cluster = []
+
+                # Add this keyframe
+                result.append((t, v))
+
+        # Process remaining cluster
+        if cluster:
+            best_kf = max(cluster, key=lambda kf: abs(kf[1] - result[-1][1]))
+            if abs(best_kf[1] - result[-1][1]) > 0.01:
+                result.append(best_kf)
+
+        # Always keep the last keyframe (important for C0)
+        if result[-1][0] != keyframes[-1][0]:
+            result.append(keyframes[-1])
+
+        return result
 
     # ========================================================================
     # v16 NEW METHODS: Walk C1 Correction, Quintic Refinement, Bone Chain
