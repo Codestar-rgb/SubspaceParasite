@@ -16767,7 +16767,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "joint",
@@ -17023,7 +17024,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "joint_2",
@@ -17279,7 +17281,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "joint_4",
@@ -17631,7 +17634,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "joint_7",
@@ -17983,7 +17987,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "joint_10",
@@ -18239,7 +18244,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "joint_12",
@@ -20941,5 +20947,25 @@
       "blend_weight": "",
       "animators": {}
     }
-  ]
+  ],
+  "_srp_meta": {
+    "version": "1.0",
+    "model_name": "shycoAdapted",
+    "category": "adapted",
+    "animation_categories": [
+      "attack",
+      "idle",
+      "stage",
+      "walk"
+    ],
+    "has_emissive": true,
+    "has_translucent": false,
+    "render_suggestions": [
+      {
+        "type": "emissive",
+        "method": "RenderType.eyes(texture)",
+        "description": "Model has emissive/glow effects - use eyes render type for overlay layer"
+      }
+    ]
+  }
 }

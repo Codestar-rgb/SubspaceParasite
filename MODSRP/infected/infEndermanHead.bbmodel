@@ -12901,7 +12901,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "neck",
@@ -12965,7 +12966,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointLLD1",
@@ -15849,5 +15851,25 @@
       "blend_weight": "",
       "animators": {}
     }
-  ]
+  ],
+  "_srp_meta": {
+    "version": "1.0",
+    "model_name": "infEndermanHead",
+    "category": "infected",
+    "animation_categories": [
+      "evolved",
+      "idle",
+      "sleeping",
+      "walk"
+    ],
+    "has_emissive": true,
+    "has_translucent": false,
+    "render_suggestions": [
+      {
+        "type": "emissive",
+        "method": "RenderType.eyes(texture)",
+        "description": "Model has emissive/glow effects - use eyes render type for overlay layer"
+      }
+    ]
+  }
 }

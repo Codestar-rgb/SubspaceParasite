@@ -19335,7 +19335,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "mouthi_1",
@@ -19367,7 +19368,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "mouthi_2",
@@ -19399,7 +19401,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "mouthi_3",
@@ -19431,7 +19434,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "taclejointLB",
@@ -20999,7 +21003,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointLM_1",
@@ -21319,7 +21324,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointLM_2",
@@ -21639,7 +21645,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "dec_16",
@@ -21927,7 +21934,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointRM_1",
@@ -22247,7 +22255,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointRM_2",
@@ -22567,7 +22576,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "dec_40",
@@ -24133,5 +24143,23 @@
       "blend_weight": "",
       "animators": {}
     }
-  ]
+  ],
+  "_srp_meta": {
+    "version": "1.0",
+    "model_name": "lum",
+    "category": "primitive",
+    "animation_categories": [
+      "evolved",
+      "idle"
+    ],
+    "has_emissive": true,
+    "has_translucent": false,
+    "render_suggestions": [
+      {
+        "type": "emissive",
+        "method": "RenderType.eyes(texture)",
+        "description": "Model has emissive/glow effects - use eyes render type for overlay layer"
+      }
+    ]
+  }
 }

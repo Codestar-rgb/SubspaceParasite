@@ -38922,7 +38922,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointML",
@@ -39018,7 +39019,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "mouth_1",
@@ -39050,7 +39052,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "t",
@@ -39370,7 +39373,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "mouth_3",
@@ -39402,7 +39406,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "t_9",
@@ -46954,7 +46959,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "mouth_4",
@@ -46986,7 +46992,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth",
@@ -47146,7 +47153,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_3",
@@ -48650,7 +48658,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "mouth_6",
@@ -48682,7 +48691,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_8",
@@ -48778,7 +48788,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_9",
@@ -49258,7 +49269,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "mouth_8",
@@ -49290,7 +49302,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_14",
@@ -49450,7 +49463,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_17",
@@ -49930,7 +49944,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "mouth_10",
@@ -49962,7 +49977,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_22",
@@ -50058,7 +50074,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_23",
@@ -50538,7 +50555,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "mouth_12",
@@ -50570,7 +50588,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_28",
@@ -50698,7 +50717,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_30",
@@ -53759,5 +53779,24 @@
       "blend_weight": "",
       "animators": {}
     }
-  ]
+  ],
+  "_srp_meta": {
+    "version": "1.0",
+    "model_name": "heed",
+    "category": "crude",
+    "animation_categories": [
+      "evolved",
+      "idle",
+      "walk"
+    ],
+    "has_emissive": true,
+    "has_translucent": false,
+    "render_suggestions": [
+      {
+        "type": "emissive",
+        "method": "RenderType.eyes(texture)",
+        "description": "Model has emissive/glow effects - use eyes render type for overlay layer"
+      }
+    ]
+  }
 }

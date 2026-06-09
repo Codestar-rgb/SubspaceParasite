@@ -15891,7 +15891,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointDLM1",
@@ -16051,7 +16052,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_3",
@@ -16211,7 +16213,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointULM1",
@@ -16371,7 +16374,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointULM2",
@@ -16531,7 +16535,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointDRM",
@@ -16595,7 +16600,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointDRM1",
@@ -16755,7 +16761,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "teeth_15",
@@ -16915,7 +16922,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointURM1",
@@ -17075,7 +17083,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointURM2",
@@ -17235,7 +17244,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     }
   ],
   "outliner": [
@@ -18273,5 +18283,26 @@
       "blend_weight": "",
       "animators": {}
     }
-  ]
+  ],
+  "_srp_meta": {
+    "version": "1.0",
+    "model_name": "ganro",
+    "category": "pure",
+    "animation_categories": [
+      "attack",
+      "death",
+      "idle",
+      "sleeping",
+      "walk"
+    ],
+    "has_emissive": true,
+    "has_translucent": false,
+    "render_suggestions": [
+      {
+        "type": "emissive",
+        "method": "RenderType.eyes(texture)",
+        "description": "Model has emissive/glow effects - use eyes render type for overlay layer"
+      }
+    ]
+  }
 }

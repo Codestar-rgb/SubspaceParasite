@@ -36595,5 +36595,20 @@
       "blend_weight": "",
       "animators": {}
     }
-  ]
+  ],
+  "_srp_meta": {
+    "version": "1.0",
+    "model_name": "hostII",
+    "category": "crude",
+    "animation_categories": [],
+    "has_emissive": false,
+    "has_translucent": true,
+    "render_suggestions": [
+      {
+        "type": "translucent",
+        "method": "RenderType.entityTranslucent(texture)",
+        "description": "Model has translucent/alpha overlay - use translucent render type"
+      }
+    ]
+  }
 }

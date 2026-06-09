@@ -27825,7 +27825,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointm2_1",
@@ -28145,7 +28146,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "dec_24",
@@ -28465,7 +28467,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointm1_1",
@@ -28785,7 +28788,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "dec_40",
@@ -29105,7 +29109,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "jointm3_1",
@@ -29425,7 +29430,8 @@
       "visibility": true,
       "autouv": 0,
       "isOpen": false,
-      "primary_selected": false
+      "primary_selected": false,
+      "_srp_emissive": true
     },
     {
       "name": "dec_56",
@@ -31369,5 +31375,28 @@
       "blend_weight": "",
       "animators": {}
     }
-  ]
+  ],
+  "_srp_meta": {
+    "version": "1.0",
+    "model_name": "lumAdapted",
+    "category": "adapted",
+    "animation_categories": [
+      "evolved",
+      "idle"
+    ],
+    "has_emissive": true,
+    "has_translucent": true,
+    "render_suggestions": [
+      {
+        "type": "emissive",
+        "method": "RenderType.eyes(texture)",
+        "description": "Model has emissive/glow effects - use eyes render type for overlay layer"
+      },
+      {
+        "type": "translucent",
+        "method": "RenderType.entityTranslucent(texture)",
+        "description": "Model has translucent/alpha overlay - use translucent render type"
+      }
+    ]
+  }
 }
