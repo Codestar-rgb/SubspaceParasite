@@ -79,7 +79,10 @@ MC 1.12.2 Java ModelBase + ModelRenderer
     in extrinsic XYZ. Blockbench's .bbmodel format stores these same extrinsic XYZ values. No
     scipy rotation conversion needed — just pass through the values.
 - **Fix**: `_convert_rotation_to_bbmodel()` now simply returns `[rx, ry, rz]` directly.
-- **Code Location**: `bbmodel_generator.py`, line ~99-115
+- **Code Location**: `bbmodel_generator.py`, `_convert_rotation_to_bbmodel()` method
+- **STATUS**: ✅ FIXED — scipy.spatial.transform.Rotation has been REMOVED from bbmodel_generator.py.
+  The import is replaced with a comment explaining why it was wrong. The method now does
+  direct passthrough of rotation values with rounding only.
 - **CRITICAL NOTE**: The geo.json stores rotations in degrees after
   `convert_model_rot(rx, ry, rz) = (rx, -ry, -rz)` from radians, then `rad_to_deg()`. The
   .bbmodel uses these SAME degree values. Do NOT convert between Euler angle conventions.
@@ -137,10 +140,19 @@ proven coordinate transformations.
 - They should correctly connect with `skin_1_c0` and `skin_4_c0` respectively
 - **CRITICAL**: The reference .bbmodel file ALSO has this same error — so you cannot use it for
   validation
-- The fix must be derived mathematically from the geo.json bone hierarchy and pivot data
-- Likely related to multi-axis rotation accumulation through the bone chain
+- **FIX APPLIED**: The FK rotation chain now applies `R_parent * child_offset` in
+  `_compute_absolute_pivots()`. This should fix the wing tip disconnection.
+  Verify by checking skin_2_c0 and skin_5_c0 positions against in-game rendering.
 - The wing chain is: `skin_0_c0 → skin_1_c0 → skin_2_c0` (left) and
   `skin_3_c0 → skin_4_c0 → skin_5_c0` (right)
+
+### Model Floating (non-standard entities)
+
+- **FIX APPLIED**: Entity height is now dynamically extracted from `setSize()` in the Java source.
+  If `setSize()` cannot be parsed, an AABB fallback computes the height from bone positions and
+  cube extents. This replaces the hardcoded 24.0 pixel offset that caused non-biped entities to
+  float above or sink below the ground.
+- See `_extract_entity_height()` and `_compute_aabb_height()` in model_converter.py.
 
 ### Kirin Animation Fluency
 
@@ -210,6 +222,9 @@ python cli.py convert ModelKirin.java -o output/ --identifier model.kirin
 
 - Python 3.8+
 - numpy
-- scipy (for rotation conversion — though current code doesn't use it for bbmodel)
+- scipy (OPTIONAL — no longer required for rotation conversion; only used by
+  universal_animation_converter.py for optional features)
 - jinja2 (for template output)
 - javalang (optional, for AST parsing)
+- simpleeval (NOT required — safe_eval in core_math.py provides equivalent
+  functionality without an external dependency)

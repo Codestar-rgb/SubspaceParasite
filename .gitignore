@@ -52,3 +52,22 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Compiled/binary files
+*.class
+*.pyc
+__pycache__/
+
+# Build artifacts
+jar_extract/
+.zscripts/
+
+# Download temp files
+download/
+
+# Large binary files
+upload/
+*.jar
+
+# Decompile output (reference only)
+decompiled/

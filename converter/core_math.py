@@ -709,6 +709,146 @@ def deg_to_rad(deg: float) -> float:
 
 
 # ============================================================================
+# Safe Expression Evaluation
+# ============================================================================
+
+# Maximum number of variable stubbing iterations to prevent infinite loops
+_SAFE_EVAL_MAX_STUBS = 10
+
+# Common MC variable names that should be stubbed to 0.0 when not in context
+_MC_STUB_VARIABLES = {
+    'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9',
+    'f', 'g', 'h',  # Common decompiled local variable names
+    'limbSwing', 'limbSwingAmount', 'ageInTicks',
+    'headYaw', 'headPitch', 'renderYawOffset',
+    'swingProgress', 'swingProgressPrev',
+}
+
+
+def safe_eval(expr: str, context: dict = None, default: float = 0.0) -> float:
+    """
+    Safely evaluate a mathematical expression with automatic variable stubbing.
+
+    This function wraps Python's eval() with:
+      1. Restricted builtins (no __import__, exec, etc.)
+      2. Automatic stubbing of unknown variables to 0.0 (configurable)
+      3. Retry logic: on NameError, the unknown variable is stubbed and eval is retried
+      4. Graceful degradation: returns `default` if expression cannot be evaluated
+
+    This addresses the "Mine 1" issue where decompiled MC 1.12.2 code contains
+    undeclared local variables (e.g., `f1 = this.field_78795_f * 0.5f`) that
+    cause NameError in plain eval(), silently discarding the entire expression.
+
+    Usage:
+        # Simple math expression
+        safe_eval("3.14159 / 180")  # Returns 0.01745...
+
+        # Expression with unknown variable
+        safe_eval("f1 * 0.5 + 0.3")  # Stubs f1 to 0.0, returns 0.3
+
+        # Expression with provided context
+        safe_eval("cos(x) * 2", context={"cos": math.cos, "x": 0.5})
+
+        # Animation expression
+        safe_eval("cos(limbSwing * 0.6662) * limbSwingAmount",
+                  context={"cos": math.cos, "limbSwing": 1.0, "limbSwingAmount": 0.5})
+
+    Args:
+        expr: The expression string to evaluate
+        context: Dict of variable/function bindings (e.g., {"cos": math.cos})
+        default: Value to return if evaluation fails after all retries
+
+    Returns:
+        The evaluated result as a float, or `default` if evaluation fails
+    """
+    import re as _re
+
+    if context is None:
+        context = {}
+
+    # Build the eval namespace with restricted builtins
+    eval_globals = {
+        "__builtins__": {},
+        "math": math,
+        "cos": math.cos,
+        "sin": math.sin,
+        "pi": math.pi,
+        "sqrt": math.sqrt,
+        "abs": abs,
+        "max": max,
+        "min": min,
+        "pow": pow,
+        "round": round,
+    }
+    eval_globals.update(context)
+
+    # Clean up the expression
+    expr = expr.strip()
+
+    # Iteratively stub unknown variables on NameError
+    local_vars = {}
+    for attempt in range(_SAFE_EVAL_MAX_STUBS):
+        try:
+            result = eval(expr, eval_globals, local_vars)
+            return float(result)
+        except NameError as e:
+            # Extract the unknown variable name from the error message
+            # NameError: name 'f1' is not defined
+            error_msg = str(e)
+            var_match = _re.search(r"name '(\w+)' is not defined", error_msg)
+            if var_match:
+                unknown_var = var_match.group(1)
+                # Stub the unknown variable to 0.0
+                local_vars[unknown_var] = 0.0
+                # Don't warn for common MC variables — they're expected
+                if unknown_var not in _MC_STUB_VARIABLES:
+                    warnings.warn(
+                        f"safe_eval: stubbing unknown variable '{unknown_var}' "
+                        f"to 0.0 in expression: {expr[:50]}...",
+                        stacklevel=2
+                    )
+            else:
+                # Can't parse the variable name — give up
+                warnings.warn(
+                    f"safe_eval: NameError in expression: {expr[:50]}... "
+                    f"({error_msg})",
+                    stacklevel=2
+                )
+                return default
+        except TypeError as e:
+            warnings.warn(
+                f"safe_eval: TypeError in expression: {expr[:50]}... ({e})",
+                stacklevel=2
+            )
+            return default
+        except ValueError as e:
+            warnings.warn(
+                f"safe_eval: ValueError in expression: {expr[:50]}... ({e})",
+                stacklevel=2
+            )
+            return default
+        except SyntaxError as e:
+            warnings.warn(
+                f"safe_eval: SyntaxError in expression: {expr[:50]}... ({e})",
+                stacklevel=2
+            )
+            return default
+        except Exception as e:
+            warnings.warn(
+                f"safe_eval: {type(e).__name__} in expression: {expr[:50]}... ({e})",
+                stacklevel=2
+            )
+            return default
+
+    # Exhausted retries
+    warnings.warn(
+        f"safe_eval: exhausted {_SAFE_EVAL_MAX_STUBS} retries for: {expr[:50]}...",
+        stacklevel=2
+    )
+    return default
+
+
+# ============================================================================
 # Self-test / verification
 # ============================================================================
 if __name__ == "__main__":

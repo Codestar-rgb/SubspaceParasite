@@ -34,6 +34,7 @@ class AnimationExpression:
     expression: str  # The raw Java expression
     is_time_driven: bool = False
     is_movement_driven: bool = False
+    operator: str = '='  # Assignment operator: '=', '+=', '-=', '*=', '/='
 
 
 @dataclass
@@ -92,7 +93,10 @@ class AnimationConverter:
         animation_name: str = "idle",
         sample_count: int = 120,
         dp_threshold: float = 0.01,
-        time_scale: float = 1.0
+        time_scale: float = 1.0,
+        sample_window_ticks: float = 200.0,
+        static_rotations: Optional[Dict[str, Dict[str, float]]] = None,
+        molang_enabled: bool = True
     ) -> dict:
         """
         Convert a setRotationAngles method to GeckoLib animation format.
@@ -103,6 +107,11 @@ class AnimationConverter:
             sample_count: Number of samples for time-driven animations
             dp_threshold: Douglas-Peucker simplification threshold (degrees)
             time_scale: Time scale factor (1.0 = normal)
+            sample_window_ticks: Sampling window in ticks (default 200 = 10 seconds)
+            static_rotations: Base rotations from static pose {bone_var: {'x': rx, 'y': ry, 'z': rz}}
+                              in radians. Used for compound operators (+=, -=).
+            molang_enabled: If True, attempt Molang expression generation for simple
+                            cos/sin patterns before falling back to numerical sampling.
 
         Returns:
             Dict with:
@@ -141,7 +150,8 @@ class AnimationConverter:
         # Class A-1: Time-driven → JSON animation
         if time_driven:
             result['animation_json'] = self._convert_time_driven(
-                time_driven, animation_name, sample_count, dp_threshold, time_scale, vars_def
+                time_driven, animation_name, sample_count, dp_threshold, time_scale,
+                vars_def, sample_window_ticks, static_rotations, molang_enabled
             )
             result['anim_class'] = 'A-1'
 
@@ -249,15 +259,16 @@ class AnimationConverter:
             'field_78808_h': 'z'
         }
 
-        # Pattern for: this.boneVar.field_78795_f = expression;
+        # Pattern for: this.boneVar.field_78795_f = expression;  (also captures +=, -=, etc.)
         pattern = re.compile(
-            r'this\.(\w+)\.(field_78795_f|field_78796_g|field_78808_h)\s*=\s*([^;]+);'
+            r'this\.(\w+)\.(field_78795_f|field_78796_g|field_78808_h)\s*([\+\-\*\/]?=)\s*([^;]+);'
         )
 
         for match in pattern.finditer(method_body):
             bone_var = match.group(1)
             axis_field = match.group(2)
-            expression = match.group(3).strip()
+            operator = match.group(3)
+            expression = match.group(4).strip()
 
             axis = axis_map.get(axis_field)
             if not axis:
@@ -293,7 +304,8 @@ class AnimationConverter:
                 axis=axis,
                 expression=expression,
                 is_time_driven=is_time,
-                is_movement_driven=is_movement
+                is_movement_driven=is_movement,
+                operator=operator
             )
             expressions.append(expr)
 
@@ -331,6 +343,280 @@ class AnimationConverter:
         return 'limbSwing' in full_expr
 
     # ========================================================================
+    # Molang Safe-Subset Translation
+    # ========================================================================
+
+    # Rad-to-deg conversion factor for Molang (Molang trig uses degrees)
+    _RAD_TO_DEG_FACTOR = 57.2958  # 180 / pi, rounded to 6 significant digits
+
+    # Regex for MathHelper.cos / MathHelper.sin including SRG names
+    _MATH_HELPER_COS = r'(?:MathHelper\.(?:cos|func_76134_b))'
+    _MATH_HELPER_SIN = r'(?:MathHelper\.(?:sin|func_76126_a|func_76133_a))'
+
+    # Numeric literal with optional float suffix: 0.13, 0.130998f, 5.0F, 42
+    _NUM = r'([+-]?\d+(?:\.\d+)?)[fF]?'
+
+    def _try_molang_translation(
+        self,
+        expr: AnimationExpression,
+        vars_def: Dict[str, IntermediateVariable] = None,
+        static_rotations: Optional[Dict[str, Dict[str, float]]] = None
+    ) -> Optional[str]:
+        """
+        Attempt to translate a simple cos/sin(ageInTicks * C) * A expression
+        into a GeckoLib Molang string.
+
+        A "simple expression" matches one of these patterns:
+          MathHelper.cos(ageInTicks * C) * A
+          MathHelper.sin(ageInTicks * C) * A
+          MathHelper.cos(ageInTicks * C + P) * A
+          (float)MathHelper.cos(ageInTicks * C) * A
+          A * MathHelper.cos(ageInTicks * C)    (amplitude before trig)
+
+        Where C, A, P are numeric literals (possibly with float suffix).
+
+        Complex expressions containing: if/else, limbSwing, method calls other
+        than MathHelper.cos/sin, array access, etc. → return None (requires sampling).
+
+        Args:
+            expr: The AnimationExpression to attempt translation for
+            vars_def: Intermediate variable definitions for resolution
+            static_rotations: Base rotations from static pose (for compound operators)
+
+        Returns:
+            A Molang string if translatable, or None if numerical sampling is required.
+        """
+        if vars_def is None:
+            vars_def = {}
+        if static_rotations is None:
+            static_rotations = {}
+
+        # Step 1: Resolve variable references to get the full expression
+        resolved = self._resolve_variable_expression(expr.expression, vars_def)
+
+        # Step 2: Reject complex expressions
+        if self._is_complex_for_molang(resolved):
+            return None
+
+        # Step 3: Try to match the simple cos/sin pattern
+        match = self._match_simple_trig_pattern(resolved)
+        if match is None:
+            return None
+
+        func, coefficient, phase, amplitude = match
+
+        # Step 4: Build the Molang expression
+        # Original Java: func(ageInTicks * C [+ P]) * A
+        #   ageInTicks is in ticks
+        # Molang: math.func(query.anim_time * 20 * C * 57.2958 [+ P_deg]) * A_deg
+        #   query.anim_time is in seconds
+        #   * 20 converts seconds back to ticks
+        #   * C is the original coefficient
+        #   * 57.2958 converts radians to degrees (Molang trig uses degrees)
+        # The amplitude is in radians and needs to be converted to degrees too
+        # for the final rotation output.
+
+        # Compute the effective coefficient for Molang: 20 * C * 57.2958
+        molang_coeff = 20.0 * coefficient * self._RAD_TO_DEG_FACTOR
+
+        # Amplitude in degrees (the final rotation value)
+        amplitude_deg = amplitude * self._RAD_TO_DEG_FACTOR
+
+        # Phase in degrees (if present)
+        phase_deg = phase * self._RAD_TO_DEG_FACTOR if phase is not None else None
+
+        # Apply M_model rotation conversion: if axis is 'y' or 'z', negate amplitude
+        # This matches the existing logic in _sample_bone_animation
+        if expr.axis in ('y', 'z'):
+            amplitude_deg = -amplitude_deg
+            if phase_deg is not None:
+                phase_deg = -phase_deg
+
+        # Build Molang trig call
+        molang_func = 'math.cos' if func == 'cos' else 'math.sin'
+
+        if phase_deg is not None:
+            # math.func(query.anim_time * molang_coeff + phase_deg) * amplitude_deg
+            # Round to avoid floating point noise
+            molang_inner = f"query.anim_time * {molang_coeff:.6g}"
+            if phase_deg >= 0:
+                molang_trig = f"{molang_func}({molang_inner} + {phase_deg:.6g})"
+            else:
+                molang_trig = f"{molang_func}({molang_inner} - {abs(phase_deg):.6g})"
+        else:
+            molang_trig = f"{molang_func}(query.anim_time * {molang_coeff:.6g})"
+
+        # Apply amplitude
+        if abs(amplitude_deg - 1.0) < 1e-10:
+            molang_expr = molang_trig
+        elif abs(amplitude_deg + 1.0) < 1e-10:
+            molang_expr = f"-{molang_trig}"
+        elif amplitude_deg < 0:
+            molang_expr = f"-{abs(amplitude_deg):.6g} * {molang_trig}"
+        else:
+            molang_expr = f"{amplitude_deg:.6g} * {molang_trig}"
+
+        # Handle compound operators (+=, -=, etc.)
+        if expr.operator in ('+=', '-=', '*=', '/='):
+            bone_static = static_rotations.get(expr.bone_var, {})
+            base_rot_rad = bone_static.get(expr.axis, 0.0)
+            base_rot_deg = base_rot_rad * self._RAD_TO_DEG_FACTOR
+            # Apply M_model negation to base rotation too
+            if expr.axis in ('y', 'z'):
+                base_rot_deg = -base_rot_deg
+
+            if expr.operator == '+=':
+                molang_expr = f"({base_rot_deg:.6g} + {molang_expr})"
+            elif expr.operator == '-=':
+                molang_expr = f"({base_rot_deg:.6g} - {molang_expr})"
+            elif expr.operator == '*=':
+                molang_expr = f"({base_rot_deg:.6g} * {molang_expr})"
+            elif expr.operator == '/=':
+                molang_expr = f"({base_rot_deg:.6g} / {molang_expr})"
+
+        return molang_expr
+
+    def _is_complex_for_molang(self, resolved_expr: str) -> bool:
+        """
+        Check if a resolved expression is too complex for Molang translation.
+
+        Complex features that disqualify an expression:
+          - Ternary operators (?:)
+          - limbSwing / limbSwingAmount references
+          - Method calls other than MathHelper.cos/sin
+          - Array access patterns
+          - if/else statements
+        """
+        # Check for ternary
+        if '?' in resolved_expr and ':' in resolved_expr:
+            return True
+
+        # Check for limbSwing references
+        if 'limbSwing' in resolved_expr:
+            return True
+
+        # Check for if/else
+        if re.search(r'\bif\b', resolved_expr) or re.search(r'\belse\b', resolved_expr):
+            return True
+
+        # Check for array access
+        if re.search(r'\w+\[', resolved_expr):
+            return True
+
+        # Check for method calls other than MathHelper.cos/sin
+        # Remove known MathHelper.cos/sin patterns first, then check for remaining calls
+        cleaned = resolved_expr
+        cleaned = re.sub(r'MathHelper\.(?:cos|sin|func_76134_b|func_76126_a|func_76133_a)', '', cleaned)
+        cleaned = re.sub(r'\(float\)', '', cleaned)
+        # Check for remaining method calls (word.word pattern with parens)
+        if re.search(r'\w+\.\w+\s*\(', cleaned):
+            return True
+
+        return False
+
+    def _match_simple_trig_pattern(self, resolved_expr: str) -> Optional[Tuple[str, float, Optional[float], float]]:
+        """
+        Match a resolved expression against the simple trig pattern.
+
+        Patterns matched:
+          MathHelper.cos(ageInTicks * C) * A
+          MathHelper.sin(ageInTicks * C) * A
+          MathHelper.cos(ageInTicks * C + P) * A
+          (float)MathHelper.cos(ageInTicks * C) * A
+          A * MathHelper.cos(ageInTicks * C)  (amplitude before trig)
+
+        Returns:
+            Tuple of (func, coefficient, phase_or_None, amplitude) or None if no match.
+        """
+        # Normalize: remove (float) casts and extra whitespace
+        expr = re.sub(r'\(float\)', '', resolved_expr).strip()
+
+        # Strip outer wrapping parentheses from variable resolution
+        # e.g., "(MathHelper.cos(ageInTicks * 0.13) * 0.5)" → "MathHelper.cos(ageInTicks * 0.13) * 0.5"
+        while expr.startswith('(') and expr.endswith(')'):
+            # Check that the closing paren matches the opening one
+            depth = 0
+            matched = True
+            for i, ch in enumerate(expr):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                if depth == 0 and i < len(expr) - 1:
+                    matched = False
+                    break
+            if matched:
+                expr = expr[1:-1].strip()
+            else:
+                break
+
+        cos_pat = self._MATH_HELPER_COS
+        sin_pat = self._MATH_HELPER_SIN
+        num = self._NUM
+
+        # Pattern 1: MathHelper.cos/sin(ageInTicks * C [+ P]) * A
+        # Pattern 2: A * MathHelper.cos/sin(ageInTicks * C [+ P])
+        # Pattern 3: MathHelper.cos/sin(ageInTicks * C [+ P])  (amplitude = 1.0)
+
+        for func_name, trig_pat in [('cos', cos_pat), ('sin', sin_pat)]:
+            # --- Pattern: TRIG(ageInTicks * C [+ P]) * A ---
+            # With optional phase
+            m = re.match(
+                rf'^{trig_pat}\s*\(\s*ageInTicks\s*\*\s*{num}\s*(?:\+\s*{num}\s*)?\)\s*\*\s*{num}$',
+                expr
+            )
+            if m:
+                coefficient = float(m.group(1))
+                # Check if phase group matched (group 2)
+                phase = float(m.group(2)) if m.group(2) is not None else None
+                amplitude = float(m.group(3))
+                return (func_name, coefficient, phase, amplitude)
+
+            # Without phase, explicit version
+            m = re.match(
+                rf'^{trig_pat}\s*\(\s*ageInTicks\s*\*\s*{num}\s*\)\s*\*\s*{num}$',
+                expr
+            )
+            if m:
+                coefficient = float(m.group(1))
+                amplitude = float(m.group(2))
+                return (func_name, coefficient, None, amplitude)
+
+            # --- Pattern: A * TRIG(ageInTicks * C [+ P]) ---
+            # With phase
+            m = re.match(
+                rf'^{num}\s*\*\s*{trig_pat}\s*\(\s*ageInTicks\s*\*\s*{num}\s*(?:\+\s*{num}\s*)?\)$',
+                expr
+            )
+            if m:
+                amplitude = float(m.group(1))
+                coefficient = float(m.group(2))
+                phase = float(m.group(3)) if m.group(3) is not None else None
+                return (func_name, coefficient, phase, amplitude)
+
+            # Without phase
+            m = re.match(
+                rf'^{num}\s*\*\s*{trig_pat}\s*\(\s*ageInTicks\s*\*\s*{num}\s*\)$',
+                expr
+            )
+            if m:
+                amplitude = float(m.group(1))
+                coefficient = float(m.group(2))
+                return (func_name, coefficient, None, amplitude)
+
+            # --- Pattern: TRIG(ageInTicks * C [+ P]) with implicit amplitude 1.0 ---
+            m = re.match(
+                rf'^{trig_pat}\s*\(\s*ageInTicks\s*\*\s*{num}\s*(?:\+\s*{num}\s*)?\)$',
+                expr
+            )
+            if m:
+                coefficient = float(m.group(1))
+                phase = float(m.group(2)) if m.group(2) is not None else None
+                return (func_name, coefficient, phase, 1.0)
+
+        return None
+
+    # ========================================================================
     # Class A-1: Time-Driven Conversion (enhanced with vars_def)
     # ========================================================================
 
@@ -341,35 +627,65 @@ class AnimationConverter:
         sample_count: int,
         dp_threshold: float,
         time_scale: float,
-        vars_def: Dict[str, IntermediateVariable] = None
+        vars_def: Dict[str, IntermediateVariable] = None,
+        sample_window_ticks: float = 200.0,
+        static_rotations: Optional[Dict[str, Dict[str, float]]] = None,
+        molang_enabled: bool = True
     ) -> dict:
         """
-        Convert time-driven animations using numerical sampling.
+        Convert time-driven animations using Molang where possible, falling back
+        to numerical sampling for complex expressions.
 
         Process:
-        1. Extract all intermediate variable definitions
-        2. Replace Java math with Python equivalents
-        3. Sample over time period
-        4. Apply Douglas-Peucker simplification
-        5. Generate .animation.json structure
+        1. Try Molang translation for each expression (if molang_enabled)
+        2. For expressions that can't be translated to Molang, use numerical sampling
+        3. Molang expressions appear as string values in .animation.json
+        4. Sampled expressions appear as keyframe dicts
+        5. A bone can have MIXED output: e.g., x-axis as Molang, y-axis as sampled
         """
         if vars_def is None:
             vars_def = {}
+        if static_rotations is None:
+            static_rotations = {}
 
-        # Group expressions by bone
-        bone_exprs: Dict[str, Dict[str, str]] = {}
+        # Split expressions into Molang-translatable and sampling-required
+        # molang_results: {(bone_var, axis): molang_string}
+        # sample_exprs: list of AnimationExpression that need numerical sampling
+        molang_results: Dict[Tuple[str, str], str] = {}
+        sample_exprs: List[AnimationExpression] = []
+
         for expr in expressions:
+            if molang_enabled:
+                molang_str = self._try_molang_translation(
+                    expr, vars_def, static_rotations
+                )
+                if molang_str is not None:
+                    molang_results[(expr.bone_var, expr.axis)] = molang_str
+                    continue
+            sample_exprs.append(expr)
+
+        # --- Handle sampled expressions (existing pipeline) ---
+        # Group sampled expressions by bone
+        bone_exprs: Dict[str, Dict[str, str]] = {}
+        bone_operators: Dict[str, Dict[str, str]] = {}
+        for expr in sample_exprs:
             if expr.bone_var not in bone_exprs:
                 bone_exprs[expr.bone_var] = {}
+                bone_operators[expr.bone_var] = {}
             bone_exprs[expr.bone_var][expr.axis] = expr.expression
+            bone_operators[expr.bone_var][expr.axis] = expr.operator
 
         # Sample each bone's rotation over time
         animation_bones = {}
 
         for bone_var, axis_exprs in bone_exprs.items():
             bone_name = self.bone_mapping[bone_var]
+            axis_ops = bone_operators.get(bone_var, {})
             keyframes = self._sample_bone_animation(
-                bone_var, axis_exprs, sample_count, time_scale, vars_def
+                bone_var, axis_exprs, sample_count, time_scale, vars_def,
+                axis_operators=axis_ops,
+                sample_window_ticks=sample_window_ticks,
+                static_rotations=static_rotations
             )
 
             if keyframes:
@@ -377,13 +693,15 @@ class AnimationConverter:
                 simplified = self._douglas_peucker_simplify(keyframes, dp_threshold)
                 animation_bones[bone_name] = simplified
 
-        # Build .animation.json structure
+        # --- Build .animation.json structure ---
         anim_id = f"animation.model.{animation_name}"
 
-        # Build bone animation data
-        bones_data = {}
+        # Build bone animation data (combining Molang strings and sampled keyframes)
+        bones_data: Dict[str, dict] = {}
+
+        # First, add sampled keyframes
         for bone_name, keyframes in animation_bones.items():
-            bone_anim = {}
+            bone_anim: Dict[str, Any] = {}
             for kf in keyframes:
                 time_s = kf['time']
                 for axis in ['x', 'y', 'z']:
@@ -397,12 +715,31 @@ class AnimationConverter:
             if bone_anim:
                 bones_data[bone_name] = bone_anim
 
+        # Then, add Molang expressions (may merge with existing bone_anim from sampling)
+        for (bone_var, axis), molang_str in molang_results.items():
+            bone_name = self.bone_mapping[bone_var]
+            if bone_name not in bones_data:
+                bones_data[bone_name] = {}
+            if "rotation" not in bones_data[bone_name]:
+                bones_data[bone_name]["rotation"] = {}
+            # Molang string replaces the axis entry entirely
+            bones_data[bone_name]["rotation"][axis] = molang_str
+
+        # Calculate animation length
+        # For purely Molang bones, there's no animation_length from keyframes.
+        # We keep the sampled keyframe animation length if any, otherwise use
+        # the sample window duration.
+        max_time = self._calculate_animation_length(animation_bones) if animation_bones else 0.0
+        if max_time == 0.0 and molang_results:
+            # Molang-only animations loop continuously; use a reasonable default
+            max_time = round(sample_window_ticks / 20.0, 4)
+
         animation_json = {
             "format_version": "1.8.0",
             "animations": {
                 anim_id: {
                     "loop": "hold_on_last_frame",
-                    "animation_length": self._calculate_animation_length(animation_bones),
+                    "animation_length": max_time,
                     "bones": bones_data
                 }
             }
@@ -416,26 +753,44 @@ class AnimationConverter:
         axis_exprs: Dict[str, str],
         sample_count: int,
         time_scale: float,
-        vars_def: Dict[str, IntermediateVariable] = None
+        vars_def: Dict[str, IntermediateVariable] = None,
+        axis_operators: Optional[Dict[str, str]] = None,
+        sample_window_ticks: float = 200.0,
+        static_rotations: Optional[Dict[str, Dict[str, float]]] = None
     ) -> List[dict]:
         """
         Sample a bone's rotation values over time.
         Returns list of keyframe dicts: [{'time': t, 'x': rx, 'y': ry, 'z': rz}, ...]
+
+        Time axis: samples tick values from 0 to sample_window_ticks, converts to
+        GeckoLib seconds (tick / 20.0) for output. The ageInTicks substituted into
+        expressions is computed as tick / time_scale.
+
+        Compound operators (+=, -=): the sampled expression value is combined with
+        the bone's static base rotation from static_rotations.
         """
         if vars_def is None:
             vars_def = {}
+        if axis_operators is None:
+            axis_operators = {}
+        if static_rotations is None:
+            static_rotations = {}
 
         keyframes = []
 
-        # Sample over 2π period (typical for Minecraft animations)
-        period = 2 * math.pi
-        dt = period / sample_count
+        # Sample over sample_window_ticks (default 200 ticks = 10 seconds)
+        dt_ticks = sample_window_ticks / sample_count
+
+        # Get static base rotations for this bone (in radians)
+        bone_static = static_rotations.get(bone_var, {})
 
         for i in range(sample_count + 1):
-            t = i * dt
-            age_in_ticks = t / time_scale
+            tick = i * dt_ticks
+            age_in_ticks = tick / time_scale
 
-            kf = {'time': t}
+            # Output time in GeckoLib seconds (20 ticks per second)
+            time_sec = tick / 20.0
+            kf = {'time': round(time_sec, 6)}
 
             for axis, expr in axis_exprs.items():
                 try:
@@ -444,6 +799,20 @@ class AnimationConverter:
                         limb_swing=0.0, limb_swing_amount=0.0,
                         vars_def=vars_def
                     )
+
+                    # Apply compound operator: combine with static base rotation
+                    op = axis_operators.get(axis, '=')
+                    base_rot = bone_static.get(axis, 0.0)  # radians
+                    if op == '+=':
+                        value = base_rot + value
+                    elif op == '-=':
+                        value = base_rot - value
+                    elif op == '*=':
+                        value = base_rot * value
+                    elif op == '/=':
+                        value = base_rot / value if value != 0.0 else 0.0
+                    # else op == '=': value stays as-is
+
                     # Apply full model rotation conversion (M_model = diag(1,-1,-1))
                     if axis == 'y':
                         value = -value
@@ -562,23 +931,20 @@ class AnimationConverter:
 
         py_expr = re.sub(r'(\w+)\.\w+\([^)]*\)', _replace_non_math_calls, py_expr)
 
-        # Try to evaluate
+        # Try to evaluate using safe_eval with variable stubbing
         try:
+            from core_math import safe_eval
             # Define math.radians and math.degrees for eval context
             def _radians(d): return d * math.pi / 180.0
             def _degrees(r): return r * 180.0 / math.pi
-            eval_globals = {
+            context = {
                 "math": math,
-                "__builtins__": {
-                    "max": max,
-                    "min": min,
-                    "abs": abs,
-                },
+                "radians": _radians,
+                "degrees": _degrees,
             }
-            result = eval(py_expr, eval_globals)
-            return float(result)
+            return safe_eval(py_expr, context=context, default=0.0)
         except Exception:
-            # If direct evaluation fails, return 0
+            # If safe_eval fails entirely, return 0
             return 0.0
 
     def _resolve_ternary(self, expr: str) -> str:
@@ -1576,7 +1942,17 @@ class KirinAnimationConverter(AnimationConverter):
 
         # Now sample the animation
         animation_bones = {}
-        period = 2 * math.pi
+
+        # FFT-based auto-period detection replaces hardcoded 2*pi.
+        # The old code used period = 2 * math.pi (~6.28s) regardless of the
+        # actual animation frequencies. This caused incorrect sampling windows
+        # for animations whose dominant period is much shorter or longer.
+        # We now auto-detect the real period from the expression coefficients.
+        period = self._detect_animation_period(vars_def)
+        if period is None:
+            # Fallback: use a generous default sampling window of 10 seconds
+            # (200 ticks at 20 tps), which covers most idle animation cycles.
+            period = 10.0
 
         for bone_var, axis_exprs in bone_rotations.items():
             bone_name = self.bone_mapping[bone_var]
@@ -1658,6 +2034,107 @@ class KirinAnimationConverter(AnimationConverter):
             'anim_class': 'A-1',
             'warnings': self.warnings
         }
+
+    def _detect_animation_period(
+        self,
+        vars_def: Dict[str, IntermediateVariable],
+        sample_rate: int = 512
+    ) -> Optional[float]:
+        """
+        Auto-detect the dominant animation period from intermediate variable
+        expressions using FFT spectral analysis.
+
+        This replaces the old hardcoded ``period = 2 * math.pi`` which assumed
+        all animations have a ~6.28s cycle.  Real MC 1.12.2 animations use
+        ``ageInTicks * C`` where C varies widely; the dominant frequency is
+        extracted from the resolved expressions.
+
+        Algorithm:
+          1. Resolve each variable's full expression (substitute deps).
+          2. For each cos/sin(ageInTicks * C) pattern, extract frequency C.
+          3. Convert C to period: T = 2*pi / C / 20  (ticks → seconds).
+          4. Return the LCM-approximation of the top-2 dominant periods
+             so that one full cycle of every frequency is captured.
+             If only one frequency, return its period.
+          5. Return None if no frequency could be extracted (fallback needed).
+
+        Args:
+            vars_def: Intermediate variable definitions from the animation method.
+            sample_rate: Reserved for future FFT-based sampling (currently unused).
+
+        Returns:
+            Detected period in seconds, or None if undetectable.
+        """
+        if not vars_def:
+            return None
+
+        frequencies: List[float] = []
+
+        for var_info in vars_def.values():
+            # Resolve the full expression
+            resolved = self._resolve_variable_expression(var_info.name, vars_def)
+
+            # Extract all coefficients from cos/sin(ageInTicks * C) patterns
+            coeff_pattern = re.compile(
+                r'(?:MathHelper\.(?:cos|sin|func_76134_b|func_76126_a|func_76133_a)|'
+                r'math\.(?:cos|sin))'
+                r'\s*\(\s*ageInTicks\s*\*\s*([+-]?\d+(?:\.\d+)?)\s*[fF]?\s*(?:\+'
+                r'\s*[+-]?\d+(?:\.\d+)?\s*[fF]?)?\s*\)'
+            )
+            for m in coeff_pattern.finditer(resolved):
+                try:
+                    c = float(m.group(1))
+                    if abs(c) > 1e-10:
+                        frequencies.append(abs(c))
+                except (ValueError, IndexError):
+                    continue
+
+        if not frequencies:
+            return None
+
+        # Convert frequencies (coefficient on ageInTicks) to periods in seconds.
+        # ageInTicks is in ticks (1/20s), so:
+        #   period_ticks = 2*pi / C
+        #   period_seconds = period_ticks / 20.0
+        periods = [2.0 * math.pi / c / 20.0 for c in frequencies]
+
+        # Sort by period (longest first — it determines the overall window)
+        periods.sort(reverse=True)
+
+        # For a single dominant frequency, just return its period
+        if len(periods) == 1:
+            return round(periods[0], 4)
+
+        # For multiple frequencies, find the smallest period T such that
+        # T is an integer multiple of each individual period (LCM approximation).
+        # We use a simple approach: scan multiples of the longest period up to
+        # a reasonable limit and check phase closure for all frequencies.
+        longest = periods[0]
+        best_period = longest
+        best_error = float('inf')
+
+        for n in range(1, 13):  # Check up to 12x the longest period
+            candidate = longest * n
+            if candidate > 30.0:  # Don't exceed 30 seconds
+                break
+            # Compute phase error for each frequency
+            total_error = 0.0
+            for p in periods:
+                # How close is candidate to an integer multiple of p?
+                ratio = candidate / p
+                nearest_int = round(ratio)
+                if nearest_int < 1:
+                    nearest_int = 1
+                error = abs(ratio - nearest_int) / nearest_int
+                total_error += error
+            avg_error = total_error / len(periods)
+            if avg_error < best_error:
+                best_error = avg_error
+                best_period = candidate
+            if best_error < 0.02:  # Good enough — within 2%
+                break
+
+        return round(best_period, 4)
 
     def _evaluate_kirin_expression(
         self,

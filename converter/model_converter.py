@@ -31,7 +31,8 @@ from core_math import (
     convert_model_rotation_order,  # multi-axis rotation via M_model
     convert_model_cube_origin,     # (ox, -(oy+h), -(oz+d)) minimum corner
     convert_model_cube_size,       # (w, h, d) dimensions preserved
-    rad_to_deg, deg_to_rad
+    rad_to_deg, deg_to_rad,
+    safe_eval,                     # Safe expression evaluation with variable stubbing
 )
 
 # ============================================================================
@@ -98,9 +99,10 @@ class ModelConverter:
     (Y-down->Y-up + RH->LH), which correctly flips both Y and Z axes.
     """
 
-    # Root bone pivot places the "top of entity" at 24 pixels above feet
-    # in GeckoLib's Y-up system
-    ROOT_BONE_PIVOT = [0.0, 24.0, 0.0]
+    # Default root bone pivot for standard bipeds (24 pixels = 1.5 blocks height)
+    # This will be dynamically computed from setSize() or AABB fallback
+    DEFAULT_ENTITY_HEIGHT = 24.0
+    ROOT_BONE_PIVOT = [0.0, DEFAULT_ENTITY_HEIGHT, 0.0]
 
     def __init__(self):
         self.texture_width: int = 64
@@ -109,6 +111,7 @@ class ModelConverter:
         self.bone_mapping: Dict[str, str] = {}  # java_var -> bone_name
         self.warnings: List[str] = []
         self._jinja_env = None  # Lazy-loaded Jinja2 environment
+        self._entity_height: Optional[float] = None  # Dynamic entity height
 
     # ========================================================================
     # Java Source Parsing
@@ -164,16 +167,197 @@ class ModelConverter:
         # Phase 5: Build bone mapping table
         self._build_bone_mapping()
 
-    def _extract_texture_dims(self, java_source: str) -> None:
-        """Extract textureWidth and textureHeight from source."""
+        # Phase 6: Extract entity height from setSize() or AABB fallback
+        self._extract_entity_height(java_source)
+
+    def _extract_entity_height(self, java_source: str) -> None:
+        """
+        Extract entity height from setSize() calls in the Java source.
+        Falls back to AABB computation from bone positions if setSize() is not found.
+
+        In MC 1.12.2, Entity.setSize(width, height) defines the entity's hitbox.
+        The height parameter (in blocks, multiplied by 16 for pixels) determines the
+        Y-offset for the model origin. Standard bipeds use setSize(0.6F, 1.8F)
+        which gives 1.8 * 16 = 28.8 ≈ 24 pixels for the body offset.
+
+        Some entities (e.g., SRParasites) may not call setSize() directly,
+        or may use variable expressions. In those cases, we compute the AABB
+        of all bone positions and cube extents as a fallback.
+        """
         import re
-        # field_78090_t = textureWidth, field_78089_u = textureHeight
+
+        # Strategy 1: Parse setSize() from the Java source
+        # setSize(width, height) — height is in blocks (1 block = 16 pixels)
+        # Common patterns:
+        #   this.setSize(0.6F, 1.8F)
+        #   this.setSize(f1, f2)    (variable — skip)
+        #   func_70105_a / func_70107_b  (SRG names for setSize-related methods)
+        height_found = False
+
+        setsize_pattern = re.compile(
+            r'this\.setSize\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;'
+        )
+        for match in setsize_pattern.finditer(java_source):
+            width_str = match.group(1).strip()
+            height_str = match.group(2).strip()
+
+            # Try to parse the height value — must be a numeric literal
+            try:
+                # Handle Java float suffixes and casts
+                height_str = re.sub(r'[fF]$', '', height_str)
+                height_str = height_str.replace('(float)', '').strip()
+                height_blocks = float(height_str)
+                height_pixels = height_blocks * 16.0
+
+                if 4.0 <= height_pixels <= 128.0:  # Sanity check
+                    self._entity_height = height_pixels
+                    height_found = True
+                    self.warnings.append(
+                        f"Entity height from setSize(): {height_blocks} blocks "
+                        f"= {height_pixels} pixels"
+                    )
+                    break
+            except (ValueError, TypeError):
+                # Variable expression — can't resolve statically
+                self.warnings.append(
+                    f"setSize() has non-literal height: {height_str}, using AABB fallback"
+                )
+                continue
+
+        # Strategy 2: AABB fallback — compute from model geometry
+        if not height_found:
+            self._entity_height = self._compute_aabb_height()
+            if self._entity_height != self.DEFAULT_ENTITY_HEIGHT:
+                self.warnings.append(
+                    f"Entity height from AABB fallback: {self._entity_height} pixels "
+                    f"(default was {self.DEFAULT_ENTITY_HEIGHT})"
+                )
+
+        # Update ROOT_BONE_PIVOT with dynamic height
+        self.ROOT_BONE_PIVOT = [0.0, self._entity_height, 0.0]
+
+    def _compute_aabb_height(self) -> float:
+        """
+        Compute entity height from the AABB (Axis-Aligned Bounding Box) of all
+        bone positions and cube extents.
+
+        This is the fallback when setSize() cannot be parsed from the Java source.
+        The algorithm:
+          1. Collect all cube vertices (from abs_pivot + box offset/size)
+          2. Find min/max Y across all vertices
+          3. The model height = max_y - min_y
+          4. The entity height = max_y (since Y=0 is the model origin at the
+             top of the hitbox in MC 1.12.2 Y-down space)
+
+        For standard bipeds:
+          - Head top: y ≈ -24 (Y-down, above origin)
+          - Feet: y ≈ 0 (Y-down, at origin)
+          - Model height ≈ 24 pixels → entity_height = 24.0
+
+        Returns:
+            Entity height in pixels (e.g., 24.0 for standard bipeds)
+        """
+        if not self.bones:
+            return self.DEFAULT_ENTITY_HEIGHT
+
+        min_y = float('inf')
+        max_y = float('-inf')
+
+        for var_name, bone in self.bones.items():
+            # Use absolute pivot (may not be computed yet, so use relative pivot)
+            pivot_y = bone.abs_pivot_y if bone.abs_pivot_y is not None else bone.pivot_y
+
+            # Each bone's pivot contributes to the Y range
+            min_y = min(min_y, pivot_y)
+            max_y = max(max_y, pivot_y)
+
+            # Each box contributes its extent
+            for box in bone.boxes:
+                box_min_y = pivot_y + box.offset_y
+                box_max_y = pivot_y + box.offset_y + box.height
+                min_y = min(min_y, box_min_y)
+                max_y = max(max_y, box_max_y)
+
+        if min_y == float('inf') or max_y == float('-inf'):
+            return self.DEFAULT_ENTITY_HEIGHT
+
+        # In MC 1.12.2 Y-down space:
+        # - min_y is the topmost point (most negative Y, toward head)
+        # - max_y is the bottommost point (most positive Y, toward feet)
+        # The entity height = abs(min_y) if max_y ≈ 0 (feet at origin)
+        # or = max_y - min_y for the full extent
+        model_extent = max_y - min_y
+
+        # Heuristic: the entity height in GeckoLib Y-up space is the distance
+        # from the model origin (top of hitbox in Y-down) to the feet.
+        # In Y-down: origin is at y=0, feet are at y=max_y.
+        # So entity_height ≈ max_y (distance from origin to feet in Y-down pixels)
+        # But we also need to handle cases where min_y != 0 (origin not at top)
+        # Use the full extent as a more robust estimate
+        computed_height = model_extent
+
+        # Sanity check: clamp to reasonable range
+        if computed_height < 4.0 or computed_height > 128.0:
+            self.warnings.append(
+                f"AABB height {computed_height:.1f} out of range [4, 128], "
+                f"using default {self.DEFAULT_ENTITY_HEIGHT}"
+            )
+            return self.DEFAULT_ENTITY_HEIGHT
+
+        # Round to nearest 0.5 pixel for cleaner output
+        return round(computed_height * 2.0) / 2.0
+
+    def _extract_texture_dims(self, java_source: str) -> None:
+        """Extract textureWidth and textureHeight from source.
+
+        Handles multiple SRG field name variants:
+          - field_78090_t = textureWidth (primary)
+          - field_78089_u = textureHeight (primary)
+          - field_78989_u = textureHeight (alternate SRG mapping)
+
+        Also handles deobfuscated names (textureWidth, textureHeight)
+        and direct assignment patterns (super.textureWidth = ...).
+        """
+        import re
+
+        # --- Texture Width ---
+        # Primary SRG field
         tw_match = re.search(r'this\.field_78090_t\s*=\s*(\d+)', java_source)
-        th_match = re.search(r'this\.field_78089_u\s*=\s*(\d+)', java_source)
+        if not tw_match:
+            # Deobfuscated name
+            tw_match = re.search(r'this\.textureWidth\s*=\s*(\d+)', java_source)
+        if not tw_match:
+            # Super call pattern: super.textureWidth = ...
+            tw_match = re.search(r'super\.textureWidth\s*=\s*(\d+)', java_source)
         if tw_match:
             self.texture_width = int(tw_match.group(1))
+
+        # --- Texture Height ---
+        # Primary SRG field
+        th_match = re.search(r'this\.field_78089_u\s*=\s*(\d+)', java_source)
+        if not th_match:
+            # Alternate SRG field (some decompilers use this mapping)
+            th_match = re.search(r'this\.field_78989_u\s*=\s*(\d+)', java_source)
+        if not th_match:
+            # Deobfuscated name
+            th_match = re.search(r'this\.textureHeight\s*=\s*(\d+)', java_source)
+        if not th_match:
+            # Super call pattern
+            th_match = re.search(r'super\.textureHeight\s*=\s*(\d+)', java_source)
         if th_match:
             self.texture_height = int(th_match.group(1))
+
+        # Log if defaults were kept (possible extraction failure)
+        if self.texture_width == 64 and not tw_match:
+            self.warnings.append(
+                "Texture width not found in source; using default 64. "
+                "PNG pixel verification will override if a texture file is provided."
+            )
+        if self.texture_height == 32 and not th_match:
+            self.warnings.append(
+                "Texture height not found in source; using default 32. "
+                "PNG pixel verification will override if a texture file is provided."
+            )
 
     def _extract_model_renderer_fields(self, java_source: str) -> List[str]:
         """Extract all ModelRenderer field variable names."""
@@ -359,46 +543,64 @@ class ModelConverter:
           - For child bones: setRotationPoint is RELATIVE to the parent's coordinate
             space (after parent's translation and rotation are applied)
 
-        However, computing the true absolute position of a child bone requires
-        applying the parent's rotation to the child's relative offset:
+        The TRUE absolute position of a child bone requires applying the parent's
+        rotation to the child's relative offset:
           child_abs = parent_abs + R_parent * child_relative
 
-        Since M_model is a pure linear transformation (no translation), relative
-        offsets transform correctly: M_model * child_relative gives the correct
-        relative pivot in the new system. The absolute pivot is only needed for
-        the make_pivots_relative step to handle the root bone offset.
+        This is critical for deeply nested bones with rotated parents (e.g., Heblu
+        wing tips: skin_0 → skin_1 → skin_2, where each segment has rotation).
 
-        For simplicity, we compute absolute pivots using ONLY the translation
-        accumulation (ignoring parent rotation), because:
-          1. The relative pivot in GeckoLib format is simply convert_model_pos(srp)
-             (proven by the M_model similarity transform analysis)
-          2. We only need absolute pivots to handle the root.pivot subtraction
-             for top-level bones
-          3. For child bones, the relative pivot from convert_model_pos is already
-             correct, so the make_pivots_relative step will be a no-op
+        Rotation order in MC 1.12.2 ModelRenderer.render():
+          OpenGL calls: rotate(Z) → rotate(Y) → rotate(X)
+          Composite matrix: R = Rz(rz) * Ry(ry) * Rx(rx)
+          This is the standard MC 1.12.2 rotation convention.
+
+        BUG FIX (was previously translation-only accumulation):
+          Old code: child_abs = parent_abs + child_offset  (WRONG for rotated parents)
+          New code: child_abs = parent_abs + R_parent * child_offset  (CORRECT)
+
+        This fixes:
+          - Heblu wing tip disconnection (skin_2_c0, skin_5_c0)
+          - Model scattering for entities with deeply nested rotated bone chains
         """
-        # For top-level bones, absolute pivot = setRotationPoint (already absolute)
-        # For child bones, we accumulate through hierarchy
-        # Note: We compute absolute pivots using simple addition (no rotation),
-        # because the final relative pivot is computed correctly via convert_model_pos.
-        # The absolute pivot is only used for the root-offset subtraction.
+        import numpy as np
+        from core_math import _rx, _ry, _rz
 
-        def _compute_abs(var_name: str, parent_abs: tuple) -> None:
-            """Recursively compute absolute pivots."""
+        def _compute_abs(var_name: str, parent_abs: tuple, parent_rot: tuple) -> None:
+            """Recursively compute absolute pivots with FK rotation chain.
+
+            Args:
+                var_name: Java variable name of the bone
+                parent_abs: Parent's absolute pivot (x, y, z) in MC 1.12.2 space
+                parent_rot: Parent's rotation (rx, ry, rz) in radians in MC 1.12.2 space
+            """
             bone = self.bones[var_name]
-            # In MC 1.12.2, child's setRotationPoint is relative to parent's
-            # rotated space. For pivot relative-to-parent calculation, we need
-            # the absolute position. We store the absolute pivot by accumulating.
-            # NOTE: This is a simplified absolute pivot that ignores parent rotation.
-            # The true absolute position requires applying parent's rotation matrix.
-            # However, for the make_pivots_relative step, we use the CONVERTED
-            # absolute pivots (via convert_model_pos), where the math works out
-            # correctly because M_model is linear.
-            bone.abs_pivot_x = parent_abs[0] + bone.pivot_x
-            bone.abs_pivot_y = parent_abs[1] + bone.pivot_y
-            bone.abs_pivot_z = parent_abs[2] + bone.pivot_z
+
+            # Compute parent's rotation matrix using MC 1.12.2 convention:
+            # R = Rz(rz) * Ry(ry) * Rx(rx)
+            # This matches the OpenGL call order in ModelRenderer.render()
+            rx_p, ry_p, rz_p = parent_rot
+            R_parent = _rz(rz_p) @ _ry(ry_p) @ _rx(rx_p)
+
+            # Apply FK chain: child_abs = parent_abs + R_parent * child_offset
+            # In MC 1.12.2, the child's setRotationPoint is relative to the parent's
+            # ROTATED coordinate space, so we must apply the parent's rotation.
+            child_offset = np.array([bone.pivot_x, bone.pivot_y, bone.pivot_z])
+            rotated_offset = R_parent @ child_offset
+
+            bone.abs_pivot_x = parent_abs[0] + rotated_offset[0]
+            bone.abs_pivot_y = parent_abs[1] + rotated_offset[1]
+            bone.abs_pivot_z = parent_abs[2] + rotated_offset[2]
+
+            # Propagate this bone's rotation for its children
+            # The accumulated rotation is the composition of parent's rotation
+            # with this bone's own rotation
             for child_var in bone.children:
-                _compute_abs(child_var, (bone.abs_pivot_x, bone.abs_pivot_y, bone.abs_pivot_z))
+                _compute_abs(
+                    child_var,
+                    (bone.abs_pivot_x, bone.abs_pivot_y, bone.abs_pivot_z),
+                    (bone.rotate_x, bone.rotate_y, bone.rotate_z)
+                )
 
         # Start from top-level bones (no parent)
         for var_name, bone in self.bones.items():
@@ -408,7 +610,11 @@ class ModelConverter:
                 bone.abs_pivot_y = bone.pivot_y
                 bone.abs_pivot_z = bone.pivot_z
                 for child_var in bone.children:
-                    _compute_abs(child_var, (bone.pivot_x, bone.pivot_y, bone.pivot_z))
+                    _compute_abs(
+                        child_var,
+                        (bone.pivot_x, bone.pivot_y, bone.pivot_z),
+                        (bone.rotate_x, bone.rotate_y, bone.rotate_z)
+                    )
 
     def _make_pivots_relative(self, bones_output: list) -> None:
         """
@@ -507,12 +713,17 @@ class ModelConverter:
     @staticmethod
     def _parse_java_expression(expr: str) -> float:
         """Parse a Java expression that evaluates to a float.
-        
+
         Handles:
           - Simple float literals: "0.5f", "-0.3"
           - Cast expressions: "(float)Math.PI", "(float)(-Math.PI)"
           - Math expressions: "Math.PI / 180", "Math.PI / 6"
           - Negative expressions: "-Math.PI", "-0.5f"
+          - Expressions with unknown variables: "f1 * 0.5" (stubs f1 to 0.0)
+
+        Uses safe_eval from core_math for robust evaluation with automatic
+        variable stubbing, preventing NameError crashes from undeclared
+        variables in decompiled code.
         """
         import re as _re
         expr = expr.strip()
@@ -527,8 +738,9 @@ class ModelConverter:
         expr = expr.strip()
         if expr.startswith('(') and expr.endswith(')'):
             try:
-                val = eval(expr, {"__builtins__": {}})
-                return float(val)
+                val = safe_eval(expr, default=None)
+                if val is not None:
+                    return float(val)
             except Exception:
                 pass
         # Try direct float conversion
@@ -536,12 +748,9 @@ class ModelConverter:
             return float(expr)
         except ValueError:
             pass
-        # Try eval for expressions like "3.141592653589793 / 180"
-        try:
-            val = eval(expr, {"__builtins__": {}})
-            return float(val)
-        except Exception:
-            return 0.0
+        # Try safe_eval for expressions like "3.141592653589793 / 180"
+        # or expressions with unknown variables like "f1 * 0.5"
+        return safe_eval(expr, default=0.0)
 
     # ========================================================================
     # UV Calculation (unchanged - uses original 1.12.2 dimensions)

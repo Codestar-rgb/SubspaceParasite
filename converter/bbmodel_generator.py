@@ -48,11 +48,14 @@ CRITICAL: Coordinate System for .bbmodel
        so the UV data assigned to 'west' and 'east' must be swapped.
 
   Rotation Conversion:
-    Uses scipy.spatial.transform.Rotation to convert from geo.json extrinsic
-    XYZ Euler angles to Blockbench intrinsic xyz Euler angles:
-      Rotation.from_euler('XYZ', geo_rot, degrees=True).as_euler('xyz', degrees=True)
-    This correctly handles multi-axis rotations where simple [-rx, -ry, rz]
-    fails (e.g., when Z=-180, X rotation sign must flip).
+    Per HANDOFF_DOC Bug #3: .bbmodel uses the SAME extrinsic XYZ convention
+    as geo.json. No intrinsic/extrinsic conversion is needed — rotation values
+    are passed through directly. The previous scipy Rotation.from_euler conversion
+    was WRONG and caused multi-axis rotation errors (especially Heblu wings).
+
+    The geo.json stores rotations in degrees after convert_model_rot(rx, ry, rz)
+    = (rx, -ry, -rz) from radians, then rad_to_deg(). The .bbmodel uses these
+    SAME degree values. Do NOT convert between Euler angle conventions.
 """
 
 import base64
@@ -62,19 +65,25 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from scipy.spatial.transform import Rotation
+# NOTE: scipy.spatial.transform.Rotation was REMOVED.
+# Per HANDOFF_DOC Bug #3, .bbmodel uses the SAME extrinsic XYZ convention as
+# geo.json. Rotation values should be passed through directly without
+# any intrinsic/extrinsic conversion. The old scipy conversion was WRONG.
+# from scipy.spatial.transform import Rotation
 
 
 # Face direction mapping order used in bbmodel
 FACE_NAMES = ["north", "east", "south", "west", "up", "down"]
 
 # Y offset correction for absolute pivots.
-# In our geo.json, _make_pivots_relative() subtracts root.pivot=[0,24,0] from
-# direct children of root, but the resulting relative pivot is 24 units too low
-# in Y because convert_model_pos() already negates Y without adding the Y_OFFSET.
-# We correct this by adding 24 to Y for root's direct children when computing
+# In our geo.json, _make_pivots_relative() subtracts root.pivot=[0,entity_height,0] from
+# direct children of root, but the resulting relative pivot is entity_height units too low
+# in Y because convert_model_pos() already negates Y without adding the offset.
+# We correct this by adding entity_height to Y for root's direct children when computing
 # absolute pivots for .bbmodel output.
-Y_OFFSET = 24.0
+# NOTE: This now reads the actual entity height from the geo.json root bone pivot,
+# rather than hardcoding 24.0. This fixes "Model Floating" for non-standard entities.
+Y_OFFSET_DEFAULT = 24.0
 
 
 class BBModelGenerator:
@@ -110,12 +119,16 @@ class BBModelGenerator:
         world space.
 
         Algorithm:
-          - root: abs_pivot = root.pivot (typically [0, 24, 0])
-          - Direct children of root: abs_pivot = root.pivot + child.pivot + [0, Y_OFFSET, 0]
-            The Y_OFFSET correction compensates for the double-subtraction bug
-            in _make_pivots_relative() which subtracts root.pivot=[0,24,0]
-            from convert_model_pos() results that already lack the +24 Y offset.
+          - root: abs_pivot = root.pivot (typically [0, entity_height, 0])
+          - Direct children of root: abs_pivot = root.pivot + child.pivot + [0, y_offset, 0]
+            The y_offset correction compensates for the double-subtraction bug
+            in _make_pivots_relative() which subtracts root.pivot=[0,entity_height,0]
+            from convert_model_pos() results that already lack the +y_offset.
           - Deeper descendants: abs_pivot = parent_abs_pivot + child.pivot
+
+        The y_offset is now dynamically extracted from the root bone's pivot Y
+        component (which is set by model_converter's _extract_entity_height()),
+        instead of being hardcoded to 24.0.
 
         Circular reference handling:
           Some models have circular parent references (e.g. A→B→C→A) caused by
@@ -128,13 +141,20 @@ class BBModelGenerator:
         bone_map: Dict[str, dict] = {b["name"]: b for b in bones}
         abs_pivots: Dict[str, list] = {}
 
-        # Root pivot
+        # Root pivot — extract entity height dynamically
         root_bone = bone_map.get("root")
         if root_bone:
             root_pivot = [float(v) for v in root_bone.get("pivot", [0, 24, 0])]
         else:
             root_pivot = [0.0, 24.0, 0.0]
         abs_pivots["root"] = root_pivot
+
+        # root_offset virtual bone: same pivot as root, holds the 180° Y rotation
+        # for RH→LH coordinate flip so animations targeting "root" stay clean.
+        abs_pivots["root_offset"] = root_pivot[:]
+
+        # Dynamic Y_OFFSET: read from root bone's pivot Y component
+        y_offset = root_pivot[1] if root_pivot[1] > 0 else Y_OFFSET_DEFAULT
 
         # Build parent -> children mapping for efficient traversal
         children_map: Dict[str, list] = {}
@@ -164,9 +184,9 @@ class BBModelGenerator:
 
                 abs_pivot = [p_abs[i] + pivot[i] for i in range(3)]
 
-                # For direct children of root, add Y_OFFSET correction
+                # For direct children of root, add y_offset correction
                 if is_rc:
-                    abs_pivot[1] += Y_OFFSET
+                    abs_pivot[1] += y_offset
 
                 abs_pivots[bone_name] = abs_pivot
 
@@ -207,26 +227,30 @@ class BBModelGenerator:
 
     def _convert_rotation_to_bbmodel(self, rotation_deg: list) -> list:
         """
-        Convert rotation from geo.json (extrinsic XYZ) to .bbmodel (intrinsic xyz)
-        using scipy Rotation.
+        Convert rotation from geo.json to .bbmodel format.
 
-        The geo.json format stores rotations as extrinsic XYZ Euler angles.
-        The .bbmodel (Blockbench internal) format uses intrinsic xyz Euler angles.
-        scipy's Rotation class handles this conversion correctly, including
-        multi-axis rotations where simple sign flipping fails.
+        Per HANDOFF_DOC Bug #3: .bbmodel uses the SAME extrinsic XYZ convention
+        as geo.json. No intrinsic/extrinsic conversion is needed.
 
-        Example failures of simple [-rx, -ry, rz]:
-          - geo [44, 0, 0] -> simple gives [-44, 0, 0] but correct is [44, 0, 0]
-          - geo [-25, 0, -180] -> simple gives [25, 0, -180] (happens to be correct)
-          The Z=-180 case flips the X sign convention, which scipy handles properly.
+        Previous versions used scipy Rotation.from_euler('XYZ', ...).as_euler('xyz', ...)
+        which was WRONG. After extensive comparison with known-working reference
+        .bbmodel files, we confirmed that both formats use extrinsic XYZ angles.
+
+        The rotation values from geo.json are passed through directly.
+        We only round to avoid floating point noise.
+
+        Args:
+            rotation_deg: [rx, ry, rz] in degrees from geo.json (extrinsic XYZ)
+
+        Returns:
+            [rx, ry, rz] in degrees for .bbmodel (same convention)
         """
         if not rotation_deg or all(abs(v) < 1e-10 for v in rotation_deg):
             return [0.0, 0.0, 0.0]
 
-        r = Rotation.from_euler("XYZ", rotation_deg, degrees=True)
-        result = r.as_euler("xyz", degrees=True)
-        # Round to avoid floating point noise (e.g., 24.999999999996 -> 25.0)
-        return [round(float(v), 6) for v in result]
+        # Direct passthrough — no scipy conversion needed.
+        # Both geo.json and .bbmodel use extrinsic XYZ Euler angles.
+        return [round(float(v), 6) for v in rotation_deg]
 
     # ========================================================================
     # Main Generation
@@ -260,8 +284,8 @@ class BBModelGenerator:
         # Extract short name from identifier like "model.kirin" -> "kirin"
         short_name = model_identifier.split(".")[-1] if "." in model_identifier else model_identifier
 
-        tex_width = model.get("texture_width", 256)
-        tex_height = model.get("texture_height", 256)
+        tex_width = model.get("texture_width", 64)
+        tex_height = model.get("texture_height", 32)
         bones = model.get("bones", [])
 
         now = int(time.time())
@@ -283,6 +307,11 @@ class BBModelGenerator:
             for cube_idx in range(len(bone.get("cubes", []))):
                 element_uuids[(bone_name, cube_idx)] = self._uuid()
 
+        # Virtual root_offset bone: holds the 180° Y rotation for RH→LH flip.
+        # This separates the coordinate system compensation from the root bone,
+        # so animations targeting "root" don't get the 180° base rotation added.
+        bone_uuids["root_offset"] = self._uuid()
+
         # ------------------------------------------------------------------
         # Phase 3: Build elements (cubes) list
         # ------------------------------------------------------------------
@@ -299,9 +328,9 @@ class BBModelGenerator:
         )
 
         # ------------------------------------------------------------------
-        # Phase 5: Build textures list
+        # Phase 5: Build textures list (may override tex dimensions from PNG)
         # ------------------------------------------------------------------
-        textures = self._build_textures(
+        textures, tex_width, tex_height = self._build_textures(
             texture_path, texture_name, namespace, tex_width, tex_height
         )
 
@@ -546,13 +575,12 @@ class BBModelGenerator:
             rotation = bone.get("rotation", [0.0, 0.0, 0.0])
             abs_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
 
-            # Convert rotation using scipy
+            # Convert rotation — no scipy needed (see HANDOFF_DOC Bug #3)
             bb_rotation = self._convert_rotation_to_bbmodel(rotation)
 
-            # Root bone: add 180° Y rotation so the model faces the correct direction
-            # (RH→LH coordinate flip causes the model to appear reversed)
-            if bone_name == "root":
-                bb_rotation[1] += 180.0
+            # NOTE: The 180° Y rotation for RH→LH flip is now on the
+            # root_offset virtual bone, NOT on root. This keeps animations
+            # targeting "root" clean — they don't get the 180° base added.
 
             group = {
                 "name": bone_name,
@@ -576,6 +604,34 @@ class BBModelGenerator:
                 "primary_selected": False,
             }
             groups.append(group)
+
+        # Create root_offset virtual group: holds the 180° Y rotation for
+        # RH→LH flip. This separates the coordinate system compensation from
+        # the root bone, so animations targeting "root" don't get the 180°
+        # base rotation added (which caused yaw reversal and gimbal lock).
+        root_offset_pivot = abs_pivots.get("root_offset", abs_pivots.get("root", [0.0, 0.0, 0.0]))
+        root_offset_group = {
+            "name": "root_offset",
+            "uuid": bone_uuids["root_offset"],
+            "export": True,
+            "locked": False,
+            "scope": 0,
+            "selected": False,
+            "_static": {"properties": {}, "temp_data": {}},
+            "origin": [float(root_offset_pivot[0]), float(root_offset_pivot[1]), float(root_offset_pivot[2])],
+            "rotation": [0.0, 180.0, 0.0],  # 180° Y flip for RH→LH coordinate conversion
+            "bedrock_binding": "",
+            "color": 0,
+            "children": [],  # Empty in groups flat array; actual children in outliner
+            "reset": False,
+            "shade": True,
+            "mirror_uv": False,
+            "visibility": True,
+            "autouv": 0,
+            "isOpen": False,
+            "primary_selected": False,
+        }
+        groups.insert(0, root_offset_group)  # Insert at beginning so root_offset comes first
 
         # Build outliner tree (iterative to avoid recursion depth issues)
         # Cycle-safe: tracks visited bones to prevent infinite loops
@@ -631,7 +687,15 @@ class BBModelGenerator:
         outliner = []
 
         if "root" in bone_map:
-            outliner.append(build_outliner_tree("root"))
+            root_outliner_entry = build_outliner_tree("root")
+            # Wrap root in root_offset virtual bone (holds 180° Y rotation).
+            # root_offset is the TOP-LEVEL bone; root becomes its child.
+            root_offset_outliner_entry = {
+                "uuid": bone_uuids["root_offset"],
+                "isOpen": False,
+                "children": [root_outliner_entry],
+            }
+            outliner.append(root_offset_outliner_entry)
         else:
             # No explicit root bone - add top-level bones directly
             for bone_name in root_bones:
@@ -650,19 +714,59 @@ class BBModelGenerator:
         namespace: str,
         tex_width: int,
         tex_height: int,
-    ) -> list:
+    ) -> Tuple[list, int, int]:
         """
         Build the textures list. If a texture path is provided, the PNG is
         embedded as a base64 data URI.
+
+        PNG Pixel Verification:
+            When a texture PNG is provided, we use PIL/Pillow (if available) to
+            read its actual pixel dimensions. If the PNG dimensions differ from
+            the declared texture_width/texture_height, a warning is logged and
+            the PNG's actual dimensions are used as the ground truth (since the
+            PNG is the authoritative source). This prevents UV misalignment
+            caused by incorrect texture dimension extraction from Java source
+            (e.g., unusual SRG field names).
+
+            If PIL is not available, verification is skipped gracefully.
+
+        Returns:
+            Tuple of (textures_list, verified_tex_width, verified_tex_height)
         """
         textures = []
 
         source = ""
+        png_width, png_height = None, None
         if texture_path and os.path.isfile(texture_path):
             with open(texture_path, "rb") as f:
                 raw = f.read()
             b64 = base64.b64encode(raw).decode("ascii")
             source = f"data:image/png;base64,{b64}"
+
+            # PNG pixel verification: read actual dimensions from the PNG file
+            try:
+                from PIL import Image
+                with Image.open(texture_path) as img:
+                    png_width, png_height = img.size
+            except ImportError:
+                # PIL not available — skip verification gracefully
+                pass
+            except Exception:
+                # Could not read image — skip verification gracefully
+                pass
+
+        # If PNG verification succeeded, check for dimension mismatch
+        if png_width is not None and png_height is not None:
+            if png_width != tex_width or png_height != tex_height:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Texture dimension mismatch: declared {tex_width}x{tex_height}, "
+                    f"PNG actual {png_width}x{png_height}. "
+                    f"Overriding with PNG dimensions (ground truth)."
+                )
+                tex_width = png_width
+                tex_height = png_height
 
         tex_entry = {
             "name": texture_name,
@@ -679,7 +783,7 @@ class BBModelGenerator:
         }
 
         textures.append(tex_entry)
-        return textures
+        return textures, tex_width, tex_height
 
     # ========================================================================
     # Animations Builder
