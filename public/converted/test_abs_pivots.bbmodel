@@ -1,0 +1,278 @@
+{
+  "meta": {
+    "format_version": "4.10",
+    "model_format": "bedrock",
+    "model_identifier": "test_abs_pivots",
+    "creation_time": 1778924144,
+    "modification_time": 1778924144,
+    "box_uv": false,
+    "face_size": [
+      1,
+      1
+    ]
+  },
+  "name": "test_abs_pivots",
+  "geometry_name": "model.test_abs_pivots",
+  "model_identifier": "test_abs_pivots",
+  "visible_box": [
+    5,
+    -11.06,
+    6.38
+  ],
+  "variable_placeholders": "",
+  "variable_placeholder_buttons": [],
+  "resolution": {
+    "width": 64,
+    "height": 32
+  },
+  "elements": [
+    {
+      "name": "body_c0",
+      "uuid": "45f4ec91",
+      "type": "cube",
+      "resizable": true,
+      "from": [
+        -4.0,
+        56.0,
+        -2.0
+      ],
+      "to": [
+        4.0,
+        64.0,
+        2.0
+      ],
+      "autouv": 0,
+      "color": 1,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        40.0,
+        0.0
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.0,
+            0.0,
+            8.0,
+            8.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            0.0,
+            0.0,
+            4.0,
+            8.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            0.0,
+            0.0,
+            8.0,
+            8.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            0.0,
+            0.0,
+            4.0,
+            8.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            0.0,
+            0.0,
+            8.0,
+            4.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            0.0,
+            0.0,
+            8.0,
+            4.0
+          ],
+          "texture": 0
+        }
+      }
+    },
+    {
+      "name": "head_c0",
+      "uuid": "0a2e3aa1",
+      "type": "cube",
+      "resizable": true,
+      "from": [
+        -3.0,
+        88.0,
+        -3.0
+      ],
+      "to": [
+        3.0,
+        94.0,
+        3.0
+      ],
+      "autouv": 0,
+      "color": 2,
+      "inflate": 0.0,
+      "mirror_uv": false,
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        64.0,
+        0.0
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.0,
+            0.0,
+            6.0,
+            6.0
+          ],
+          "texture": 0
+        },
+        "east": {
+          "uv": [
+            0.0,
+            0.0,
+            6.0,
+            6.0
+          ],
+          "texture": 0
+        },
+        "south": {
+          "uv": [
+            0.0,
+            0.0,
+            6.0,
+            6.0
+          ],
+          "texture": 0
+        },
+        "west": {
+          "uv": [
+            0.0,
+            0.0,
+            6.0,
+            6.0
+          ],
+          "texture": 0
+        },
+        "up": {
+          "uv": [
+            0.0,
+            0.0,
+            6.0,
+            6.0
+          ],
+          "texture": 0
+        },
+        "down": {
+          "uv": [
+            0.0,
+            0.0,
+            6.0,
+            6.0
+          ],
+          "texture": 0
+        }
+      }
+    }
+  ],
+  "outliner": [
+    {
+      "name": "root",
+      "uuid": "0d177fcc",
+      "origin": [
+        0.0,
+        24.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "children": [
+        {
+          "name": "body",
+          "uuid": "92eaa34b",
+          "origin": [
+            0.0,
+            40.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "children": [
+            "45f4ec91",
+            {
+              "name": "head",
+              "uuid": "aec84275",
+              "origin": [
+                0.0,
+                64.0,
+                0.0
+              ],
+              "rotation": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "children": [
+                "0a2e3aa1"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "name": "test",
+      "folder": "entity/monster",
+      "namespace": "test",
+      "source": "",
+      "mode": "bitmap",
+      "saved": true,
+      "uuid": "9ad91aae",
+      "width": 64,
+      "height": 32,
+      "uv_width": 64,
+      "uv_height": 32
+    }
+  ],
+  "animations": []
+}

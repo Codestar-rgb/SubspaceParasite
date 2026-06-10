@@ -115,38 +115,31 @@ class BBModelGenerator:
 
     def _compute_absolute_pivots(self, bones: list) -> Dict[str, list]:
         """
-        Compute absolute pivots for all bones using FK chain.
+        Compute absolute pivots for all bones using simple positional addition.
 
-        In GeckoLib geo.json, each bone's pivot is RELATIVE to its parent's pivot.
-        The absolute world-space position of a child bone requires applying
-        the parent's rotation to the child's relative offset:
-          child_abs = parent_abs + R_parent * child_pivot_relative
+        In the geo.json format used for MDO-SRP, each bone's pivot is RELATIVE
+        to its parent's pivot as a simple positional offset (difference of
+        absolute positions), NOT in the parent's rotated local coordinate system.
 
-        This is the same FK chain computation used in model_converter.py's
-        _compute_absolute_pivots(), adapted for the geo.json bone format.
+        The absolute world-space position of a child bone is computed by:
+          child_abs = parent_abs + child_pivot_relative
 
-        The geo.json rotation order for each bone is: R = Rz(rz) * Ry(ry) * Rx(rx)
-        (extrinsic Z→Y→X, matching MC 1.12.2 ModelRenderer rendering order).
-
-        No y_offset hack is needed — the geo.json pivots are already correct
-        relative positions after model_converter's _make_pivots_relative().
+        This is a simple addition without applying parent rotation, because:
+        1. The source geo.json pivots are positional differences (absolute_child
+           minus absolute_parent), not true local-space offsets.
+        2. In the .bbmodel format, bone rotations are applied during rendering
+           by Blockbench. Pre-rotating the absolute positions would cause
+           double-rotation (the rotation gets applied once by the FK chain
+           computation and again by Blockbench during rendering).
+        3. The FROM/TO coordinates of elements in .bbmodel are in pre-rotation
+           (rest pose) world space. Blockbench rotates them around the bone's
+           pivot during rendering.
 
         Returns:
             Dict mapping bone_name -> [abs_x, abs_y, abs_z]
         """
-        import numpy as np
-        from core_math import _rx, _ry, _rz
-
         bone_map: Dict[str, dict] = {b["name"]: b for b in bones}
         abs_pivots: Dict[str, list] = {}
-
-        # Root pivot — extract entity height dynamically
-        root_bone = bone_map.get("root")
-        if root_bone:
-            root_pivot = [float(v) for v in root_bone.get("pivot", [0, 24, 0])]
-        else:
-            root_pivot = [0.0, 24.0, 0.0]
-        abs_pivots["root"] = root_pivot
 
         # Build parent -> children mapping for efficient traversal
         children_map: Dict[str, list] = {}
@@ -157,22 +150,14 @@ class BBModelGenerator:
                     children_map[parent] = []
                 children_map[parent].append(bone["name"])
 
-        def _bone_rotation_matrix(bone: dict) -> np.ndarray:
-            """Get rotation matrix from a bone's rotation data."""
-            rot = bone.get("rotation", [0.0, 0.0, 0.0])
-            rx = math.radians(float(rot[0]))
-            ry = math.radians(float(rot[1]))
-            rz = math.radians(float(rot[2]))
-            return _rz(rz) @ _ry(ry) @ _rx(rx)
-
-        # Iteratively compute absolute pivots using FK chain
-        # child_abs = parent_abs + R_parent * child_pivot_relative
-        def compute_abs_iterative(start_bone: str, parent_abs: list, parent_rot_matrix: np.ndarray):
-            stack = [(start_bone, parent_abs, parent_rot_matrix)]
+        # Iteratively compute absolute pivots using simple addition
+        # child_abs = parent_abs + child_pivot_relative
+        def compute_abs_iterative(start_bone: str, parent_abs: list):
+            stack = [(start_bone, parent_abs)]
             visited = set()
 
             while stack:
-                bone_name, p_abs, p_rot = stack.pop()
+                bone_name, p_abs = stack.pop()
 
                 # Break circular references
                 if bone_name in abs_pivots or bone_name in visited:
@@ -180,46 +165,45 @@ class BBModelGenerator:
                 visited.add(bone_name)
 
                 bone = bone_map[bone_name]
-                pivot = np.array([float(v) for v in bone.get("pivot", [0, 0, 0])])
+                pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
 
-                # FK chain: child_abs = parent_abs + R_parent * child_pivot_relative
-                rotated_offset = p_rot @ pivot
-                abs_pivot = [p_abs[i] + rotated_offset[i] for i in range(3)]
+                # Simple addition: child_abs = parent_abs + child_pivot_relative
+                abs_pivot = [p_abs[i] + pivot[i] for i in range(3)]
 
                 abs_pivots[bone_name] = abs_pivot
 
-                # Compute this bone's rotation matrix for its children
-                bone_rot = _bone_rotation_matrix(bone)
-
                 # Push children onto stack
                 for child_name in children_map.get(bone_name, []):
-                    stack.append((child_name, abs_pivot, bone_rot))
+                    stack.append((child_name, abs_pivot))
 
-        # Start from root — root has no rotation applied to its own pivot
-        root_rot = np.eye(3)  # Identity — root pivot is already absolute
-        if root_bone:
-            root_rot = _bone_rotation_matrix(root_bone)
-
-        for child_name in children_map.get("root", []):
-            compute_abs_iterative(child_name, root_pivot, root_rot)
-
-        # Handle top-level bones that aren't "root" and don't have a parent
+        # Find root bone(s) — bones without a parent
+        root_bones = []
         for bone in bones:
-            if bone["name"] not in abs_pivots and bone.get("parent") is None and bone["name"] != "root":
-                pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
-                abs_pivots[bone["name"]] = pivot
+            if bone.get("parent") is None:
+                root_bones.append(bone)
+
+        for root_bone in root_bones:
+            root_pivot = [float(v) for v in root_bone.get("pivot", [0, 24, 0])]
+            abs_pivots[root_bone["name"]] = root_pivot
+
+            for child_name in children_map.get(root_bone["name"], []):
+                compute_abs_iterative(child_name, root_pivot)
 
         # Handle bones that still don't have absolute pivots (orphaned due to broken cycles)
+        # Find any remaining root pivot for fallback
+        fallback_root = [0.0, 24.0, 0.0]
+        if "root" in abs_pivots:
+            fallback_root = abs_pivots["root"]
+
         for bone in bones:
             if bone["name"] not in abs_pivots:
                 pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
                 parent = bone.get("parent")
                 if parent and parent in abs_pivots:
-                    # Fallback: simple addition (no rotation — best effort for broken cycles)
                     parent_abs = abs_pivots[parent]
                     abs_pivots[bone["name"]] = [parent_abs[i] + pivot[i] for i in range(3)]
                 else:
-                    abs_pivots[bone["name"]] = [root_pivot[i] + pivot[i] for i in range(3)]
+                    abs_pivots[bone["name"]] = [fallback_root[i] + pivot[i] for i in range(3)]
 
         return abs_pivots
 

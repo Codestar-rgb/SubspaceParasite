@@ -57,6 +57,13 @@ def _convert_geo_for_generator(geo_data: dict) -> dict:
             "bones": [...]
         }]
     }
+
+    CRITICAL FIX: The source Bedrock geo.json files from SRParasites use ABSOLUTE
+    bone pivots and ABSOLUTE cube origins (both in world-space coordinates), NOT
+    relative ones. BBModelGenerator expects RELATIVE pivots (relative to parent)
+    and RELATIVE cube origins (relative to bone pivot). We must convert:
+      - Cube origins: cube_rel = cube_abs - bone_abs_pivot  (MUST be done first)
+      - Bone pivots:  child_rel = child_abs - parent_abs    (done second)
     """
     geom_list = geo_data.get('minecraft:geometry', [])
     if geom_list:
@@ -66,12 +73,64 @@ def _convert_geo_for_generator(geo_data: dict) -> dict:
         if identifier.startswith('geometry.'):
             identifier = identifier[len('geometry.'):]
 
+        bones = geom.get('bones', [])
+
+        # ------------------------------------------------------------------
+        # Convert ABSOLUTE pivots and cube origins to RELATIVE
+        # ------------------------------------------------------------------
+        # Build bone map for parent lookup
+        bone_map = {b['name']: b for b in bones}
+
+        # Step 1: Save all original absolute pivots BEFORE any conversion
+        # This is critical — we need the original absolute values for both
+        # cube origin conversion and pivot relative conversion.
+        abs_pivots_original = {}
+        for bone in bones:
+            abs_pivots_original[bone['name']] = list(bone.get('pivot', [0.0, 0.0, 0.0]))
+
+        # Step 2: Convert cube origins from absolute to relative
+        # cube_rel = cube_abs - bone_abs_pivot
+        for bone in bones:
+            abs_pivot = abs_pivots_original[bone['name']]
+            cubes = bone.get('cubes', [])
+            for cube in cubes:
+                abs_origin = cube.get('origin', [0.0, 0.0, 0.0])
+                # Convert absolute cube origin to relative (relative to bone pivot)
+                relative_origin = [
+                    abs_origin[0] - abs_pivot[0],
+                    abs_origin[1] - abs_pivot[1],
+                    abs_origin[2] - abs_pivot[2],
+                ]
+                cube['origin'] = relative_origin
+
+        # Step 3: Convert bone pivots from absolute to relative
+        # Root bones keep their pivot as-is (already at correct absolute position).
+        # Child bones: child_rel = child_abs - parent_abs (using ORIGINAL absolute values)
+        for bone in bones:
+            parent_name = bone.get('parent')
+            if parent_name is None:
+                # Root-level bone: pivot stays as absolute
+                continue
+            parent_abs = abs_pivots_original.get(parent_name)
+            if parent_abs is None:
+                continue
+
+            child_abs = abs_pivots_original[bone['name']]
+
+            # Convert absolute pivot to relative: child_rel = child_abs - parent_abs
+            relative_pivot = [
+                child_abs[0] - parent_abs[0],
+                child_abs[1] - parent_abs[1],
+                child_abs[2] - parent_abs[2],
+            ]
+            bone['pivot'] = relative_pivot
+
         return {
             'model': {
                 'identifier': identifier,
                 'texture_width': desc.get('texture_width', 256),
                 'texture_height': desc.get('texture_height', 256),
-                'bones': geom.get('bones', []),
+                'bones': bones,
             }
         }
     else:

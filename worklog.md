@@ -217,3 +217,23 @@ Stage Summary:
 - MDO-SRP populated with 168 .bbmodel files across 16 categories (113MB)
 - Source data preserved in download/srparasites_geckolib_models_v13.zip
 - Key fix: missing `import math` in bbmodel_generator.py caused all conversions to fail
+---
+Task ID: 1
+Agent: main
+Task: Fix MDO-SRP model block positioning and rebuild MDO-SRP
+
+Work Log:
+- Diagnosed the root cause of scattered/chaotic model blocks in MDO-SRP .bbmodel files
+- Found that the source Bedrock geo.json files use ABSOLUTE bone pivots and ABSOLUTE cube origins, but bbmodel_generator.py treated them as RELATIVE
+- Found that bbmodel_generator.py's _compute_absolute_pivots() used FK chain rotation (applying parent rotation to child pivots), which caused double-rotation when Blockbench renders the model
+- Extracted source data from srparasites_geckolib_models_v13.zip to MDO-SRP-SRC directory
+- Fixed batch_convert_mdo_srp.py: Added _convert_geo_for_generator() logic to convert absolute pivots and cube origins to relative before feeding to BBModelGenerator
+- Fixed bbmodel_generator.py: Replaced FK chain rotation with simple positional addition in _compute_absolute_pivots()
+- Re-ran batch conversion: all 168 models converted successfully (0 failures)
+- Verified output: cube positions (FROM/TO) and bone pivots (group origins) match source absolute values exactly across 8 test models with 0 errors
+
+Stage Summary:
+- Root cause: Source geo.json had absolute coordinates; generator expected relative + applied FK rotation
+- Fix: Convert absolute→relative in batch converter; use simple addition (no FK rotation) in generator
+- All 168 MDO-SRP .bbmodel files rebuilt with correct block positions
+- Dev server restarted and running on port 3000
