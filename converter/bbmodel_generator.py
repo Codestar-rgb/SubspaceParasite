@@ -60,6 +60,7 @@ CRITICAL: Coordinate System for .bbmodel
 
 import base64
 import json
+import math
 import os
 import time
 import uuid

@@ -188,3 +188,32 @@ Stage Summary:
 - Root 180° Y rotation removed from both converters
 - All 168 models successfully converted with corrected positioning
 - Animation bones fully compatible with geo.json bones
+
+---
+Task ID: cleanup-batch
+Agent: Main Agent
+Task: Clean up project directory, unify converter folder, batch convert to MDO-SRP
+
+Work Log:
+- Deleted 5 old folders: MROLF-TGNBF, MROLF-TGNBF-OUTPUT, MODSRP, MODSRP-Code, MCMOD-SRP
+- Deleted redundant archives: 8 .tar.gz/.zip/.bundle files, 7 screenshot PNGs
+- Deleted 11 stray root-level Python scripts
+- Deleted converter_package/, converted_output/, agent-ctx/, examples/, tests/ folders
+- Deleted 161 old zip download artifacts from db/ (669MB→59MB)
+- Analyzed converter folder dependencies via import mapping
+- Deleted 16 old version converter files (bbmodel_animation_converter v3-v17, v20, unversioned)
+- Deleted batch_convert_all_v19.py (superseded)
+- Deleted 14 one-off debug/fix scripts
+- Fixed missing `import math` in bbmodel_generator.py
+- Created batch_convert_mdo_srp.py for direct geo+anim+png → .bbmodel conversion
+- Extracted source data from srparasites_geckolib_models_v13.zip to MDO-SRP-SRC
+- Ran batch conversion: 168/168 models OK, 0 failures
+- Deleted intermediate MDO-SRP-SRC folder
+- Deleted old batch_convert_modsrp.py (referenced deleted MCMOD-SRP input)
+
+Stage Summary:
+- Project cleaned from ~400MB+ clutter to organized structure
+- Converter folder reduced from 70+ files to 37 essential files
+- MDO-SRP populated with 168 .bbmodel files across 16 categories (113MB)
+- Source data preserved in download/srparasites_geckolib_models_v13.zip
+- Key fix: missing `import math` in bbmodel_generator.py caused all conversions to fail
