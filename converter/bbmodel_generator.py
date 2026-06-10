@@ -114,30 +114,28 @@ class BBModelGenerator:
 
     def _compute_absolute_pivots(self, bones: list) -> Dict[str, list]:
         """
-        Compute absolute pivots for all bones, matching the reference .bbmodel
-        convention where element from/to and group origins are in absolute
-        world space.
+        Compute absolute pivots for all bones using FK chain.
 
-        Algorithm:
-          - root: abs_pivot = root.pivot (typically [0, entity_height, 0])
-          - Direct children of root: abs_pivot = root.pivot + child.pivot + [0, y_offset, 0]
-            The y_offset correction compensates for the double-subtraction bug
-            in _make_pivots_relative() which subtracts root.pivot=[0,entity_height,0]
-            from convert_model_pos() results that already lack the +y_offset.
-          - Deeper descendants: abs_pivot = parent_abs_pivot + child.pivot
+        In GeckoLib geo.json, each bone's pivot is RELATIVE to its parent's pivot.
+        The absolute world-space position of a child bone requires applying
+        the parent's rotation to the child's relative offset:
+          child_abs = parent_abs + R_parent * child_pivot_relative
 
-        The y_offset is now dynamically extracted from the root bone's pivot Y
-        component (which is set by model_converter's _extract_entity_height()),
-        instead of being hardcoded to 24.0.
+        This is the same FK chain computation used in model_converter.py's
+        _compute_absolute_pivots(), adapted for the geo.json bone format.
 
-        Circular reference handling:
-          Some models have circular parent references (e.g. A→B→C→A) caused by
-          decompilation artifacts. We break cycles by treating already-visited
-          bones as having no further parent chain.
+        The geo.json rotation order for each bone is: R = Rz(rz) * Ry(ry) * Rx(rx)
+        (extrinsic Z→Y→X, matching MC 1.12.2 ModelRenderer rendering order).
+
+        No y_offset hack is needed — the geo.json pivots are already correct
+        relative positions after model_converter's _make_pivots_relative().
 
         Returns:
             Dict mapping bone_name -> [abs_x, abs_y, abs_z]
         """
+        import numpy as np
+        from core_math import _rx, _ry, _rz
+
         bone_map: Dict[str, dict] = {b["name"]: b for b in bones}
         abs_pivots: Dict[str, list] = {}
 
@@ -149,13 +147,6 @@ class BBModelGenerator:
             root_pivot = [0.0, 24.0, 0.0]
         abs_pivots["root"] = root_pivot
 
-        # root_offset virtual bone: same pivot as root, holds the 180° Y rotation
-        # for RH→LH coordinate flip so animations targeting "root" stay clean.
-        abs_pivots["root_offset"] = root_pivot[:]
-
-        # Dynamic Y_OFFSET: read from root bone's pivot Y component
-        y_offset = root_pivot[1] if root_pivot[1] > 0 else Y_OFFSET_DEFAULT
-
         # Build parent -> children mapping for efficient traversal
         children_map: Dict[str, list] = {}
         for bone in bones:
@@ -165,14 +156,22 @@ class BBModelGenerator:
                     children_map[parent] = []
                 children_map[parent].append(bone["name"])
 
-        # Iteratively compute absolute pivots (avoids recursion depth issues)
-        # Also detects and breaks circular references.
-        def compute_abs_iterative(start_bone: str, parent_abs: list, is_root_child: bool = False):
-            stack = [(start_bone, parent_abs, is_root_child)]
+        def _bone_rotation_matrix(bone: dict) -> np.ndarray:
+            """Get rotation matrix from a bone's rotation data."""
+            rot = bone.get("rotation", [0.0, 0.0, 0.0])
+            rx = math.radians(float(rot[0]))
+            ry = math.radians(float(rot[1]))
+            rz = math.radians(float(rot[2]))
+            return _rz(rz) @ _ry(ry) @ _rx(rx)
+
+        # Iteratively compute absolute pivots using FK chain
+        # child_abs = parent_abs + R_parent * child_pivot_relative
+        def compute_abs_iterative(start_bone: str, parent_abs: list, parent_rot_matrix: np.ndarray):
+            stack = [(start_bone, parent_abs, parent_rot_matrix)]
             visited = set()
 
             while stack:
-                bone_name, p_abs, is_rc = stack.pop()
+                bone_name, p_abs, p_rot = stack.pop()
 
                 # Break circular references
                 if bone_name in abs_pivots or bone_name in visited:
@@ -180,43 +179,45 @@ class BBModelGenerator:
                 visited.add(bone_name)
 
                 bone = bone_map[bone_name]
-                pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
+                pivot = np.array([float(v) for v in bone.get("pivot", [0, 0, 0])])
 
-                abs_pivot = [p_abs[i] + pivot[i] for i in range(3)]
-
-                # For direct children of root, add y_offset correction
-                if is_rc:
-                    abs_pivot[1] += y_offset
+                # FK chain: child_abs = parent_abs + R_parent * child_pivot_relative
+                rotated_offset = p_rot @ pivot
+                abs_pivot = [p_abs[i] + rotated_offset[i] for i in range(3)]
 
                 abs_pivots[bone_name] = abs_pivot
 
+                # Compute this bone's rotation matrix for its children
+                bone_rot = _bone_rotation_matrix(bone)
+
                 # Push children onto stack
                 for child_name in children_map.get(bone_name, []):
-                    stack.append((child_name, abs_pivot, False))
+                    stack.append((child_name, abs_pivot, bone_rot))
 
-        # Process root's children (they get the Y_OFFSET correction)
+        # Start from root — root has no rotation applied to its own pivot
+        root_rot = np.eye(3)  # Identity — root pivot is already absolute
+        if root_bone:
+            root_rot = _bone_rotation_matrix(root_bone)
+
         for child_name in children_map.get("root", []):
-            compute_abs_iterative(child_name, root_pivot, is_root_child=True)
+            compute_abs_iterative(child_name, root_pivot, root_rot)
 
-        # Also handle top-level bones that aren't "root" and don't have a parent
+        # Handle top-level bones that aren't "root" and don't have a parent
         for bone in bones:
             if bone["name"] not in abs_pivots and bone.get("parent") is None and bone["name"] != "root":
                 pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
                 abs_pivots[bone["name"]] = pivot
 
         # Handle bones that still don't have absolute pivots (orphaned due to broken cycles)
-        # These bones have a parent reference that was part of a cycle;
-        # use the root pivot as their base
         for bone in bones:
             if bone["name"] not in abs_pivots:
                 pivot = [float(v) for v in bone.get("pivot", [0, 0, 0])]
-                # Try to use parent's absolute pivot if available
                 parent = bone.get("parent")
                 if parent and parent in abs_pivots:
+                    # Fallback: simple addition (no rotation — best effort for broken cycles)
                     parent_abs = abs_pivots[parent]
                     abs_pivots[bone["name"]] = [parent_abs[i] + pivot[i] for i in range(3)]
                 else:
-                    # Fallback: use root pivot as base
                     abs_pivots[bone["name"]] = [root_pivot[i] + pivot[i] for i in range(3)]
 
         return abs_pivots
@@ -307,10 +308,10 @@ class BBModelGenerator:
             for cube_idx in range(len(bone.get("cubes", []))):
                 element_uuids[(bone_name, cube_idx)] = self._uuid()
 
-        # Virtual root_offset bone: holds the 180° Y rotation for RH→LH flip.
-        # This separates the coordinate system compensation from the root bone,
-        # so animations targeting "root" don't get the 180° base rotation added.
-        bone_uuids["root_offset"] = self._uuid()
+        # NOTE: root_offset virtual bone is NO LONGER created.
+        # The 180° Y rotation was a RH→LH compensation hack that caused
+        # incorrect model positioning. Both .bbmodel and geo.json use the
+        # same Y-up LH coordinate system, so no rotation compensation is needed.
 
         # ------------------------------------------------------------------
         # Phase 3: Build elements (cubes) list
@@ -605,33 +606,9 @@ class BBModelGenerator:
             }
             groups.append(group)
 
-        # Create root_offset virtual group: holds the 180° Y rotation for
-        # RH→LH flip. This separates the coordinate system compensation from
-        # the root bone, so animations targeting "root" don't get the 180°
-        # base rotation added (which caused yaw reversal and gimbal lock).
-        root_offset_pivot = abs_pivots.get("root_offset", abs_pivots.get("root", [0.0, 0.0, 0.0]))
-        root_offset_group = {
-            "name": "root_offset",
-            "uuid": bone_uuids["root_offset"],
-            "export": True,
-            "locked": False,
-            "scope": 0,
-            "selected": False,
-            "_static": {"properties": {}, "temp_data": {}},
-            "origin": [float(root_offset_pivot[0]), float(root_offset_pivot[1]), float(root_offset_pivot[2])],
-            "rotation": [0.0, 180.0, 0.0],  # 180° Y flip for RH→LH coordinate conversion
-            "bedrock_binding": "",
-            "color": 0,
-            "children": [],  # Empty in groups flat array; actual children in outliner
-            "reset": False,
-            "shade": True,
-            "mirror_uv": False,
-            "visibility": True,
-            "autouv": 0,
-            "isOpen": False,
-            "primary_selected": False,
-        }
-        groups.insert(0, root_offset_group)  # Insert at beginning so root_offset comes first
+        # NOTE: root_offset virtual group is NO LONGER created.
+        # The 180° Y rotation was incorrect — both .bbmodel and geo.json use
+        # the same Y-up LH coordinate system.
 
         # Build outliner tree (iterative to avoid recursion depth issues)
         # Cycle-safe: tracks visited bones to prevent infinite loops
@@ -688,14 +665,9 @@ class BBModelGenerator:
 
         if "root" in bone_map:
             root_outliner_entry = build_outliner_tree("root")
-            # Wrap root in root_offset virtual bone (holds 180° Y rotation).
-            # root_offset is the TOP-LEVEL bone; root becomes its child.
-            root_offset_outliner_entry = {
-                "uuid": bone_uuids["root_offset"],
-                "isOpen": False,
-                "children": [root_outliner_entry],
-            }
-            outliner.append(root_offset_outliner_entry)
+            # Root is the top-level bone — no root_offset wrapper needed.
+            # The 180° Y rotation was a RH→LH hack that's no longer used.
+            outliner.append(root_outliner_entry)
         else:
             # No explicit root bone - add top-level bones directly
             for bone_name in root_bones:

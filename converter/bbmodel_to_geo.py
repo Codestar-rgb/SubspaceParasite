@@ -10,24 +10,31 @@ Output per model:
   <category>/<modelName>.geo.json   - Bedrock/GeckoLib geometry definition
   <category>/<modelName>.png        - Texture file
 
-Coordinate System Conversion (bbmodel -> geo.json):
-  - bbmodel stores bone origins and element positions in ABSOLUTE world space
-  - The root bone has a 180° Y-axis rotation (added during Java→bbmodel conversion)
-  - In geo.json, this rotation is KEPT as [0, -180, 0]
-  - All bone pivots and cube origins are MIRRORED around X to account for
-    the root's 180° Y rotation (which flips X in the rendering coordinate system)
-  - Bone pivot: [-bbmodel_origin_x, bbmodel_origin_y, bbmodel_origin_z]
-  - Cube origin: [-bbmodel_to_x, bbmodel_from_y, bbmodel_from_z]
-  - Cube size: [to_x - from_x, to_y - from_y, to_z - from_z] (unchanged)
+Coordinate System (bbmodel -> geo.json):
+  Both .bbmodel and geo.json use the SAME Y-up left-hand coordinate system.
+  No coordinate transformation is needed — positions and rotations pass
+  through directly.
 
-Rotation Conversion:
-  - Negate X and Y components: [-rx, -ry, rz]
-  - No intrinsic/extrinsic conversion needed - geo.json uses the same
-    intrinsic xyz convention as bbmodel
+  The key conversions are:
+  1. ABSOLUTE → RELATIVE pivots:
+     - Root bone: pivot = group origin (absolute in entity space)
+     - Child bones: pivot = child_origin - parent_origin (relative to parent)
+  2. ABSOLUTE → RELATIVE cube origins:
+     - Cube origin = element_from - bone_origin (relative to bone's pivot)
+  3. Root 180° Y rotation is REMOVED:
+     - The 180° Y rotation on root was a RH→LH compensation hack from the
+       Java→bbmodel conversion pipeline. It's not needed in geo.json because
+       both formats use the same Y-up LH coordinate system.
+  4. Virtual root_offset bone is SKIPPED:
+     - It was only used in .bbmodel to separate the 180° rotation from
+       animations targeting "root".
+
+Rotation:
+  - Pass through directly — no conversion needed (same coordinate system)
 
 UV Conversion:
-  - Side faces (N/E/S/W): uv=[u1, v1], uv_size=[u2-u1, v2-v1]
-  - Up/Down faces: uv=[u2, v2], uv_size=[-(u2-u1), -(v2-v1)]
+  - Side faces (N/E/S/W): uv=[u1,v1], uv_size=[u2-u1, v2-v1]
+  - Up/Down faces: uv=[u2,v2], uv_size=[-(u2-u1), -(v2-v1)]
 """
 
 import base64
@@ -36,11 +43,14 @@ import math
 import os
 import sys
 import traceback
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 class BBModelToGeo:
     """Converts .bbmodel files to Bedrock/GeckoLib geo.json format with texture extraction."""
+
+    # Virtual bones to skip during conversion
+    VIRTUAL_BONES = {'root_offset'}
 
     def convert_bbmodel(self, bbmodel_path: str, output_dir: str) -> dict:
         try:
@@ -55,8 +65,8 @@ class BBModelToGeo:
             elements = bb.get('elements', [])
             outliner = bb.get('outliner', [])
 
-            # Build bone info from groups
-            bone_map = {g['uuid']: g for g in groups}
+            # Build bone info from groups (skip virtual bones)
+            bone_map = {g['uuid']: g for g in groups if g.get('name') not in self.VIRTUAL_BONES}
 
             # Parse outliner for parent-child relationships
             parent_map = {}
@@ -66,9 +76,16 @@ class BBModelToGeo:
             elem_to_bone = {}
             self._map_elems_recursive(outliner, None, elem_to_bone)
 
+            # Build absolute pivot lookup from group origins
+            abs_pivots = {}
+            for g in groups:
+                if g.get('name') not in self.VIRTUAL_BONES:
+                    origin = g.get('origin', [0, 24, 0])
+                    abs_pivots[g['uuid']] = [float(v) for v in origin]
+
             # Build geo.json bones
             geo_bones = self._build_geo_bones(
-                groups, elements, bone_map, parent_map, elem_to_bone
+                groups, elements, bone_map, parent_map, elem_to_bone, abs_pivots
             )
 
             # Compute visible bounds from model data
@@ -168,15 +185,32 @@ class BBModelToGeo:
         return vbw, vbh, [0, max(1, vbo_y), 0]
 
     def _parse_outliner(self, outliner, parent_uuid, bone_map, parent_map):
-        """Recursively parse outliner tree to build parent-child relationships."""
+        """Recursively parse outliner tree to build parent-child relationships.
+        
+        Skips virtual bones (root_offset) — children of virtual bones are
+        reparented to the virtual bone's parent.
+        """
         for entry in outliner:
             if isinstance(entry, dict):
                 uid = entry.get('uuid')
-                if uid and uid in bone_map and parent_uuid is not None:
-                    parent_map[uid] = parent_uuid
-                self._parse_outliner(
-                    entry.get('children', []), uid, bone_map, parent_map
-                )
+                if uid and uid in bone_map:
+                    # This is a real bone — set parent if we have one
+                    if parent_uuid is not None and parent_uuid in bone_map:
+                        parent_map[uid] = parent_uuid
+                    # Recurse with this bone as parent
+                    self._parse_outliner(
+                        entry.get('children', []), uid, bone_map, parent_map
+                    )
+                elif uid and uid not in bone_map:
+                    # This is a virtual bone — skip it, but process its children
+                    # with the current parent_uuid (reparent children to virtual bone's parent)
+                    self._parse_outliner(
+                        entry.get('children', []), parent_uuid, bone_map, parent_map
+                    )
+                else:
+                    self._parse_outliner(
+                        entry.get('children', []), parent_uuid, bone_map, parent_map
+                    )
 
     def _map_elems_recursive(self, items, bone_uid, elem_to_bone):
         """Map element UUIDs to their parent bone UUIDs from the outliner."""
@@ -188,37 +222,57 @@ class BBModelToGeo:
                     item.get('children', []), item.get('uuid'), elem_to_bone
                 )
 
-    def _build_geo_bones(self, groups, elements, bone_map, parent_map, elem_to_bone):
+    def _build_geo_bones(self, groups, elements, bone_map, parent_map, elem_to_bone, abs_pivots):
         """Build geo.json bones array from bbmodel data.
 
-        Key transformation: all bone pivots and cube origins are mirrored
-        around X (negate X) to account for the root bone's 180° Y rotation.
-        Pivots are stored as ABSOLUTE positions in entity space.
+        Key principles:
+        1. Both .bbmodel and geo.json use Y-up left-hand coordinate system
+        2. No coordinate transformation needed — pass through directly
+        3. Pivots are RELATIVE to parent (not absolute)
+        4. Cube origins are RELATIVE to bone's pivot (not absolute)
+        5. Root bone's 180° Y rotation is REMOVED (was a RH→LH hack)
+        6. Virtual bones (root_offset) are skipped
         """
         # UUID to name lookup
-        uid2name = {g['uuid']: g['name'] for g in groups}
+        uid2name = {g['uuid']: g['name'] for g in groups if g.get('name') not in self.VIRTUAL_BONES}
 
         # Elements by bone
         elems_by_bone: Dict[str, list] = {}
         for elem in elements:
             bu = elem_to_bone.get(elem.get('uuid'))
-            if bu:
+            if bu and bu in bone_map:
                 elems_by_bone.setdefault(bu, []).append(elem)
 
         geo_bones = []
         for g in groups:
-            bone_name = g['name']
+            bone_name = g.get('name', '')
+            
+            # Skip virtual bones
+            if bone_name in self.VIRTUAL_BONES:
+                continue
+                
             bone_uid = g['uuid']
-            abs_pivot = g.get('origin', [0, 24, 0])
+            abs_pivot = abs_pivots.get(bone_uid, [0.0, 24.0, 0.0])
 
-            # Geo pivot: mirror X to account for root's 180° Y rotation
-            # All pivots are ABSOLUTE in entity space
-            # Clean up -0.0 → 0.0 for cleaner output
-            geo_pivot = [
-                round(-abs_pivot[0], 4) if abs(abs_pivot[0]) > 1e-10 else 0.0,
-                round(abs_pivot[1], 4) if abs(abs_pivot[1]) > 1e-10 else 0.0,
-                round(abs_pivot[2], 4) if abs(abs_pivot[2]) > 1e-10 else 0.0
-            ]
+            # Compute relative pivot
+            parent_uid = parent_map.get(bone_uid)
+            if parent_uid is not None and parent_uid in abs_pivots:
+                parent_abs = abs_pivots[parent_uid]
+                geo_pivot = [
+                    round(abs_pivot[0] - parent_abs[0], 4),
+                    round(abs_pivot[1] - parent_abs[1], 4),
+                    round(abs_pivot[2] - parent_abs[2], 4),
+                ]
+            else:
+                # Root bone or top-level bone — pivot is absolute
+                geo_pivot = [
+                    round(abs_pivot[0], 4) if abs(abs_pivot[0]) > 1e-10 else 0.0,
+                    round(abs_pivot[1], 4) if abs(abs_pivot[1]) > 1e-10 else 0.0,
+                    round(abs_pivot[2], 4) if abs(abs_pivot[2]) > 1e-10 else 0.0,
+                ]
+
+            # Clean up -0.0 → 0.0
+            geo_pivot = [v if abs(v) > 1e-10 else 0.0 for v in geo_pivot]
 
             bone_entry = {
                 "name": bone_name,
@@ -226,26 +280,34 @@ class BBModelToGeo:
             }
 
             # Parent reference
-            parent_uid = parent_map.get(bone_uid)
             if parent_uid is not None and parent_uid in uid2name:
                 bone_entry["parent"] = uid2name[parent_uid]
 
-            # Rotation: negate X and Y to account for root's 180° Y rotation
-            # geo.json uses the same intrinsic xyz convention as bbmodel
+            # Rotation: pass through directly (same coordinate system)
+            # EXCEPTION: remove root's 180° Y rotation (RH→LH hack)
             bb_rot = list(g.get('rotation', [0, 0, 0]))
+            if bone_name == 'root':
+                # Remove 180° Y rotation — it was a coordinate system hack
+                # that doesn't belong in geo.json
+                bb_rot[1] = 0.0
+                # Also remove 180° X and Z if present (some models have [180, -180, 180])
+                # These are also RH→LH artifacts
+                if abs(bb_rot[0]) > 179 and abs(bb_rot[0]) < 181:
+                    bb_rot[0] = 0.0
+                if abs(bb_rot[2]) > 179 and abs(bb_rot[2]) < 181:
+                    bb_rot[2] = 0.0
+
+            # Clean up rotation
+            bb_rot = [v if abs(v) > 1e-10 else 0.0 for v in bb_rot]
             if any(abs(v) > 1e-10 for v in bb_rot):
-                geo_rot = [-bb_rot[0], -bb_rot[1], bb_rot[2]]
-                # Clean up -0.0 → 0.0
-                geo_rot = [v if abs(v) > 1e-10 else 0.0 for v in geo_rot]
-                if any(abs(v) > 1e-10 for v in geo_rot):
-                    bone_entry["rotation"] = [round(v, 5) for v in geo_rot]
+                bone_entry["rotation"] = [round(v, 5) for v in bb_rot]
 
             # Process cubes
             bone_elems = elems_by_bone.get(bone_uid, [])
             if bone_elems:
                 cubes = []
                 for elem in bone_elems:
-                    cube = self._convert_element_to_cube(elem)
+                    cube = self._convert_element_to_cube(elem, abs_pivot)
                     if cube:
                         cubes.append(cube)
                 if cubes:
@@ -259,34 +321,30 @@ class BBModelToGeo:
 
         return geo_bones
 
-    # Rotation conversion is simply [-rx, -ry, rz] - no intrinsic/extrinsic
-    # conversion needed as geo.json uses the same intrinsic xyz convention.
-
-    def _convert_element_to_cube(self, element):
+    def _convert_element_to_cube(self, element, bone_abs_pivot):
         """Convert a bbmodel element to a geo.json cube.
 
         Key transformations:
-        - Cube origin is MIRRORED around X: [-to_x, from_y, from_z]
-        - Size remains the same: [to_x-from_x, to_y-from_y, to_z-from_z]
-        - UV side faces: uv=[u1,v1], uv_size=[u2-u1, v2-v1]
-        - UV up/down faces: uv=[u2,v2], uv_size=[-(u2-u1), -(v2-v1)]
+        - Cube origin is RELATIVE to bone's pivot: [from_x - pivot_x, from_y - pivot_y, from_z - pivot_z]
+        - Size: [to_x - from_x, to_y - from_y, to_z - from_z] (unchanged)
+        - No coordinate mirroring — both formats use Y-up LH system
         """
         from_pos = element.get('from', [0, 0, 0])
         to_pos = element.get('to', [0, 0, 0])
         inflate = element.get('inflate', 0.0)
         mirror = element.get('mirror_uv', False)
 
-        # Mirror X: origin uses -to_x for X, from_y for Y, from_z for Z
+        # Cube origin relative to bone's pivot (both in Y-up LH absolute space)
         origin = [
-            round(-to_pos[0], 4),
-            round(from_pos[1], 4),
-            round(from_pos[2], 4)
+            round(float(from_pos[0]) - bone_abs_pivot[0], 4),
+            round(float(from_pos[1]) - bone_abs_pivot[1], 4),
+            round(float(from_pos[2]) - bone_abs_pivot[2], 4),
         ]
         # Size is unchanged
         size = [
-            round(to_pos[0] - from_pos[0], 4),
-            round(to_pos[1] - from_pos[1], 4),
-            round(to_pos[2] - from_pos[2], 4)
+            round(float(to_pos[0]) - float(from_pos[0]), 4),
+            round(float(to_pos[1]) - float(from_pos[1]), 4),
+            round(float(to_pos[2]) - float(from_pos[2]), 4),
         ]
 
         cube = {"origin": origin, "size": size}
@@ -313,6 +371,9 @@ class BBModelToGeo:
 
         The up/down convention with negative uv_size is the standard
         Bedrock/GeckoLib format for horizontal faces.
+
+        No face name swapping is needed — both .bbmodel and geo.json use
+        the same Y-up LH coordinate system.
         """
         geo_faces = {}
         for face_name in ["north", "east", "south", "west", "up", "down"]:

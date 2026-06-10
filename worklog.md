@@ -161,3 +161,30 @@ Stage Summary:
 - 2 of 4 landmines were already fixed from Round 1
 - 2 new fixes implemented: FFT auto-period detection, enhanced texture dimension extraction
 - Code pushed to GitHub successfully
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix model placement errors and animation display issues in converter pipeline
+
+Work Log:
+- Diagnosed root causes of model positioning and animation failures
+- Root bone had incorrect 180° Y rotation that broke all child positioning in GeckoLib
+- Bone pivots were stored as ABSOLUTE coordinates instead of RELATIVE to parent
+- Cube origins used -to_x (X mirror) instead of from_x
+- Rotation values were incorrectly negated ([-rx, -ry, rz])
+- Fixed bbmodel_to_geo.py: removed all incorrect coordinate transforms
+- Made pivots relative to parent (subtract parent's absolute pivot)
+- Made cube origins relative to bone pivot (subtract bone's absolute pivot)
+- Removed root's 180° Y rotation (was RH→LH hack, not needed in geo.json)
+- Added virtual bone skipping (root_offset) for MODSRP models
+- Fixed bbmodel_generator.py: replaced simple addition with FK chain for absolute pivots
+- Removed root_offset virtual bone and 180° Y rotation from generator
+- Ran full batch conversion: 168 models, 366 animations, 0 errors
+- Verified bone name matching between geo.json and animation.json (100% match)
+
+Stage Summary:
+- bbmodel_to_geo.py completely rewritten with correct coordinate handling
+- bbmodel_generator.py updated with FK chain pivot computation
+- Root 180° Y rotation removed from both converters
+- All 168 models successfully converted with corrected positioning
+- Animation bones fully compatible with geo.json bones
