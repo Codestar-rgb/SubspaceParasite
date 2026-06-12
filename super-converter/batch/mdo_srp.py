@@ -86,6 +86,40 @@ def batch_convert_mdo_srp(
                 geo_files.append(rel_path)
 
     geo_files.sort()
+
+    # Deduplicate case-variant models (e.g., dodSII vs dodsii)
+    # When both uppercase and lowercase versions exist with the same
+    # lowercased name, prefer the LOWERCASE version (full-detail animation).
+    # The uppercase versions are LOD/simplified variants with fewer keyframes.
+    seen_lower: Dict[str, str] = {}  # lowercased_rel_path -> actual rel_path
+    deduped_geo_files = []
+    skipped_duplicates = 0
+    for rel_path in geo_files:
+        lower_path = rel_path.lower()
+        if lower_path in seen_lower:
+            existing = seen_lower[lower_path]
+            # If existing is already lowercase and current is mixed-case, skip current
+            if existing == lower_path and rel_path != lower_path:
+                skipped_duplicates += 1
+                print(f"  [DEDUP] Skipping uppercase variant: {rel_path} (keeping {existing})")
+                continue
+            # If current is lowercase and existing is mixed-case, replace
+            elif rel_path == lower_path and existing != lower_path:
+                print(f"  [DEDUP] Replacing: {existing} → {rel_path} (lowercase preferred)")
+                seen_lower[lower_path] = rel_path
+                deduped_geo_files = [rel_path if p == existing else p for p in deduped_geo_files]
+                continue
+            else:
+                # Both same case or both different — keep both
+                seen_lower[lower_path] = rel_path
+                deduped_geo_files.append(rel_path)
+        else:
+            seen_lower[lower_path] = rel_path
+            deduped_geo_files.append(rel_path)
+
+    if skipped_duplicates > 0:
+        print(f"  Deduplicated {skipped_duplicates} case-variant models (kept lowercase/full-detail versions)")
+    geo_files = deduped_geo_files
     print(f"  Found {len(geo_files)} models in {input_dir}")
     print(f"  Output: {output_dir}")
     print()

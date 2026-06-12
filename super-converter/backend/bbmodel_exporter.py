@@ -782,10 +782,17 @@ class BBModelExporter:
                         max_time = kf.time
             anim_length = round_for_bbmodel(max_time)
 
+        # Map GeckoLib loop modes to Blockbench loop modes
+        # GeckoLib: "once", "hold_on_last_frame", "loop"
+        # Blockbench: "once", "hold", "loop"
+        bb_loop = anim.loop
+        if bb_loop == "hold_on_last_frame":
+            bb_loop = "hold"
+
         return {
             "name": anim.name,
             "uuid": generate_uuid(),
-            "loop": anim.loop,
+            "loop": bb_loop,
             "override": False,
             "length": round_for_bbmodel(anim_length),
             "snapping": 24,
@@ -865,5 +872,5 @@ class BBModelExporter:
             "uuid": generate_uuid(),
             "time": round_for_bbmodel(kf.time),
             "color": -1,
-            "interpolation": "linear",
+            "interpolation": kf.interpolation,
         }

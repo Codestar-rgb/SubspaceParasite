@@ -713,6 +713,96 @@ def _parse_bone_animation(
     return BoneAnimationIR(bone_name=bone_name, keyframes=keyframes)
 
 
+def _apply_animation_axis_transforms(anim_ir: AnimationIR) -> AnimationIR:
+    """Apply axis reflection transforms to animation data.
+
+    The model's static bone rotations were transformed as (rx, ry, rz) → (-rx, -ry, rz)
+    and positions as (x, y, z) → (-x, y, z). Animation values represent OFFSETS from
+    the static pose. For the animation to produce correct visual results in the
+    transformed coordinate system, the same axis transforms must be applied:
+
+      - Rotation: (rx, ry, rz) → (-rx, -ry, rz)
+        Reasoning: total_rot = static_rot + anim_offset. After transform:
+        (-static_rx, -static_ry, static_rz) + anim_offset_transformed
+        = (-total_rx, -total_ry, total_rz), so anim_offset_transformed = (-anim_rx, -anim_ry, anim_rz)
+
+      - Position: (px, py, pz) → (-px, py, pz)
+        Reasoning: same mirror transform as model positions (negate X)
+
+      - Scale: no transform needed (multiplicative, unaffected by mirror)
+
+    Molang expressions are NOT transformed — they are runtime-evaluated strings
+    that Blockbench/GeckoLib interprets as-is.
+
+    Args:
+        anim_ir: The parsed AnimationIR (untransformed).
+
+    Returns:
+        New AnimationIR with axis-transformed animation values.
+    """
+    transformed_bones: Dict[str, BoneAnimationIR] = {}
+
+    for bone_name, bone_anim in anim_ir.bones.items():
+        transformed_kfs: List[KeyframeData] = []
+
+        for kf in bone_anim.keyframes:
+            # Determine transform per channel
+            if kf.channel == "rotation":
+                # Rotation: (rx, ry, rz) → (-rx, -ry, rz)
+                # Only transform explicit numeric values, not Molang
+                x_val = -kf.x.value if (kf.x.explicit and not kf.molang_x) else kf.x.value
+                y_val = -kf.y.value if (kf.y.explicit and not kf.molang_y) else kf.y.value
+                z_val = kf.z.value  # Z unchanged
+
+                new_x = AxisValue(value=x_val, explicit=kf.x.explicit)
+                new_y = AxisValue(value=y_val, explicit=kf.y.explicit)
+                new_z = AxisValue(value=z_val, explicit=kf.z.explicit)
+
+            elif kf.channel == "position":
+                # Position: (px, py, pz) → (-px, py, pz)
+                # Only transform explicit numeric values, not Molang
+                x_val = -kf.x.value if (kf.x.explicit and not kf.molang_x) else kf.x.value
+                y_val = kf.y.value  # Y unchanged
+                z_val = kf.z.value  # Z unchanged
+
+                new_x = AxisValue(value=x_val, explicit=kf.x.explicit)
+                new_y = AxisValue(value=y_val, explicit=kf.y.explicit)
+                new_z = AxisValue(value=z_val, explicit=kf.z.explicit)
+
+            else:
+                # Scale or other: no transform
+                new_x = kf.x
+                new_y = kf.y
+                new_z = kf.z
+
+            transformed_kfs.append(KeyframeData(
+                time=kf.time,
+                channel=kf.channel,
+                x=new_x,
+                y=new_y,
+                z=new_z,
+                easing=kf.easing,
+                interpolation=kf.interpolation,
+                is_molang=kf.is_molang,
+                molang_x=kf.molang_x,
+                molang_y=kf.molang_y,
+                molang_z=kf.molang_z,
+            ))
+
+        transformed_bones[bone_name] = BoneAnimationIR(
+            bone_name=bone_name,
+            keyframes=transformed_kfs,
+        )
+
+    return AnimationIR(
+        name=anim_ir.name,
+        loop=anim_ir.loop,
+        length=anim_ir.length,
+        bones=transformed_bones,
+        period=anim_ir.period,
+    )
+
+
 def _parse_single_animation(
     anim_name: str,
     anim_data: dict,
@@ -726,7 +816,7 @@ def _parse_single_animation(
         model_name: Model name for logging.
 
     Returns:
-        AnimationIR instance.
+        AnimationIR instance with axis transforms applied.
     """
     # Loop mode
     loop_mode = anim_data.get("loop", "once")
@@ -768,12 +858,18 @@ def _parse_single_animation(
             )
             continue
 
-    return AnimationIR(
+    anim_ir = AnimationIR(
         name=anim_name,
         loop=loop_mode,
         length=anim_length,
         bones=bones,
     )
+
+    # Apply axis reflection transforms to animation values
+    # (rotation: negate X/Y, position: negate X — same as model transforms)
+    anim_ir = _apply_animation_axis_transforms(anim_ir)
+
+    return anim_ir
 
 
 def parse_animation_json(
