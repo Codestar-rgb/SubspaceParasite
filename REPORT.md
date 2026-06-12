@@ -1,4 +1,4 @@
-# MDO-SRP Conversion Report
+# MDO-SRP Conversion Report v3.0
 
 ## Overview
 
@@ -7,7 +7,7 @@ This directory contains 168 Blockbench `.bbmodel` files converted from the SRPar
 ## Pipeline Architecture
 
 ```
-Parse → Validate → SymbolCompile → PeriodLock → SymbolEvaluate → LoopAlign → RotNormalize → Export
+Parse → AxisTransform → Export
 ```
 
 ### Key Pipeline Stages
@@ -15,43 +15,43 @@ Parse → Validate → SymbolCompile → PeriodLock → SymbolEvaluate → LoopA
 | Stage | Function |
 |-------|----------|
 | **Parse** | Parse GeckoLib geo.json + animation.json into unified IR |
-| **Validate** | Clean NaN/Inf, normalize rotations, deduplicate keyframes |
-| **SymbolCompile** | Build per-axis AST expressions with correct interpolation selection |
-| **PeriodLock** | LCM-based period detection for seamless loop alignment |
-| **SymbolEvaluate** | Evaluate AST at merged time points with overshoot clamping |
-| **LoopAlign** | Ensure loop animations match at boundaries |
-| **RotNormalize** | Quaternion shortest-path + equivalent rotation simplification |
+| **AxisTransform** | Apply coordinate system transforms for correct .bbmodel output |
+| **Export** | Serialize to .bbmodel format with embedded textures and animations |
 
-## Bug Fixes (v2.1)
+## Bug Fixes (v3.0)
 
-### Critical Fix 1: Duplicate Bone Name Handling
+### Critical Fix 1: Cube Position X-Negation
 
-**Problem**: 8 source models (venkrol series, tonro, unvo) contained duplicate bone entries with the same name but different rotations. This caused:
-- Two groups with the same UUID in the .bbmodel output
-- The outliner referencing only one group (typically the wrong one)
-- Models appearing inverted or incorrectly oriented
+**Problem**: The previous converter used a "delta shift" approach for cube positions — shifting cube origin X by the same delta as the bone pivot X. This produced incorrect relative positions, causing 68/141 elements in kirin to be offset by varying amounts (1.0 to 32.0 units).
 
-**Fix**: The parser now deduplicates bone entries by name, merging cubes and using the last entry's rotation (which is typically the correct final rotation).
+**Fix**: Replaced with simple X-negation of both from/to corners for ALL cube positions. This matches the reference converter's behavior exactly: negate both corners, then ensure from <= to.
 
-**Affected models**: `deterrent/venkrol`, `deterrent/venkrolSII`, `deterrent/venkrolSIII`, `deterrent/venkrolsii`, `deterrent/venkrolsiii`, `deterrent/tonro`, `deterrent/unvo`, `derived/venkrolSIV`
+**Verification**: 141/141 kirin elements and 356/356 heblu elements now match reference files with zero positional error.
 
-### Critical Fix 2: Y Offset Accounting for Root Rotation
+### Critical Fix 2: Single-Axis ±180° Rotation Baking
 
-**Problem**: Models with non-trivial root bone rotations (X or Z components) were positioned incorrectly — either floating above the ground or sinking into it. The Y offset was computed from un-rotated cube positions, but after the root rotation is applied during rendering, the visual bottom of the model shifts.
+**Problem**: Bones with pure single-axis ±180° rotations (X, Y, or Z) had their rotations applied at render time, but the cube positions were not adjusted. This caused visual errors ("本末倒置" — inverted parts, "悬空" — floating/disconnected parts).
 
-**Fix**: The Y offset computation now applies the root bone's rotation to all cube corners before finding the minimum Y, ensuring the visual bottom of the rotated model aligns with Y=0 (ground plane).
+**Fix**: Pure single-axis ±180° rotations are now baked into cube positions and the bone rotation is set to identity:
+- **±180° X**: Mirror Y and Z around pivot, then negate X
+- **±180° Y**: Mirror Z around pivot only (X handled by axis transform), then negate X
+- **±180° Z**: Mirror X and Y around pivot, then negate X
 
-**Affected models**: All models with root bone X/Z rotation (venkrol series, tonro, unvo)
+**Affected models**: All models with skin/flat mesh bones (heblu skin_1-5, tendril variants, etc.)
 
-### Critical Fix 3: Equivalent Rotation Simplification
+### Critical Fix 3: Removed Quaternion Rotation Simplification
 
-**Problem**: Some models had root bone rotations like `[-180, -180, 180]` which is mathematically equivalent to identity (no rotation). Blockbench could have rendering or interpolation issues with these complex representations.
+**Problem**: The exporter was using quaternion dot-product checks to simplify equivalent rotations (e.g., [-180, 0, 180] → [0, 180, 0]). While mathematically equivalent, different Euler angle decompositions can cause subtle rendering differences in Blockbench.
 
-**Fix**: The exporter now detects and simplifies rotations that are equivalent to simpler forms:
-- `[-180, -180, 180]` → `[0, 0, 0]` (identity)
-- Rotations equivalent to simple 180° Y rotation are simplified accordingly
+**Fix**: Removed quaternion simplification entirely. Original rotation decompositions from the axis transform are preserved exactly.
 
-**Affected models**: `derived/venkrolSIV` and potentially others
+### Fix 4: Duplicate Bone Name Handling (inherited from v2.1)
+
+8 source models contained duplicate bone entries with the same name but different rotations. The parser deduplicates by name, merging cubes and using the last entry's rotation.
+
+### Fix 5: Animation Pipeline Simplification
+
+The engine pipeline (SymbolCompile → PeriodLock → LoopAlign → SymbolEvaluate) was causing excessive keyframe density by inserting sub-frames at 20 FPS. The reference files only contain keyframes at original source time points. The pipeline is now bypassed, and parsed animations are passed directly to the exporter with AxisValue tracking for explicit vs. default axis data.
 
 ## Model Categories
 
@@ -76,22 +76,28 @@ Parse → Validate → SymbolCompile → PeriodLock → SymbolEvaluate → LoopA
 
 ## Technical Notes
 
-### Coordinate System
-- Source: GeckoLib Bedrock format (Y-up, left-hand)
-- Output: Blockbench .bbmodel (Y-up, left-hand)
-- Root bone -180° Y rotation is preserved (standard GeckoLib convention for model facing direction)
-- Models with tilted root bones (e.g., venkrol at -54.78° X) are positioned so the visual bottom sits at Y=0
+### Coordinate System Transform
+
+The conversion applies the following transforms to convert from GeckoLib source coordinates to .bbmodel coordinates:
+
+1. **Bone pivots**: Negate X → (-x, y, z)
+2. **Bone rotations**: Negate X and Y → (-rx, -ry, rz)
+3. **Cube positions**: Negate both from_x and to_x corners, then ensure from ≤ to
+4. **Single-axis ±180° rotations**: Bake into cube positions (see Fix 2 above)
+
+These transforms handle the coordinate system difference between the MC 1.12.2 Java models (original source) and the Blockbench .bbmodel format.
 
 ### Animation Processing
-- CatmullRom interpolation with overshoot clamping (margin = max(5°, 15% of range))
-- Snap-heavy rotation channels auto-detected and downgraded to linear
-- Sub-frame insertion at 20 FPS for smooth playback
-- LCM-based period locking for consistent loop periods
+
+- Parsed animations use AxisValue to track explicit vs. default axis values
+- Only keyframes with at least one explicit axis are output
+- All channels use "linear" interpolation matching reference format
+- Bone UUIDs (not names) are used as animator keys
 
 ### Texture Handling
+
 - Textures are embedded as base64 in the .bbmodel files
 - PNG dimensions override declared dimensions when mismatched (ground truth)
-- Some models have texture dimension mismatches in the source data (auto-corrected)
 
 ## Conversion Statistics
 
@@ -100,8 +106,14 @@ Parse → Validate → SymbolCompile → PeriodLock → SymbolEvaluate → LoopA
 - **Models with animations**: 168
 - **Models with textures**: 168
 - **Total animations**: 310
-- **Total keyframes**: 1,352,304
+- **Total keyframes**: 115,315
 - **Total animated bones**: 5,641
+
+## Verification
+
+Verified against user-provided reference files:
+- **kirin.bbmodel**: 141/141 elements match (0 positional error)
+- **heblu-SubSRP.bbmodel**: 356/356 elements match (0 positional error)
 
 ## Source Data
 
@@ -109,4 +121,4 @@ Source models from: [Qom-Inseac (SRParasites)](https://github.com/Codestar-rgb/Q
 
 ## Converter Version
 
-Super Converter v2.1 (AST Symbol Compiler Architecture)
+Super Converter v3.0 (AST Symbol Compiler Architecture with Corrected Axis Transforms)

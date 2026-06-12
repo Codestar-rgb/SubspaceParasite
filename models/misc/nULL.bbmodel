@@ -3,8 +3,8 @@
     "format_version": "5.0",
     "model_format": "bedrock",
     "model_identifier": "nULL",
-    "creation_time": 1781265554,
-    "modification_time": 1781265554,
+    "creation_time": 1781270110,
+    "modification_time": 1781270110,
     "box_uv": false,
     "face_size": [
       1,
@@ -29,7 +29,7 @@
   "groups": [
     {
       "name": "root",
-      "uuid": "b66eba084e9c47c8",
+      "uuid": "7353cf66b1634203",
       "export": true,
       "locked": false,
       "scope": 0,
@@ -39,13 +39,13 @@
         "temp_data": {}
       },
       "origin": [
-        0.0,
+        -0.0,
         24.0,
         0.0
       ],
       "rotation": [
         0.0,
-        -180.0,
+        0.0,
         0.0
       ],
       "bedrock_binding": "",
@@ -62,7 +62,7 @@
   ],
   "outliner": [
     {
-      "uuid": "b66eba084e9c47c8",
+      "uuid": "7353cf66b1634203",
       "isOpen": false
     }
   ],
@@ -74,7 +74,7 @@
       "source": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAIAAADkharWAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsIAAA7CARUoSoAAAAAcSURBVChTY/z//z8DKYAJShMNRjUQA4a+BgYGAPVYAxW+Sb4PAAAAAElFTkSuQmCC",
       "mode": "bitmap",
       "saved": true,
-      "uuid": "f4028d2e946246f6",
+      "uuid": "c3b9b5f115794248",
       "width": 16,
       "height": 12,
       "uv_width": 16,
@@ -84,7 +84,7 @@
   "animations": [
     {
       "name": "animation.null.idle",
-      "uuid": "a45ab92dce0045a7",
+      "uuid": "5061529dc7a1426e",
       "loop": "loop",
       "override": false,
       "length": 0.5,
@@ -93,7 +93,7 @@
       "anim_time_update": "",
       "blend_weight": "",
       "animators": {
-        "root": {
+        "7353cf66b1634203": {
           "name": "root",
           "type": "bone",
           "keyframes": [
@@ -103,492 +103,11 @@
                 {
                   "x": 0.0,
                   "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
+                  "z": 0.0
                 }
               ],
-              "uuid": "0e553d2135324828",
+              "uuid": "b7fb086734834b74",
               "time": 0.0,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "a34cc6dfb9024ee4",
-              "time": 0.0,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "7d69f12a24b34c17",
-              "time": 0.0,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "position",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "3e99d0b263e24963",
-              "time": 0.05,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "e6d1bfa070d1476d",
-              "time": 0.05,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "76e8418d362d48ca",
-              "time": 0.05,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "position",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "9f3fbd59c9ab4d92",
-              "time": 0.1,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "622d1c32e5af410b",
-              "time": 0.1,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "ba9c79cfb8684292",
-              "time": 0.1,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "position",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "0d9de6ec6e4d47f0",
-              "time": 0.15,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "9b32a68426804b6b",
-              "time": 0.15,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "242ba681e8424960",
-              "time": 0.15,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "position",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "5c98b83cf1fe43fa",
-              "time": 0.2,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "ccf9add6942e4cfc",
-              "time": 0.2,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "2ece84ee1afc4827",
-              "time": 0.2,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "position",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "d9fd315aa1c8441d",
-              "time": 0.25,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "57dda9209db24acf",
-              "time": 0.25,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "190fa2a8dd2f4b68",
-              "time": 0.25,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "position",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "02183b8451d54130",
-              "time": 0.3,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "a7395723b13e4e00",
-              "time": 0.3,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "200487ce88944f3f",
-              "time": 0.3,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "position",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "050f99b36a724a07",
-              "time": 0.35,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "a376c3a973794140",
-              "time": 0.35,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "afdb03c02eb94cce",
-              "time": 0.35,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "position",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "6699e57391c648f4",
-              "time": 0.4,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "007c2dd82bd34774",
-              "time": 0.4,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "ebc23801ac394185",
-              "time": 0.4,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "position",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "ad67d67f015249c8",
-              "time": 0.45,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "68e67369e3454011",
-              "time": 0.45,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "66e219f07ac74ac8",
-              "time": 0.45,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "position",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "fa459f8fbe6545a7",
-              "time": 0.5,
-              "color": -1,
-              "interpolation": "constant"
-            },
-            {
-              "channel": "rotation",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "9d54439de43d4737",
-              "time": 0.5,
-              "color": -1,
-              "interpolation": "linear"
-            },
-            {
-              "channel": "scale",
-              "data_points": [
-                {
-                  "x": 0.0,
-                  "y": 0.0,
-                  "z": 0.0,
-                  "easing": "linear"
-                }
-              ],
-              "uuid": "b59feee848634f51",
-              "time": 0.5,
               "color": -1,
               "interpolation": "linear"
             }
