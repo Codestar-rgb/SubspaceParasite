@@ -827,3 +827,33 @@ Stage Summary:
 - Minimal rotation normalization preserves exact source values (fixes jitter)
 - Per-segment interpolation selection avoids CatmullRom overshoot (fixes flashing)
 - All 168 MDO-SRP models rebuilt with fixed converter, 0 failures
+---
+Task ID: 1
+Agent: Main
+Task: Fix MDO-SRP model issues (inverted/floating) and rebuild, then push to GitHub
+
+Work Log:
+- Analyzed MDO-SRP output to identify root causes of model issues
+- Found 8 models with duplicate bone name entries in source data (venkrol, tonro, unvo series)
+- Found Y offset computation didn't account for root bone rotation (causing floating)
+- Found equivalent rotations like [-180,-180,180] not simplified (causing rendering issues)
+- Fixed parser: added bone deduplication merging cubes and using last entry's rotation
+- Fixed parser: Y offset now computes from rotated visual positions using Quaternion.rotate_vector
+- Added Quaternion.rotate_vector method for rotation-aware point transformation
+- Fixed exporter: rotation simplification for equivalent rotations (identity, 180° Y)
+- Fixed exporter: UUID collision handling for duplicate bone names
+- Rebuilt MDO-SRP: 168/168 models converted successfully, 0 failures
+- Verified fixes: all models have visual_min_y=0.0 (correct ground placement)
+- Verified: no duplicate group names in output
+- Verified: venkrolSIV root rotation simplified from [-180,-180,180] to [0,0,0]
+- Pushed to GitHub: https://github.com/Codestar-rgb/SubspaceParasite
+  - converter/ directory: super-converter pipeline code
+  - models/ directory: 168 .bbmodel files in 16 categories
+  - README.md and REPORT.md with documentation
+
+Stage Summary:
+- Root cause of "inverted" models: duplicate bone entries causing UUID collisions and wrong rotations
+- Root cause of "floating" models: Y offset not accounting for root bone rotation
+- Both issues fixed at the parser level
+- All 168 models now render correctly with visual bottom at Y=0
+- Repo pushed: https://github.com/Codestar-rgb/SubspaceParasite

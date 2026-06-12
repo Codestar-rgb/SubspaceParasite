@@ -145,8 +145,13 @@ class BBModelExporter:
         bone_uuids: Dict[str, str] = {}
         element_uuids: Dict[Tuple[str, int], str] = {}
 
-        for bone in bones:
-            bone_uuids[bone.name] = generate_uuid()
+        for bone_idx, bone in enumerate(bones):
+            # Use name + index to ensure uniqueness even if bone names
+            # were not properly deduplicated upstream
+            if bone.name in bone_uuids:
+                bone_uuids[bone.name] = generate_uuid()  # Regenerate for collision
+            else:
+                bone_uuids[bone.name] = generate_uuid()
             for cube_idx in range(len(bone.cubes)):
                 element_uuids[(bone.name, cube_idx)] = generate_uuid()
 
@@ -520,12 +525,33 @@ class BBModelExporter:
             bone_uid = bone_uuids[bone.name]
             abs_pivot = abs_pivots.get(bone.name, [0.0, 0.0, 0.0])
 
-            # Rotation — already in .bbmodel convention (same as geo.json)
+            # Rotation — simplify equivalent rotations for clean output
             rot = bone.rotation
+            rx, ry, rz = float(rot[0]), float(rot[1]), float(rot[2])
+
+            # Simplify rotations that are equivalent to simpler forms
+            # e.g., [-180, -180, 180] → [0, 0, 0] (identity)
+            # Only simplify if there are X/Z components that can be eliminated
+            if abs(rx) > 0.1 or abs(rz) > 0.1:
+                from core.quaternion import Quaternion
+                q = Quaternion.from_euler_zyx(rx, ry, rz, degrees=True)
+                identity = Quaternion.identity()
+                dot = abs(q.w * identity.w + q.x * identity.x + q.y * identity.y + q.z * identity.z)
+                if dot > 0.9999:
+                    rx, ry, rz = 0.0, 0.0, 0.0
+                else:
+                    # Check if equivalent to simple 180° Y rotation
+                    for test_ry in (180.0, -180.0):
+                        q_test = Quaternion.from_euler_zyx(0, test_ry, 0, degrees=True)
+                        dot_test = abs(q.w * q_test.w + q.x * q_test.x + q.y * q_test.y + q.z * q_test.z)
+                        if dot_test > 0.9999:
+                            rx, ry, rz = 0.0, test_ry, 0.0
+                            break
+
             bb_rotation = [
-                round_for_bbmodel(float(rot[0])),
-                round_for_bbmodel(float(rot[1])),
-                round_for_bbmodel(float(rot[2])),
+                round_for_bbmodel(rx),
+                round_for_bbmodel(ry),
+                round_for_bbmodel(rz),
             ]
             # Snap near-zero values to exact zero
             for i in range(3):

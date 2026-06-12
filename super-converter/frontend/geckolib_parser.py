@@ -51,26 +51,106 @@ logger = logging.getLogger(__name__)
 # Geo JSON parsing
 # ---------------------------------------------------------------------------
 
-def _compute_y_offset(bones: List[dict], abs_pivots: Dict[str, List[float]]) -> float:
+def _get_root_rotation(bones: List[dict], abs_pivots: Dict[str, List[float]]) -> Tuple[float, float, float]:
+    """Get the root bone's static rotation from the source data.
+
+    For models with duplicate root bone entries (e.g., venkrol), we use the
+    LAST entry's rotation, which typically contains the correct final rotation.
+
+    Args:
+        bones: List of bone dicts from geo.json.
+        abs_pivots: Dict mapping bone_name -> [x, y, z] absolute pivots.
+
+    Returns:
+        Root bone rotation as (rx, ry, rz) in degrees, or (0, 0, 0).
+    """
+    root_rot = [0.0, 0.0, 0.0]
+    for bone in bones:
+        if bone.get('parent') is None:
+            rot = bone.get('rotation')
+            if rot is not None:
+                try:
+                    root_rot = [float(rot[0]) if len(rot) > 0 else 0.0,
+                                float(rot[1]) if len(rot) > 1 else 0.0,
+                                float(rot[2]) if len(rot) > 2 else 0.0]
+                except (IndexError, TypeError, ValueError):
+                    pass
+    return tuple(root_rot)
+
+
+def _apply_rotation_to_point(
+    point: Tuple[float, float, float],
+    pivot: Tuple[float, float, float],
+    rotation: Tuple[float, float, float],
+) -> Tuple[float, float, float]:
+    """Apply a rotation to a point around a pivot.
+
+    Uses the ZYX (GeckoLib/Blockbench) rotation convention:
+    R = Rz(rz) * Ry(ry) * Rx(rx)
+
+    Args:
+        point: The point to rotate (x, y, z).
+        pivot: The pivot point to rotate around (px, py, pz).
+        rotation: Rotation angles in degrees (rx, ry, rz).
+
+    Returns:
+        Rotated point (x, y, z).
+    """
+    from core.quaternion import Quaternion
+
+    if not rotation or all(abs(r) < 1e-10 for r in rotation):
+        return point
+
+    # Translate to pivot-relative
+    px, py, pz = point[0] - pivot[0], point[1] - pivot[1], point[2] - pivot[2]
+
+    # Build rotation quaternion (ZYX convention = GeckoLib/Blockbench)
+    q = Quaternion.from_euler_xyz(rotation[0], rotation[1], rotation[2], degrees=True)
+
+    # Apply rotation
+    rx, ry, rz = q.rotate_vector(px, py, pz)
+
+    # Translate back
+    return (rx + pivot[0], ry + pivot[1], rz + pivot[2])
+
+
+def _compute_y_offset(
+    bones: List[dict],
+    abs_pivots: Dict[str, List[float]],
+    root_rotation: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> float:
     """Compute the Y offset needed to position the model so its bottom is at Y=0.
 
     In the .bbmodel format, Y=0 is the ground plane.  Models should be
     positioned so the lowest point of their geometry is at approximately Y=0.
-    If the model extends below Y=0, it "sinks into the ground."
-    If the model floats above Y=0, it appears to hover.
 
     This function examines all cube positions in the source geo.json (which
-    uses absolute coordinates) and computes the minimum Y value.  The Y offset
-    is -min_y, which shifts the entire model up (or down) so the bottom
-    aligns with the ground plane.
+    uses absolute coordinates), applies the root bone's rotation to get
+    the visual (rendered) positions, and computes the minimum Y value.
+
+    CRITICAL FIX: The previous implementation did NOT account for the root
+    bone's rotation, causing models with X/Z root rotations (like venkrol
+    with rot=[-54.78, -180, 0]) to float above or sink into the ground.
+    Now we compute the Y offset from the ROTATED visual positions.
 
     Args:
         bones: List of bone dicts from geo.json (with original absolute coords).
         abs_pivots: Dict mapping bone_name -> [x, y, z] absolute pivots.
+        root_rotation: Root bone's static rotation (rx, ry, rz) in degrees.
 
     Returns:
         Y offset to add to root bone pivot Y (positive = shift up).
     """
+    # Find root pivot for rotation
+    root_pivot = [0.0, 24.0, 0.0]
+    for bone in bones:
+        if bone.get('parent') is None:
+            name = bone.get('name', '')
+            if name in abs_pivots:
+                root_pivot = abs_pivots[name]
+            break
+
+    has_rotation = root_rotation and any(abs(r) > 1e-10 for r in root_rotation)
     min_y = float('inf')
 
     for bone in bones:
@@ -79,28 +159,38 @@ def _compute_y_offset(bones: List[dict], abs_pivots: Dict[str, List[float]]) -> 
 
         for cube in bone.get('cubes', []):
             try:
-                # Cube origin is ABSOLUTE in the source geo.json
                 origin = cube.get('origin', [0.0, 0.0, 0.0])
                 size = cube.get('size', [0.0, 0.0, 0.0])
 
-                # Validate that origin and size are list-like with numeric values
-                oy = float(origin[1])
-                sy = float(size[1])
+                ox, oy, oz = float(origin[0]), float(origin[1]), float(origin[2])
+                sx, sy, sz = float(size[0]), float(size[1]), float(size[2])
 
-                # Minimum Y of this cube (origin might not be the min corner)
-                cube_min_y = min(oy, oy + sy)
+                # Compute all 8 corners of the cube
+                corners_y = []
+                for dy in (0, sy):
+                    corner_y = oy + dy
+                    if has_rotation:
+                        # For rotated models, compute the visual Y of each corner
+                        # by applying the root rotation around the root pivot
+                        for dx in (0, sx):
+                            for dz in (0, sz):
+                                rotated = _apply_rotation_to_point(
+                                    (ox + dx, oy + dy, oz + dz),
+                                    tuple(root_pivot),
+                                    root_rotation,
+                                )
+                                corners_y.append(rotated[1])
+                    else:
+                        corners_y.append(corner_y)
+
+                cube_min_y = min(corners_y)
                 min_y = min(min_y, cube_min_y)
             except (IndexError, TypeError, ValueError):
-                # Skip malformed cubes
                 continue
 
     if min_y == float('inf') or abs(min_y) < 0.01:
-        # No cubes found, or already at Y=0
         return 0.0
 
-    # Shift model so bottom is at Y=0
-    # If min_y < 0, y_offset > 0 (shift up to fix sinking)
-    # If min_y > 0, y_offset < 0 (shift down to fix floating)
     return -min_y
 
 
@@ -321,10 +411,46 @@ def parse_geo_json(geo_data: dict) -> ModelIR:
         )
 
     # ------------------------------------------------------------------
-    # Step 1: Save all original absolute pivots BEFORE any conversion
+    # Step 1: Deduplicate bones by name (CRITICAL FIX)
+    # ------------------------------------------------------------------
+    # Some source models (e.g., venkrol) have DUPLICATE bone entries with
+    # the same name but different rotations. This was causing:
+    #   - Two groups with the same name and UUID in the .bbmodel output
+    #   - The outliner referencing only one of them
+    #   - The wrong rotation being applied
+    # We merge duplicate entries: combine cubes and use the LAST entry's
+    # rotation (which is typically the correct one).
+    deduped_bones: Dict[str, dict] = {}
+    for bone in bones_raw:
+        bone_name = bone.get('name', '')
+        if not bone_name:
+            continue
+        if bone_name in deduped_bones:
+            # Merge: combine cubes, keep the LAST rotation (more specific)
+            existing = deduped_bones[bone_name]
+            # Combine cubes
+            existing_cubes = existing.get('cubes', [])
+            new_cubes = bone.get('cubes', [])
+            if new_cubes:
+                existing['cubes'] = existing_cubes + new_cubes
+            # Use the new entry's rotation if it's more specific
+            new_rot = bone.get('rotation')
+            if new_rot is not None:
+                existing['rotation'] = new_rot
+            logger.debug(
+                "Merged duplicate bone '%s': %d + %d cubes",
+                bone_name, len(existing_cubes), len(new_cubes),
+            )
+        else:
+            deduped_bones[bone_name] = dict(bone)  # shallow copy
+
+    bones_deduped = list(deduped_bones.values())
+
+    # ------------------------------------------------------------------
+    # Step 2: Save all original absolute pivots BEFORE any conversion
     # ------------------------------------------------------------------
     abs_pivots: Dict[str, List[float]] = {}
-    for bone in bones_raw:
+    for bone in bones_deduped:
         bone_name = bone.get('name', '')
         if bone_name:
             try:
@@ -334,22 +460,22 @@ def parse_geo_json(geo_data: dict) -> ModelIR:
                 abs_pivots[bone_name] = [0.0, 0.0, 0.0]
 
     # Build bone map for parent lookup
-    bone_map: Dict[str, dict] = {}
-    for bone in bones_raw:
-        bone_name = bone.get('name', '')
-        if bone_name:
-            bone_map[bone_name] = bone
+    bone_map: Dict[str, dict] = {b.get('name', ''): b for b in bones_deduped}
 
     # ------------------------------------------------------------------
-    # Step 2: Compute Y offset (while cube origins are still absolute)
+    # Step 3: Compute Y offset accounting for root rotation (CRITICAL FIX)
     # ------------------------------------------------------------------
-    y_offset = _compute_y_offset(bones_raw, abs_pivots)
+    # Previous implementation computed Y offset from un-rotated cube positions,
+    # which caused floating/sinking for models with X/Z root rotations.
+    # Now we apply the root rotation before computing min_y.
+    root_rotation = _get_root_rotation(bones_deduped, abs_pivots)
+    y_offset = _compute_y_offset(bones_deduped, abs_pivots, root_rotation)
 
     # ------------------------------------------------------------------
-    # Step 3: Parse each bone into BoneIR (converting to relative coords)
+    # Step 4: Parse each bone into BoneIR (converting to relative coords)
     # ------------------------------------------------------------------
     bones_ir: List[BoneIR] = []
-    for bone_data in bones_raw:
+    for bone_data in bones_deduped:
         bone_name = bone_data.get('name', '')
         if not bone_name:
             continue

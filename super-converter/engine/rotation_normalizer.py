@@ -55,6 +55,52 @@ DISCONTINUITY_THRESHOLD_DEGREES: float = 180.0
 # Per-bone rotation normalization
 # ---------------------------------------------------------------------------
 
+def _simplify_rotation(rx: float, ry: float, rz: float) -> Tuple[float, float, float]:
+    """Simplify a rotation by detecting equivalent simpler forms.
+
+    For example, [-180, -180, 180] is equivalent to [0, 0, 0] (identity),
+    and [-180, 0, 0] is equivalent to [180, 0, 0].
+
+    This is important because Blockbench may have rendering or interpolation
+    issues with complex rotation representations that are equivalent to
+    simpler forms.
+
+    Args:
+        rx, ry, rz: Rotation angles in degrees.
+
+    Returns:
+        Simplified rotation angles.
+    """
+    from core.quaternion import Quaternion
+
+    q = Quaternion.from_euler_zyx(rx, ry, rz, degrees=True)
+    # Check if this is approximately identity
+    identity = Quaternion.identity()
+    dot = abs(q.w * identity.w + q.x * identity.x + q.y * identity.y + q.z * identity.z)
+    if dot > 0.9999:
+        return (0.0, 0.0, 0.0)
+
+    # Check if this is approximately a 180° Y rotation only
+    q_y180 = Quaternion.from_euler_zyx(0, 180, 0, degrees=True)
+    dot_y180 = abs(q.w * q_y180.w + q.x * q_y180.x + q.y * q_y180.y + q.z * q_y180.z)
+    if dot_y180 > 0.9999:
+        return (0.0, 180.0, 0.0)
+
+    q_yn180 = Quaternion.from_euler_zyx(0, -180, 0, degrees=True)
+    dot_yn180 = abs(q.w * q_yn180.w + q.x * q_yn180.x + q.y * q_yn180.y + q.z * q_yn180.z)
+    if dot_yn180 > 0.9999:
+        return (0.0, -180.0, 0.0)
+
+    # Normalize angles to [-180, 180] range
+    rx_n = normalize_rotation(rx)
+    ry_n = normalize_rotation(ry)
+    rz_n = normalize_rotation(rz)
+
+    # If the simplified quaternion decomposition gives different values,
+    # use the normalized original
+    return (rx_n, ry_n, rz_n)
+
+
 def _normalize_bone_rotations(
     bone_anim: BoneAnimationIR,
     anim_name: str,

@@ -314,6 +314,34 @@ class Quaternion:
             self.w * self.w + self.x * self.x + self.y * self.y + self.z * self.z
         )
 
+    def rotate_vector(self, x: float, y: float, z: float) -> Tuple[float, float, float]:
+        """Rotate a 3D vector by this quaternion.
+
+        Uses the formula: v' = q * v * q^{-1}, where v is treated as a
+        pure quaternion (0, x, y, z).
+
+        For unit quaternions, q^{-1} = q* (conjugate).
+
+        Args:
+            x, y, z: The vector components to rotate.
+
+        Returns:
+            Tuple (x', y', z') — the rotated vector.
+        """
+        q = self.normalize()
+        # v' = q * (0, x, y, z) * q*
+        # Expanded formula (avoiding quaternion construction):
+        t0 = -q.x * x - q.y * y - q.z * z
+        t1 = q.w * x + q.y * z - q.z * y
+        t2 = q.w * y + q.z * x - q.x * z
+        t3 = q.w * z + q.x * y - q.y * x
+
+        rx = -t0 * q.x + t1 * q.w - t2 * q.z + t3 * q.y
+        ry = -t0 * q.y + t2 * q.w - t3 * q.x + t1 * q.z
+        rz = -t0 * q.z + t3 * q.w - t1 * q.y + t2 * q.x
+
+        return (rx, ry, rz)
+
     # ------------------------------------------------------------------
     # Multiplication
     # ------------------------------------------------------------------
