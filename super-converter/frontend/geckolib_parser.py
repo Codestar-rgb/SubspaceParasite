@@ -124,12 +124,16 @@ def _apply_axis_transforms(
     models converted to GeckoLib format. These models use a convention where the
     root bone has a -180° Y rotation, which effectively mirrors the model.
 
-    To produce correct .bbmodel output that matches Blockbench's rendering:
+    To produce correct .bbmodel output that matches the reference converter:
       - Negate X of all bone pivots: (x, y, z) → (-x, y, z)
       - Negate X and Y of all bone rotations: (rx, ry, rz) → (-rx, -ry, rz)
-      - Shift cube origin X to preserve relative position to the bone pivot
-      - For bones with ±180° Y rotation: also negate X and Z of the cube's
-        relative position (baking the rotation into the geometry)
+      - Negate both from_x and to_x corners of ALL cube positions
+      - For bones with pure single-axis ±180° rotations, bake the rotation
+        into cube positions and set the bone rotation to identity:
+        * ±180° X: mirror Y and Z around pivot, then negate X
+        * ±180° Y: mirror Z around pivot only (X handled by axis transform),
+          then negate X
+        * ±180° Z: mirror X and Y around pivot, then negate X
 
     Args:
         bones: List of bone dicts from geo.json (modified in-place).
@@ -148,32 +152,43 @@ def _apply_axis_transforms(
     for bone in bones:
         bone_name = bone.get('name', '')
         old_pivot = old_pivots.get(bone_name, [0.0, 0.0, 0.0])
-        new_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
 
-        # Check if this bone has ±180° Y rotation (needs X/Z baking)
+        # Detect pure single-axis ±180° rotations for baking
         rot = bone.get('rotation')
-        has_180y = False
+        rot_180x = False  # Pure ±180° X: bake Y and Z mirror
+        rot_180y = False  # Pure ±180° Y: bake Z mirror only
+        rot_180z = False  # Pure ±180° Z: bake X and Y mirror
+        rx = ry = rz = 0.0
         if rot is not None:
             try:
+                rx = float(rot[0]) if len(rot) > 0 else 0.0
                 ry = float(rot[1]) if len(rot) > 1 else 0.0
-                if abs(abs(ry) - 180.0) < 0.1:
-                    has_180y = True
+                rz = float(rot[2]) if len(rot) > 2 else 0.0
+                if abs(abs(rx) - 180.0) < 0.1 and abs(ry) < 0.1 and abs(rz) < 0.1:
+                    rot_180x = True
+                if abs(rx) < 0.1 and abs(abs(ry) - 180.0) < 0.1 and abs(rz) < 0.1:
+                    rot_180y = True
+                if abs(rx) < 0.1 and abs(ry) < 0.1 and abs(abs(rz) - 180.0) < 0.1:
+                    rot_180z = True
             except (IndexError, TypeError, ValueError):
                 pass
 
         # Transform rotation: (rx, ry, rz) → (-rx, -ry, rz)
         if rot is not None:
             try:
-                bone['rotation'] = [
-                    -float(rot[0]) if len(rot) > 0 else 0.0,
-                    -float(rot[1]) if len(rot) > 1 else 0.0,
-                    float(rot[2]) if len(rot) > 2 else 0.0,
-                ]
+                if rot_180x or rot_180y or rot_180z:
+                    # Baking the rotation into geometry, set to identity
+                    bone['rotation'] = [0.0, 0.0, 0.0]
+                else:
+                    bone['rotation'] = [
+                        -float(rot[0]) if len(rot) > 0 else 0.0,
+                        -float(rot[1]) if len(rot) > 1 else 0.0,
+                        float(rot[2]) if len(rot) > 2 else 0.0,
+                    ]
             except (IndexError, TypeError, ValueError):
                 pass
 
-        # Transform cube origins: preserve relative position to bone pivot
-        # by shifting cube origin by the same delta as the bone pivot.
+        # Transform cube origins
         for cube in bone.get('cubes', []):
             origin = cube.get('origin')
             size = cube.get('size')
@@ -182,35 +197,52 @@ def _apply_axis_transforms(
                     ox, oy, oz = float(origin[0]), float(origin[1]), float(origin[2])
                     sx, sy, sz = float(size[0]), float(size[1]), float(size[2])
 
-                    if has_180y:
-                        # For bones with ±180° Y rotation: bake the rotation
-                        # into the cube positions by negating X and Z of the
-                        # relative position.
-                        # source_rel_from = [ox - old_pivot[0], oy - old_pivot[1], oz - old_pivot[2]]
-                        # source_rel_to = [ox+sx - old_pivot[0], oy+sy - old_pivot[1], oz+sz - old_pivot[2]]
-                        # After -180° Y rotation: (x,y,z) → (-x, y, -z)
-                        # new_abs_from_x = new_pivot_x + (-(ox+sx - old_pivot_x))
-                        # new_abs_to_x = new_pivot_x + (-(ox - old_pivot_x))
-                        # Same for Z
-                        new_from_x = new_pivot[0] - (ox + sx - old_pivot[0])
-                        new_to_x = new_pivot[0] - (ox - old_pivot[0])
-                        new_from_z = new_pivot[2] - (oz + sz - old_pivot[2])
-                        new_to_z = new_pivot[2] - (oz - old_pivot[2])
-                        # Ensure from < to (required by .bbmodel)
-                        if new_from_x > new_to_x:
-                            new_from_x, new_to_x = new_to_x, new_from_x
-                        if new_from_z > new_to_z:
-                            new_from_z, new_to_z = new_to_z, new_from_z
-                        # Y stays the same (rotation around Y doesn't affect Y)
-                        new_from_y = min(oy, oy + sy)
-                        new_to_y = max(oy, oy + sy)
-                        cube['origin'] = [new_from_x, new_from_y, new_from_z]
-                        # Size is preserved (span is the same, just position changed)
-                    else:
-                        # For regular bones: shift cube origin X by the same
-                        # delta as the bone pivot to preserve relative position.
-                        delta_x = new_pivot[0] - old_pivot[0]
-                        cube['origin'] = [ox + delta_x, oy, oz]
+                    # Compute absolute from/to corners
+                    from_x, from_y, from_z = ox, oy, oz
+                    to_x, to_y, to_z = ox + sx, oy + sy, oz + sz
+
+                    if rot_180z:
+                        # Bake ±180° Z rotation: mirror X and Y around pivot
+                        # 180° Z: (x,y,z) → (-x, -y, z) relative to pivot
+                        # absolute: new = 2*pivot - old
+                        from_x = 2.0 * old_pivot[0] - from_x
+                        from_y = 2.0 * old_pivot[1] - from_y
+                        to_x = 2.0 * old_pivot[0] - to_x
+                        to_y = 2.0 * old_pivot[1] - to_y
+
+                    elif rot_180y:
+                        # Bake ±180° Y rotation: mirror Z only (NOT X)
+                        # The X component of the rotation is handled by the
+                        # axis transform (X negation), so we only need to
+                        # mirror Z around the pivot.
+                        # 180° Y: (x,y,z) → (-x, y, -z) relative to pivot
+                        # But X is handled by axis transform, so only mirror Z.
+                        from_z = 2.0 * old_pivot[2] - from_z
+                        to_z = 2.0 * old_pivot[2] - to_z
+
+                    elif rot_180x:
+                        # Bake ±180° X rotation: mirror Y and Z around pivot
+                        # 180° X: (x,y,z) → (x, -y, -z) relative to pivot
+                        # absolute: new = 2*pivot - old
+                        from_y = 2.0 * old_pivot[1] - from_y
+                        from_z = 2.0 * old_pivot[2] - from_z
+                        to_y = 2.0 * old_pivot[1] - to_y
+                        to_z = 2.0 * old_pivot[2] - to_z
+
+                    # Negate X of both corners (applied to ALL bones)
+                    from_x, to_x = -from_x, -to_x
+
+                    # Ensure from <= to (required by .bbmodel)
+                    if from_x > to_x:
+                        from_x, to_x = to_x, from_x
+                    if from_y > to_y:
+                        from_y, to_y = to_y, from_y
+                    if from_z > to_z:
+                        from_z, to_z = to_z, from_z
+
+                    cube['origin'] = [from_x, from_y, from_z]
+                    # Size is recomputed from the corners
+                    cube['size'] = [to_x - from_x, to_y - from_y, to_z - from_z]
                 except (IndexError, TypeError, ValueError):
                     pass
 

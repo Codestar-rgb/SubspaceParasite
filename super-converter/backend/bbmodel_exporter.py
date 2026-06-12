@@ -505,28 +505,11 @@ class BBModelExporter:
             bone_uid = bone_uuids[bone.name]
             abs_pivot = abs_pivots.get(bone.name, [0.0, 0.0, 0.0])
 
-            # Rotation — simplify equivalent rotations for clean output
+            # Rotation — use directly from IR (no quaternion simplification)
+            # The reference converter preserves original rotation decompositions
+            # (e.g., [-180, 0, 180] is kept as-is, not simplified to [0, 180, 0])
             rot = bone.rotation
             rx, ry, rz = float(rot[0]), float(rot[1]), float(rot[2])
-
-            # Simplify rotations that are equivalent to simpler forms
-            # e.g., [-180, -180, 180] → [0, 0, 0] (identity)
-            # Only simplify if there are X/Z components that can be eliminated
-            if abs(rx) > 0.1 or abs(rz) > 0.1:
-                from core.quaternion import Quaternion
-                q = Quaternion.from_euler_zyx(rx, ry, rz, degrees=True)
-                identity = Quaternion.identity()
-                dot = abs(q.w * identity.w + q.x * identity.x + q.y * identity.y + q.z * identity.z)
-                if dot > 0.9999:
-                    rx, ry, rz = 0.0, 0.0, 0.0
-                else:
-                    # Check if equivalent to simple 180° Y rotation
-                    for test_ry in (180.0, -180.0):
-                        q_test = Quaternion.from_euler_zyx(0, test_ry, 0, degrees=True)
-                        dot_test = abs(q.w * q_test.w + q.x * q_test.x + q.y * q_test.y + q.z * q_test.z)
-                        if dot_test > 0.9999:
-                            rx, ry, rz = 0.0, test_ry, 0.0
-                            break
 
             bb_rotation = [
                 round_for_bbmodel(rx),
