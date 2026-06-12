@@ -1,112 +1,97 @@
-# MDO-SRP Conversion Report
+# MDO-SRP Converted Models Report
 
 ## Overview
 
-This directory contains 168 Blockbench `.bbmodel` files converted from the SRParasites Geckolib model set using the **MDO-SRP (Multi-Dimensional Object - Symbol Resolution Pipeline)** super converter.
+This directory contains **168 Blockbench (.bbmodel) files** converted from SRParasites GeckoLib models using the Super Converter pipeline.
 
-## Pipeline Architecture
+## Source
+
+- **Input**: `srparasites_geckolib_models_v13.zip` — GeckoLib format (geo.json + animation.json + PNG)
+- **Output**: Blockbench .bbmodel format (bedrock, per-face UV)
+- **Converter**: Super Converter — AST Symbol Compiler Architecture
+
+## Conversion Pipeline
 
 ```
-Parse → Validate → SymbolCompile → PeriodLock → SymbolEvaluate → LoopAlign → RotNormalize → Export
+Parse (geo.json/animation.json) → AxisTransform → Export (.bbmodel)
 ```
 
-### Key Pipeline Stages
+### Key Transformations
 
-| Stage | Function |
-|-------|----------|
-| **Parse** | Parse GeckoLib geo.json + animation.json into unified IR |
-| **Validate** | Clean NaN/Inf, normalize rotations, deduplicate keyframes |
-| **SymbolCompile** | Build per-axis AST expressions with correct interpolation selection |
-| **PeriodLock** | LCM-based period detection for seamless loop alignment |
-| **SymbolEvaluate** | Evaluate AST at merged time points with overshoot clamping |
-| **LoopAlign** | Ensure loop animations match at boundaries |
-| **RotNormalize** | Quaternion shortest-path + equivalent rotation simplification |
+1. **Axis Reflection**: X coordinates of all bone pivots are negated to account for the MC 1.12.2 → Bedrock coordinate convention difference. Bone rotations are transformed as (rx, ry, rz) → (-rx, -ry, rz).
 
-## Bug Fixes (v2.1)
+2. **180° Y Rotation Baking**: For bones with ±180° Y rotation, the rotation is baked into cube positions by negating both X and Z of the relative cube position, ensuring correct visual placement.
 
-### Critical Fix 1: Duplicate Bone Name Handling
+3. **No Y Offset**: Models use original source Y coordinates without ground-plane adjustment, preserving the author's intended positioning.
 
-**Problem**: 8 source models (venkrol series, tonro, unvo) contained duplicate bone entries with the same name but different rotations. This caused:
-- Two groups with the same UUID in the .bbmodel output
-- The outliner referencing only one group (typically the wrong one)
-- Models appearing inverted or incorrectly oriented
+4. **Animation Passthrough**: Animation keyframes are preserved directly from the source data with AxisValue tracking for explicit vs. default axis values. No sub-frame interpolation or resampling is applied.
 
-**Fix**: The parser now deduplicates bone entries by name, merging cubes and using the last entry's rotation (which is typically the correct final rotation).
+5. **UV Face Preservation**: UV data is passed through without face swaps, as the axis transforms handle the coordinate system difference.
 
-**Affected models**: `deterrent/venkrol`, `deterrent/venkrolSII`, `deterrent/venkrolSIII`, `deterrent/venkrolsii`, `deterrent/venkrolsiii`, `deterrent/tonro`, `deterrent/unvo`, `derived/venkrolSIV`
+## Statistics
 
-### Critical Fix 2: Y Offset Accounting for Root Rotation
+| Metric | Value |
+|--------|-------|
+| Total models | 168 |
+| Successful conversions | 168 |
+| Failed conversions | 0 |
+| Models with animations | 168 |
+| Models with textures | 168 |
+| Total animations | 310 |
+| Total keyframes | 115,315 |
+| Total animated bones | 5,641 |
+| Total output size | ~107 MB |
 
-**Problem**: Models with non-trivial root bone rotations (X or Z components) were positioned incorrectly — either floating above the ground or sinking into it. The Y offset was computed from un-rotated cube positions, but after the root rotation is applied during rendering, the visual bottom of the model shifts.
+## Categories
 
-**Fix**: The Y offset computation now applies the root bone's rotation to all cube corners before finding the minimum Y, ensuring the visual bottom of the rotated model aligns with Y=0 (ground plane).
+| Category | Count |
+|----------|-------|
+| abomination | 2 |
+| adapted | 12 |
+| ancient | 3 |
+| awakened | 2 |
+| crude | 11 |
+| derived | 3 |
+| deterrent | 33 |
+| feral | 9 |
+| focused | 2 |
+| hijacked | 3 |
+| inborn | 11 |
+| infected | 29 |
+| misc | 20 |
+| primitive | 12 |
+| projectile | 1 |
+| pure | 15 |
 
-**Affected models**: All models with root bone X/Z rotation (venkrol series, tonro, unvo)
+## Model Format
 
-### Critical Fix 3: Equivalent Rotation Simplification
+Each .bbmodel file contains:
 
-**Problem**: Some models had root bone rotations like `[-180, -180, 180]` which is mathematically equivalent to identity (no rotation). Blockbench could have rendering or interpolation issues with these complex representations.
+- **Geometry**: All cubes with absolute world-space from/to coordinates and per-face UV mapping
+- **Bone Hierarchy**: Outliner tree with bone groups, absolute pivots (origin), and static rotations
+- **Animations**: Keyframe data with rotation/position/scale channels per bone
+- **Textures**: Embedded as base64 PNG data URIs
 
-**Fix**: The exporter now detects and simplifies rotations that are equivalent to simpler forms:
-- `[-180, -180, 180]` → `[0, 0, 0]` (identity)
-- Rotations equivalent to simple 180° Y rotation are simplified accordingly
+### Compatibility
 
-**Affected models**: `derived/venkrolSIV` and potentially others
+- **Blockbench**: Open directly in Blockbench 4.x+ (Bedrock format)
+- **Bedrock Edition**: Export from Blockbench to Bedrock geometry + animation files
+- **GeckoLib**: Can be re-exported to GeckoLib format via Blockbench plugins
 
-## Model Categories
+## Notes
 
-| Category | Count | Description |
-|----------|-------|-------------|
-| primitive | 12 | Base primitive forms |
-| adapted | 12 | Adapted variants of primitives |
-| focused | 2 | Focused combat variants |
-| pure | 15 | Pure evolved forms |
-| crude | 11 | Crude parasitic forms |
-| inborn | 11 | Innate parasitic entities |
-| infected | 29 | Infected host creatures |
-| feral | 9 | Feral infected variants |
-| deterrent | 35 | Deterrent-stage entities |
-| derived | 3 | Derived evolved forms |
-| ancient | 3 | Ancient parasitic entities |
-| awakened | 2 | Awakened variants |
-| hijacked | 3 | Hijacked host bodies |
-| abomination | 2 | Abomination composites |
-| misc | 20 | Miscellaneous entities |
-| projectile | 1 | Projectile entities |
+- Some models have texture dimension mismatches (declared vs actual PNG size). The converter uses the actual PNG dimensions as ground truth.
+- Models with duplicate bone entries (e.g., venkrol) have been merged — cubes combined, last rotation used.
+- Animation keyframes use "linear" interpolation mode, matching the source data's per-segment interpolation.
 
-## Technical Notes
+## Changelog
 
-### Coordinate System
-- Source: GeckoLib Bedrock format (Y-up, left-hand)
-- Output: Blockbench .bbmodel (Y-up, left-hand)
-- Root bone -180° Y rotation is preserved (standard GeckoLib convention for model facing direction)
-- Models with tilted root bones (e.g., venkrol at -54.78° X) are positioned so the visual bottom sits at Y=0
+### v2 (2025-03-05) — Axis Transform Fix
 
-### Animation Processing
-- CatmullRom interpolation with overshoot clamping (margin = max(5°, 15% of range))
-- Snap-heavy rotation channels auto-detected and downgraded to linear
-- Sub-frame insertion at 20 FPS for smooth playback
-- LCM-based period locking for consistent loop periods
+**Root Cause Fix**: The previous converter had three fundamental issues:
 
-### Texture Handling
-- Textures are embedded as base64 in the .bbmodel files
-- PNG dimensions override declared dimensions when mismatched (ground truth)
-- Some models have texture dimension mismatches in the source data (auto-corrected)
+1. **Incorrect Y Offset**: Applied a computed Y offset to place models at Y=0, but the source models already use correct absolute Y coordinates. This caused models to "float" (悬空) above or sink below the ground plane. **Fix**: Removed Y offset computation entirely; models now use original source coordinates.
 
-## Conversion Statistics
+2. **Missing X-Axis Reflection**: The source models use a coordinate convention where the root bone has a -180° Y rotation, mirroring the model. Without negating X coordinates of bone pivots, models appeared "inverted" (本末倒置). **Fix**: Applied YZ-plane reflection (negate X of all bone pivots, negate X and Y of all rotations).
 
-- **Total models**: 168
-- **Conversion success**: 168/168 (100%)
-- **Models with animations**: 168
-- **Models with textures**: 168
-- **Total animations**: 310
-- **Total keyframes**: 1,352,304
-- **Total animated bones**: 5,641
-
-## Source Data
-
-Source models from: [Qom-Inseac (SRParasites)](https://github.com/Codestar-rgb/Qom-Inseac)
-
-## Converter Version
-
-Super Converter v2.1 (AST Symbol Compiler Architecture)
+3. **Excessive Keyframe Density**: The engine pipeline was inserting sub-frames at 20fps intervals, inflating file sizes by 10-20x. The reference models only contain keyframes at the original source time points. **Fix**: Bypassed the engine pipeline; parsed animations are passed directly to the exporter.

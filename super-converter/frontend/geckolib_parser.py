@@ -114,84 +114,105 @@ def _apply_rotation_to_point(
     return (rx + pivot[0], ry + pivot[1], rz + pivot[2])
 
 
-def _compute_y_offset(
+def _apply_axis_transforms(
     bones: List[dict],
     abs_pivots: Dict[str, List[float]],
-    root_rotation: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-) -> float:
-    """Compute the Y offset needed to position the model so its bottom is at Y=0.
+) -> None:
+    """Apply axis reflection transforms for correct .bbmodel output.
 
-    In the .bbmodel format, Y=0 is the ground plane.  Models should be
-    positioned so the lowest point of their geometry is at approximately Y=0.
+    The source geo.json models from SRParasites were originally MC 1.12.2 Java
+    models converted to GeckoLib format. These models use a convention where the
+    root bone has a -180° Y rotation, which effectively mirrors the model.
 
-    This function examines all cube positions in the source geo.json (which
-    uses absolute coordinates), applies the root bone's rotation to get
-    the visual (rendered) positions, and computes the minimum Y value.
-
-    CRITICAL FIX: The previous implementation did NOT account for the root
-    bone's rotation, causing models with X/Z root rotations (like venkrol
-    with rot=[-54.78, -180, 0]) to float above or sink into the ground.
-    Now we compute the Y offset from the ROTATED visual positions.
+    To produce correct .bbmodel output that matches Blockbench's rendering:
+      - Negate X of all bone pivots: (x, y, z) → (-x, y, z)
+      - Negate X and Y of all bone rotations: (rx, ry, rz) → (-rx, -ry, rz)
+      - Shift cube origin X to preserve relative position to the bone pivot
+      - For bones with ±180° Y rotation: also negate X and Z of the cube's
+        relative position (baking the rotation into the geometry)
 
     Args:
-        bones: List of bone dicts from geo.json (with original absolute coords).
-        abs_pivots: Dict mapping bone_name -> [x, y, z] absolute pivots.
-        root_rotation: Root bone's static rotation (rx, ry, rz) in degrees.
-
-    Returns:
-        Y offset to add to root bone pivot Y (positive = shift up).
+        bones: List of bone dicts from geo.json (modified in-place).
+        abs_pivots: Dict mapping bone_name -> [x, y, z] absolute pivots
+                    (modified in-place).
     """
-    # Find root pivot for rotation
-    root_pivot = [0.0, 24.0, 0.0]
-    for bone in bones:
-        if bone.get('parent') is None:
-            name = bone.get('name', '')
-            if name in abs_pivots:
-                root_pivot = abs_pivots[name]
-            break
+    # Save original pivots before modification
+    old_pivots = {name: list(p) for name, p in abs_pivots.items()}
 
-    has_rotation = root_rotation and any(abs(r) > 1e-10 for r in root_rotation)
-    min_y = float('inf')
+    # Transform absolute pivots: negate X
+    for bone_name in abs_pivots:
+        p = abs_pivots[bone_name]
+        abs_pivots[bone_name] = [-p[0], p[1], p[2]]
 
+    # Transform bone data
     for bone in bones:
         bone_name = bone.get('name', '')
-        abs_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
+        old_pivot = old_pivots.get(bone_name, [0.0, 0.0, 0.0])
+        new_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
 
-        for cube in bone.get('cubes', []):
+        # Check if this bone has ±180° Y rotation (needs X/Z baking)
+        rot = bone.get('rotation')
+        has_180y = False
+        if rot is not None:
             try:
-                origin = cube.get('origin', [0.0, 0.0, 0.0])
-                size = cube.get('size', [0.0, 0.0, 0.0])
-
-                ox, oy, oz = float(origin[0]), float(origin[1]), float(origin[2])
-                sx, sy, sz = float(size[0]), float(size[1]), float(size[2])
-
-                # Compute all 8 corners of the cube
-                corners_y = []
-                for dy in (0, sy):
-                    corner_y = oy + dy
-                    if has_rotation:
-                        # For rotated models, compute the visual Y of each corner
-                        # by applying the root rotation around the root pivot
-                        for dx in (0, sx):
-                            for dz in (0, sz):
-                                rotated = _apply_rotation_to_point(
-                                    (ox + dx, oy + dy, oz + dz),
-                                    tuple(root_pivot),
-                                    root_rotation,
-                                )
-                                corners_y.append(rotated[1])
-                    else:
-                        corners_y.append(corner_y)
-
-                cube_min_y = min(corners_y)
-                min_y = min(min_y, cube_min_y)
+                ry = float(rot[1]) if len(rot) > 1 else 0.0
+                if abs(abs(ry) - 180.0) < 0.1:
+                    has_180y = True
             except (IndexError, TypeError, ValueError):
-                continue
+                pass
 
-    if min_y == float('inf') or abs(min_y) < 0.01:
-        return 0.0
+        # Transform rotation: (rx, ry, rz) → (-rx, -ry, rz)
+        if rot is not None:
+            try:
+                bone['rotation'] = [
+                    -float(rot[0]) if len(rot) > 0 else 0.0,
+                    -float(rot[1]) if len(rot) > 1 else 0.0,
+                    float(rot[2]) if len(rot) > 2 else 0.0,
+                ]
+            except (IndexError, TypeError, ValueError):
+                pass
 
-    return -min_y
+        # Transform cube origins: preserve relative position to bone pivot
+        # by shifting cube origin by the same delta as the bone pivot.
+        for cube in bone.get('cubes', []):
+            origin = cube.get('origin')
+            size = cube.get('size')
+            if origin is not None and size is not None:
+                try:
+                    ox, oy, oz = float(origin[0]), float(origin[1]), float(origin[2])
+                    sx, sy, sz = float(size[0]), float(size[1]), float(size[2])
+
+                    if has_180y:
+                        # For bones with ±180° Y rotation: bake the rotation
+                        # into the cube positions by negating X and Z of the
+                        # relative position.
+                        # source_rel_from = [ox - old_pivot[0], oy - old_pivot[1], oz - old_pivot[2]]
+                        # source_rel_to = [ox+sx - old_pivot[0], oy+sy - old_pivot[1], oz+sz - old_pivot[2]]
+                        # After -180° Y rotation: (x,y,z) → (-x, y, -z)
+                        # new_abs_from_x = new_pivot_x + (-(ox+sx - old_pivot_x))
+                        # new_abs_to_x = new_pivot_x + (-(ox - old_pivot_x))
+                        # Same for Z
+                        new_from_x = new_pivot[0] - (ox + sx - old_pivot[0])
+                        new_to_x = new_pivot[0] - (ox - old_pivot[0])
+                        new_from_z = new_pivot[2] - (oz + sz - old_pivot[2])
+                        new_to_z = new_pivot[2] - (oz - old_pivot[2])
+                        # Ensure from < to (required by .bbmodel)
+                        if new_from_x > new_to_x:
+                            new_from_x, new_to_x = new_to_x, new_from_x
+                        if new_from_z > new_to_z:
+                            new_from_z, new_to_z = new_to_z, new_from_z
+                        # Y stays the same (rotation around Y doesn't affect Y)
+                        new_from_y = min(oy, oy + sy)
+                        new_to_y = max(oy, oy + sy)
+                        cube['origin'] = [new_from_x, new_from_y, new_from_z]
+                        # Size is preserved (span is the same, just position changed)
+                    else:
+                        # For regular bones: shift cube origin X by the same
+                        # delta as the bone pivot to preserve relative position.
+                        delta_x = new_pivot[0] - old_pivot[0]
+                        cube['origin'] = [ox + delta_x, oy, oz]
+                except (IndexError, TypeError, ValueError):
+                    pass
 
 
 def _parse_cube(cube_data: dict, abs_pivot: List[float]) -> Optional[CubeIR]:
@@ -261,15 +282,15 @@ def _parse_bone(
     """Parse a single bone dict from geo.json into a BoneIR.
 
     Converts the bone pivot from absolute to relative (relative to parent's
-    absolute pivot for child bones).  Root bones keep their pivot with the
-    Y offset applied.
+    absolute pivot for child bones).  Root bones keep their pivot directly
+    (no Y offset — the model uses original coordinates from the source).
 
     Args:
         bone_data: Raw bone dict from geo.json.
         abs_pivots: Dict mapping bone_name -> [x, y, z] absolute pivots
-                    (original, before any conversion).
+                    (after axis transforms).
         parent_abs_pivot: Parent bone's absolute pivot, or None for root.
-        y_offset: Y offset for ground placement (applied to root bones).
+        y_offset: Unused (kept for API compatibility, always 0.0).
         is_root: True if this bone has no parent.
 
     Returns:
@@ -283,17 +304,13 @@ def _parse_bone(
 
         parent = bone_data.get('parent')
 
-        # Get the bone's original absolute pivot
+        # Get the bone's absolute pivot (already axis-transformed)
         abs_pivot = abs_pivots.get(name, [0.0, 0.0, 0.0])
 
         # Convert pivot to relative
         if is_root:
-            # Root bone: keep pivot but apply Y offset
-            rel_pivot = (
-                abs_pivot[0],
-                abs_pivot[1] + y_offset,
-                abs_pivot[2],
-            )
+            # Root bone: keep pivot directly (no Y offset)
+            rel_pivot = (abs_pivot[0], abs_pivot[1], abs_pivot[2])
         else:
             # Child bone: relative to parent
             if parent_abs_pivot is not None:
@@ -463,13 +480,13 @@ def parse_geo_json(geo_data: dict) -> ModelIR:
     bone_map: Dict[str, dict] = {b.get('name', ''): b for b in bones_deduped}
 
     # ------------------------------------------------------------------
-    # Step 3: Compute Y offset accounting for root rotation (CRITICAL FIX)
+    # Step 3: Apply axis reflection transforms (CRITICAL FIX)
     # ------------------------------------------------------------------
-    # Previous implementation computed Y offset from un-rotated cube positions,
-    # which caused floating/sinking for models with X/Z root rotations.
-    # Now we apply the root rotation before computing min_y.
-    root_rotation = _get_root_rotation(bones_deduped, abs_pivots)
-    y_offset = _compute_y_offset(bones_deduped, abs_pivots, root_rotation)
+    # The source geo.json models from SRParasites were originally MC 1.12.2
+    # Java models. They use a coordinate convention where X needs to be
+    # negated and rotation X/Y need to be negated for correct Blockbench
+    # rendering. No Y offset is applied — models use original coordinates.
+    _apply_axis_transforms(bones_deduped, abs_pivots)
 
     # ------------------------------------------------------------------
     # Step 4: Parse each bone into BoneIR (converting to relative coords)
@@ -485,7 +502,7 @@ def parse_geo_json(geo_data: dict) -> ModelIR:
         parent_abs_pivot = abs_pivots.get(parent_name) if parent_name else None
 
         bone_ir = _parse_bone(
-            bone_data, abs_pivots, parent_abs_pivot, y_offset, is_root
+            bone_data, abs_pivots, parent_abs_pivot, 0.0, is_root
         )
         if bone_ir is not None:
             bones_ir.append(bone_ir)

@@ -27,7 +27,7 @@ CRITICAL: Coordinate System for .bbmodel
   Group origin:    ABSOLUTE pivot of the bone
 
   Absolute Pivot Computation:
-    - Root: abs_pivot = root.pivot (already includes Y offset from parser)
+    - Root: abs_pivot = root.pivot (no Y offset applied)
     - Children: abs_pivot = parent_abs_pivot + child.pivot (simple addition)
 
   The simple addition (no FK rotation) is correct because:
@@ -35,19 +35,11 @@ CRITICAL: Coordinate System for .bbmodel
     2. .bbmodel FROM/TO coordinates are in pre-rotation world space
     3. Blockbench applies rotations during rendering (no double-rotation)
 
-RH->LH Coordinate Corrections (applied in this exporter):
-    1. North<->South UV Face Swap: The M_model = diag(1,-1,-1) Z-flip maps
-       north_RH -> south_LH and south_RH -> north_LH, so UV data assigned
-       to 'north' in RH must be moved to 'south' in LH, and vice versa.
-       Applied via coords.convert_uv_face_north_south().
-    2. Geometric X-Mirror for mirrored cubes: When mirror=True, MC 1.12.2
-       applies scale(-1,1,1) which mirrors geometry around the bone pivot.
-       The geometric mirror (negating from/to X relative to absolute pivot)
-       must be applied in addition to setting mirror_uv=true.
-    3. West<->East UV Swap for mirrored cubes: After geometric X-mirror,
-       the face at -X (west) was originally at +X (east), so UV data
-       for 'west' and 'east' must be swapped.
-       Applied via coords.convert_uv_face_mirror().
+  Axis transforms (applied in the parser, not the exporter):
+    - All X coordinates are negated: (x, y, z) → (-x, y, z)
+    - Rotation X and Y are negated: (rx, ry, rz) → (-rx, -ry, rz)
+    - No Y offset is applied — models use original coordinates
+    - No UV face swaps are needed after the axis transforms
 """
 
 from __future__ import annotations
@@ -69,11 +61,6 @@ from core.types import (
     CubeIR,
     KeyframeData,
     ModelIR,
-)
-from core.coords import (
-    convert_uv_face_mirror,
-    convert_uv_face_north_south,
-    convert_uv_for_cube,
 )
 from core.math_utils import (
     generate_uuid,
@@ -176,9 +163,9 @@ class BBModelExporter:
         )
 
         # ------------------------------------------------------------------
-        # Phase 6: Serialize animations
+        # Phase 6: Serialize animations (with bone UUID mapping)
         # ------------------------------------------------------------------
-        serialized_anims = self._serialize_animations(animations or [])
+        serialized_anims = self._serialize_animations(animations or [], bone_uuids)
 
         # ------------------------------------------------------------------
         # Assemble the final .bbmodel structure
@@ -427,13 +414,9 @@ class BBModelExporter:
         geo.json:  { "north": { "uv": [u, v], "uv_size": [w, h] }, ... }
         bbmodel:   { "north": { "uv": [u, v, u+w, v+h], "texture": 0 }, ... }
 
-        Apply UV face swaps:
-          1. North↔South swap (RH→LH Z-flip correction) — always
-          2. West↔East swap — only for mirrored cubes
-
-        The face swaps are applied on the geo.json format data BEFORE
-        converting to bbmodel format, because the swap functions in
-        coords.py operate on {face: {uv, uv_size}} dicts.
+        No UV face swaps are applied — the source geo.json data is already
+        in the correct coordinate system after the axis transforms applied
+        in the parser.
 
         For faces without UV data: set texture to -1, uv to [0,0,0,0].
 
@@ -444,14 +427,11 @@ class BBModelExporter:
         Returns:
             Dict mapping face_name -> {uv: [u1,v1,u2,v2], texture: int}.
         """
-        # Step 1: Apply UV face swaps on the geo.json format data
-        swapped = convert_uv_for_cube(uv_data, mirror=mirror)
-
-        # Step 2: Convert format from geo.json to .bbmodel
+        # Convert format from geo.json to .bbmodel (no face swaps)
         faces: Dict[str, dict] = {}
 
         for face_name in FACE_NAMES:
-            face_uv = swapped.get(face_name)
+            face_uv = uv_data.get(face_name)
 
             if face_uv is not None and isinstance(face_uv, dict):
                 u = float(face_uv.get("uv", [0.0, 0.0])[0])
@@ -732,46 +712,16 @@ class BBModelExporter:
     # ========================================================================
 
     def _serialize_animations(
-        self, animations: List[AnimationIR]
+        self, animations: List[AnimationIR], bone_uuids: Dict[str, str]
     ) -> list:
         """Convert AnimationIR list to bbmodel animation format.
 
-        Output format per animation:
-        {
-            "name": "animation.model.idle",
-            "uuid": "...",
-            "loop": "loop",
-            "override": false,
-            "length": 6.2832,
-            "snapping": 24,
-            "selected": false,
-            "anim_time_update": "",
-            "blend_weight": "",
-            "animators": {
-                "boneName": {
-                    "name": "boneName",
-                    "type": "bone",
-                    "keyframes": [ ... ]
-                }
-            }
-        }
-
-        Keyframe format:
-        {
-            "channel": "rotation",
-            "data_points": [{"x": ..., "y": ..., "z": ..., "easing": "linear"}],
-            "uuid": "...",
-            "time": 0.0,
-            "color": -1,
-            "interpolation": "catmullrom"
-        }
-
-        For Molang keyframes, the data_points contain string expressions
-        instead of numerical values for the affected axes.
+        Uses the bone UUID as the animator key so Blockbench can correctly
+        link animations to bones.
 
         Args:
-            animations: List of AnimationIR instances (already processed
-                        through the engine pipeline).
+            animations: List of AnimationIR instances.
+            bone_uuids: Dict mapping bone_name -> UUID (from model export).
 
         Returns:
             List of animation dicts in .bbmodel format.
@@ -779,21 +729,26 @@ class BBModelExporter:
         result: list = []
 
         for anim in animations:
-            anim_dict = self._serialize_single_animation(anim)
+            anim_dict = self._serialize_single_animation(anim, bone_uuids)
             if anim_dict is not None:
                 result.append(anim_dict)
 
         return result
 
-    def _serialize_single_animation(self, anim: AnimationIR) -> Optional[dict]:
+    def _serialize_single_animation(
+        self, anim: AnimationIR, bone_uuids: Dict[str, str]
+    ) -> Optional[dict]:
         """Serialize a single AnimationIR to bbmodel animation dict.
+
+        Uses the bone's group UUID as the animator key, matching the
+        reference .bbmodel format.
 
         Args:
             anim: AnimationIR instance.
+            bone_uuids: Dict mapping bone_name -> UUID.
 
         Returns:
-            Dict in .bbmodel animation format, or None if the animation
-            has no bones/keyframes.
+            Dict in .bbmodel animation format, or None if no keyframes.
         """
         if not anim.bones:
             return None
@@ -803,7 +758,9 @@ class BBModelExporter:
         for bone_name, bone_anim in anim.bones.items():
             keyframes = self._serialize_bone_keyframes(bone_anim)
             if keyframes:
-                animators[bone_name] = {
+                # Use the bone's group UUID as the animator key
+                animator_key = bone_uuids.get(bone_name, bone_name)
+                animators[animator_key] = {
                     "name": bone_name,
                     "type": "bone",
                     "keyframes": keyframes,
@@ -868,6 +825,10 @@ class BBModelExporter:
     def _serialize_keyframe(self, kf: KeyframeData) -> Optional[dict]:
         """Serialize a single KeyframeData to bbmodel keyframe dict.
 
+        Only outputs keyframes that have at least one explicitly set axis.
+        For channels where the source only had data on some axes, the
+        non-explicit axes are filled with 0.0.
+
         For Molang keyframes, axes with Molang expressions are serialized
         as string values instead of numbers.
 
@@ -896,13 +857,11 @@ class BBModelExporter:
                 # Numerical value — round for output
                 data_point[axis] = round_for_bbmodel(axis_val.value)
 
-        data_point["easing"] = kf.easing
-
         return {
             "channel": kf.channel,
             "data_points": [data_point],
             "uuid": generate_uuid(),
             "time": round_for_bbmodel(kf.time),
             "color": -1,
-            "interpolation": kf.interpolation,
+            "interpolation": "linear",
         }
