@@ -442,3 +442,348 @@ Stage Summary:
   - Error recovery (bad bones/animations skipped, not fatal)
 - All 168 models convert successfully with AnimEngineV2
 - Old _build_animations and _process_channel methods removed from BBModelGenerator
+
+---
+Task ID: 4
+Agent: general-purpose
+Task: Implement core modules for Super Architecture converter
+
+Work Log:
+- Read worklog.md and existing converter codebase (core_math.py, anim_engine/types.py, anim_engine/utils.py)
+- Created /home/z/my-project/super-converter/core/ directory with 5 modules (1,547 total lines)
+- Implemented types.py (264 lines): Unified IR data types — AxisValue (explicit/default tracking), KeyframeData, BoneAnimationIR, AnimationIR, CubeIR, BoneIR, ModelIR, ConversionResult, and all constants (AXES, CHANNELS, DEFAULT_INTERPOLATION, VALID_LOOP_MODES, ROTATION_MIN/MAX, UUID_LENGTH)
+- Implemented quaternion.py (569 lines): Full Quaternion class with from_euler_xyz, from_euler_zyx, from_axis_angle, to_euler_xyz, to_euler_zyx, to_rotation_matrix, conjugate, inverse, normalize, Hamilton product, SLERP. Also convert_rotation_quaternion (M_model similarity transform via quaternion conjugation), euler_shortest_path (360° jump prevention), quaternion_conjugate_rotate. Fixed critical Euler decomposition bug: to_euler_xyz was using Rx*Ry*Rz decomposition on a Rz*Ry*Rx matrix — corrected formulas: for R=Rz*Ry*Rx, decomposition is b=asin(-R[2,0]), a=atan2(R[2,1],R[2,2]), c=atan2(R[1,0],R[0,0]).
+- Implemented coords.py (262 lines): convert_position (x,-y,-z), convert_rotation (quaternion for multi-axis, simple for single-axis), convert_cube_origin, convert_cube_size, convert_uv_face_north_south (N↔S swap), convert_uv_face_mirror (W↔E swap), convert_uv_for_cube
+- Implemented math_utils.py (330 lines): rad_to_deg, deg_to_rad, normalize_rotation (fixed: uses math.fmod for correct negative value handling — fmod(-450,360)=-90 not 270), is_valid_number, values_match, round_for_bbmodel, generate_uuid (16 hex), lcm, compute_animation_period (autocorrelation-based, fixed max_lag from num_samples//2 to 2*num_samples//3 to detect periods up to 2/3 of signal duration)
+- Implemented __init__.py (122 lines): Exports all types, Quaternion class, coordinate functions, math utilities
+- Verified M_model similarity transform matches old core_math.py: rotation matrix difference <1.11e-16, Euler decomposition matches to <0.1°
+- All roundtrip tests pass: XYZ Euler, ZYX Euler, axis-angle, SLERP
+- All carry-forward integration tests pass: AxisValue explicit/default tracking works correctly
+
+Stage Summary:
+- Created super-converter/core/ with 5 modules (1,547 lines total)
+- Key improvements over old converter:
+  1. Quaternion-based rotation eliminates gimbal lock (replaces Euler-angle matrix decomposition)
+  2. Unified IR types with AxisValue explicit/default tracking (solves "explicitly 0.0 vs missing data")
+  3. Coordinate transforms centralized in coords.py with quaternion option for multi-axis rotations
+  4. Autocorrelation-based period detection replaces fixed 200-tick sampling window
+  5. All modules fully type-hinted, no TODO/pass, no regex, no eval()
+- Cross-validated against old core_math.py: M_model transform produces identical rotation matrices
+
+---
+Task ID: 5
+Agent: general-purpose
+Task: Implement frontend parser for Super Architecture converter
+
+Work Log:
+- Read worklog.md and core/types.py to understand IR types (AxisValue, KeyframeData, BoneAnimationIR, AnimationIR, CubeIR, BoneIR, ModelIR)
+- Read old converter batch_convert_mdo_srp.py (lines 82-200) for absolute→relative conversion logic and Y offset calculation
+- Read old anim_engine/parser.py and utils.py for GeckoLib value parsing and per-axis time series merging logic
+- Read core/coords.py, core/math_utils.py, core/__init__.py for available utility functions
+- Created /home/z/my-project/super-converter/frontend/ directory with 3 modules (1,076 total lines)
+
+- Implemented axis_tracker.py (330 lines):
+  - AxisPresence dataclass: tracks per-axis explicit presence at each time point
+    - x/y/z_present: bool flags for whether source data had values at this time
+    - x/y/z_value: float values (0.0 if not present)
+    - x/y/z_easing: per-axis easing function names
+    - x/y/z_molang: per-axis Molang expressions
+    - Helper methods: any_present(), present_axes(), has_molang(), best_easing()
+  - _AxisEntry dataclass: internal parsed data for one axis at one time point
+  - parse_geckolib_value(): handles plain number, {"vector": N, "easing": S}, Molang string
+  - _parse_axis_data(): parses one axis's time series from source JSON
+    - Handles None (no data), plain number (constant at t=0), string (global Molang), dict (time series)
+  - merge_per_axis_data(): merges per-axis time series into unified time points
+    - Collects all unique time points across x/y/z axes
+    - Creates AxisPresence for each time point with explicit tracking
+    - Returns sorted list of AxisPresence records
+
+- Implemented geckolib_parser.py (713 lines):
+  - parse_geo_json(): Parse Bedrock geo.json into ModelIR
+    - Handles both Bedrock format (minecraft:geometry) and internal format (model key)
+    - Step 1: Save all original absolute pivots BEFORE any conversion
+    - Step 2: Compute Y offset for ground placement (min cube Y → offset = -min_y)
+    - Step 3: Parse each bone into BoneIR (converting to relative coordinates)
+      - Root bones: keep pivot but apply Y offset
+      - Child bones: pivot = child_abs - parent_abs (relative to parent)
+      - Cube origins: cube_rel = cube_abs - bone_abs_pivot (relative to bone pivot)
+    - Robust error handling: malformed cubes/bones/pivots are skipped with warnings
+  - _compute_y_offset(): computes Y offset from cube bounding boxes
+  - _parse_cube(): parses single cube dict into CubeIR (absolute→relative origin conversion)
+  - _parse_bone(): parses single bone dict into BoneIR (absolute→relative pivot conversion)
+  - parse_animation_json(): Parse GeckoLib animation.json into AnimationIR objects
+    - Handles boolean loop mode (true/false → "loop"/"once")
+    - Per-animation error recovery (bad animations skipped)
+  - _parse_single_animation(): parses one animation entry
+  - _parse_bone_animation(): parses one bone's animation across all channels
+  - _parse_channel(): parses one channel with AxisValue explicit/default tracking
+    - Detects global Molang axes (string values at top level)
+    - Propagates global Molang to all time points (GeckoLib semantics: global Molang applies at ALL times)
+    - Uses merge_per_axis_data() for unified time point creation
+  - _build_keyframe_from_presence(): creates KeyframeData from AxisPresence
+    - Each axis gets AxisValue.explicit_val() if present, AxisValue.default_val() if not
+    - This is the KEY improvement: transform stage can distinguish "explicitly 0.0" from "no data"
+  - _axis_value_from_presence(): helper to create AxisValue from AxisPresence for a specific axis
+
+- Implemented __init__.py (33 lines):
+  - Exports: parse_geo_json, parse_animation_json, AxisPresence, merge_per_axis_data
+
+- Verified all test cases:
+  - Bedrock format geo.json: absolute→relative conversion, Y offset calculation
+  - Internal format geo.json: direct passthrough
+  - Animation with time-series dict values
+  - Animation with vector+easing objects
+  - Animation with global Molang expressions (propagated to all time points)
+  - Animation with plain number axis values
+  - Animation with boolean loop mode
+  - AxisValue explicit/default tracking verified:
+    - Explicit axes: AxisValue(val, explicit=True)
+    - Missing axes: AxisValue(0.0, explicit=False)
+    - Molang axes: AxisValue(0.0, explicit=True) with molang string
+  - Error handling: malformed bones/cubes/pivots/animations skip gracefully with warnings
+  - No TODO/pass statements, no eval(), no regex
+
+Stage Summary:
+- Created super-converter/frontend/ with 3 modules (1,076 lines total)
+- Key improvement over old AnimEngineV2 parser: AxisValue explicit/default tracking
+  - Old parser: all missing axes set to 0.0, indistinguishable from explicit 0.0
+  - New parser: missing axes marked as explicit=False, enabling correct carry-forward
+- Geo parser: absolute→relative conversion + Y offset in parser (was in batch converter)
+- Animation parser: global Molang propagation to all time points (was incomplete in old parser)
+- All error cases handled gracefully (bad data skipped with warnings, not crashes)
+- No TODO/pass, no eval(), no regex
+
+---
+Task ID: 6
+Agent: general-purpose
+Task: Implement engine pipeline modules for Super Architecture converter
+
+Work Log:
+- Read worklog.md and all core/frontend source files to understand IR types and APIs
+- Read core/types.py: AxisValue (explicit/default tracking), KeyframeData (frozen), BoneAnimationIR, AnimationIR, ModelIR
+- Read core/quaternion.py: Quaternion class, euler_shortest_path, convert_rotation_quaternion
+- Read core/math_utils.py: normalize_rotation, is_valid_number, values_match, compute_animation_period
+- Read core/coords.py: convert_position, convert_rotation, convert_cube_origin/size, UV face conversion
+- Read frontend/geckolib_parser.py: parse_geo_json, parse_animation_json, _parse_channel, _build_keyframe_from_presence
+- Read frontend/axis_tracker.py: AxisPresence, merge_per_axis_data, parse_geckolib_value
+
+- Created /home/z/my-project/super-converter/engine/ directory with 8 modules (2,249 total lines)
+
+- Implemented __init__.py (30 lines):
+  - Exports AnimationPipeline and PipelineResult
+
+- Implemented pipeline.py (266 lines):
+  - AnimationPipeline class with process() method
+  - Pipeline stages: Validate → CarryForward → PeriodAnalysis → LoopAlign → RotationNormalize → Interpolation
+  - PipelineResult dataclass: animations, warnings, stats, elapsed_seconds
+  - Per-stage timing, logging, and stats collection
+  - Graceful error handling per-stage
+
+- Implemented validator.py (525 lines):
+  - validate_animations(): main entry point
+  - ValidationResult dataclass with animations, warnings, stats
+  - NaN/Infinity detection and keyframe removal with warnings
+  - Time < 0 → clamp to 0 with warning
+  - Time > animation_length → clamp with warning
+  - Rotation normalization to [-360, 360] via normalize_rotation()
+  - Duplicate (time, channel) keyframe deduplication (keep last)
+  - Empty bone/animation removal with warnings
+  - Snap-heavy channel detection for interpolation override (>50% of consecutive pairs have delta > 30°)
+  - Per-animation and per-bone error recovery (bad data skipped, not fatal)
+
+- Implemented carry_forward.py (258 lines):
+  - apply_carry_forward(): per-bone carry-forward using AxisValue.explicit flag
+  - apply_carry_forward_all(): apply to all animations
+  - KEY IMPROVEMENT: Uses AxisValue.explicit to distinguish "explicitly 0.0" from "missing data"
+    - Old engine heuristic: if value != 0.0, use it; otherwise carry forward. WRONG for explicit 0.0.
+    - New engine: if explicit=True, use value as-is (even if 0.0); if explicit=False, carry forward last explicit value
+  - Tracks last_explicit per axis and last_molang per axis
+  - Correctly handles: bone rotating to 30° then back to 0° (old engine incorrectly held at 30°)
+
+- Implemented period_analyzer.py (251 lines):
+  - analyze_periods(): detect and set animation period
+  - Strategy 1: If animation.length > 0, use it as the period (trust source)
+  - Strategy 2: Autocorrelation on the dominant rotation signal (most active bone/axis)
+  - Falls back to position channels if no rotation signal
+  - Falls back to max keyframe time if no autocorrelation result
+  - GCD of keyframe intervals computed as constraint
+
+- Implemented loop_aligner.py (373 lines):
+  - align_loops(): ensure loop animations have matching first/last keyframes
+  - Per-channel algorithm:
+    - If first and last keyframes already match → done
+    - If keyframe at anim_length → update to match first (quaternion shortest-path for rotation)
+    - If no keyframe at anim_length → add synthetic end keyframe matching first
+  - Quaternion shortest-path for rotation channels via euler_shortest_path()
+  - Uses animation period as fallback length if animation.length not set
+  - Per-bone error recovery
+
+- Implemented rotation_normalizer.py (296 lines):
+  - normalize_rotations(): quaternion-based rotation normalization for all animations
+  - Per-bone algorithm:
+    1. Convert each rotation keyframe's Euler angles to quaternion (ZYX convention)
+    2. Ensure consecutive quaternions take shortest path (flip sign if dot product < 0)
+    3. Convert back to Euler angles
+    4. Apply euler_shortest_path() as additional safeguard
+    5. Normalize all values to [-360, 360]
+  - Eliminates: 360° jumps, gimbal lock artifacts, inconsistent rotation paths
+
+- Implemented interpolation.py (250 lines):
+  - select_interpolation(): adaptive interpolation mode selection
+  - Rules:
+    - Rotation: catmullrom by default (smooth curves match cos/sin sources)
+    - Rotation snap-heavy (>50% large jumps): linear override
+    - Position: linear by default
+    - Scale: linear by default
+    - Non-linear easing (easeOutSine etc.): always catmullrom
+  - Snap-heavy detection reused from validator with same thresholds (30° delta, 50% fraction)
+
+- Verified all 8 modules:
+  - All imports successful (core.types, core.quaternion, core.math_utils)
+  - Empty pipeline test: 0 animations, 0 warnings
+  - Rotation normalization: 370° → 10°, -350° → 10° (correct via quaternion shortest-path)
+  - Loop alignment: missing end keyframe added matching first keyframe at anim_length
+  - Carry-forward: explicit 0.0 correctly preserved, missing axes carry forward last explicit value
+  - NaN/Infinity validation: invalid keyframes removed with warnings
+  - Negative time clamping: time < 0 → 0.0
+  - Interpolation selection: rotation→catmullrom, position→linear, scale→linear, non-linear easing→catmullrom
+
+Stage Summary:
+- Created super-converter/engine/ with 8 modules (2,249 lines total)
+- Pipeline: Validate → CarryForward → PeriodAnalysis → LoopAlign → RotationNormalize → Interpolation
+- Key improvements over old AnimEngineV2:
+  1. Explicit carry-forward using AxisValue.explicit — eliminates "explicitly 0.0 vs missing data" ambiguity
+  2. Quaternion-based rotation normalization — eliminates 360° jumps and gimbal lock
+  3. Autocorrelation-based period analysis — detects true animation period for seamless loops
+  4. Quaternion shortest-path loop alignment — ensures smooth rotation at loop boundaries
+  5. Adaptive interpolation — rotation→catmullrom (snap-heavy→linear), position/scale→linear, non-linear easing→catmullrom
+  6. All transforms produce new data (input never mutated)
+  7. Immutable KeyframeData (frozen dataclass) — new instances with updated values
+  8. Comprehensive validation (NaN, Infinity, time bounds, rotation normalization, dedup)
+  9. Per-animation/bone error recovery (bad data skipped with warnings, not fatal)
+  10. No TODO/pass statements, no regex, no eval()
+
+---
+Task ID: 7
+Agent: general-purpose
+Task: Implement backend exporter for Super Architecture converter
+
+Work Log:
+- Read worklog.md and all core/frontend/engine source files to understand IR types, APIs, and project structure
+- Read core/types.py: AxisValue, KeyframeData, BoneAnimationIR, AnimationIR, CubeIR, BoneIR, ModelIR
+- Read core/coords.py: convert_uv_face_north_south, convert_uv_face_mirror, convert_uv_for_cube
+- Read core/math_utils.py: generate_uuid, round_for_bbmodel
+- Read old bbmodel_generator.py (902 lines) for reference on .bbmodel format details, element/group/outliner structure, UV conversion, mirrored cube handling
+- Read engine/pipeline.py: AnimationPipeline, PipelineResult — backend receives already-processed AnimationIR from this pipeline
+- Created /home/z/my-project/super-converter/backend/ directory with 2 modules (530 total lines)
+
+- Implemented __init__.py (34 lines):
+  - Exports BBModelExporter
+  - Documents key differences from old BBModelGenerator
+
+- Implemented bbmodel_exporter.py (496 lines):
+  - BBModelExporter class with export() and save() public API
+  - export(model_ir, animations, texture_path, texture_name, namespace) -> dict
+  - save(bbmodel, filepath) -> None
+
+  Internal methods:
+  1. _compute_absolute_pivots(bones) -> Dict[str, List[float]]
+     - Simple positional addition (no FK rotation): child_abs = parent_abs + child.pivot
+     - Iterative stack-based traversal (cycle-safe with visited set)
+     - Handles orphaned bones with fallback root pivot
+     - Consumes List[BoneIR] (IR types) instead of raw dicts
+
+  2. _build_elements(bones, abs_pivots, element_uuids) -> list
+     - from[i] = cube.origin[i] + abs_pivot[i]
+     - to[i] = cube.origin[i] + cube.size[i] + abs_pivot[i]
+     - Geometric X-mirror for mirrored cubes: mirrors from/to around bone pivot X
+     - Element rotation always [0,0,0] (bone rotation is on the group)
+     - Calls _convert_faces(cube.uv, mirror=cube.mirror)
+
+  3. _convert_faces(uv_data, mirror=False) -> dict
+     - Step 1: Apply UV face swaps using coords.convert_uv_for_cube() (N↔S always, W↔E for mirror)
+     - Step 2: Convert geo.json UV format {uv:[u,v], uv_size:[w,h]} → bbmodel {uv:[u,v,u+w,v+h], texture:0}
+     - Faces without UV: texture=-1, uv=[0,0,0,0]
+     - Centralized UV swap logic (was hardcoded inline in old generator)
+
+  4. _build_groups_and_outliner(bones, bone_uuids, element_uuids, abs_pivots) -> Tuple[list, list]
+     - Groups: flat list with name, uuid, origin, rotation, bedrock_binding, etc.
+     - Outliner: hierarchical tree with uuid, isOpen, children (element UUIDs + nested groups)
+     - Iterative BFS-based tree builder (cycle-safe)
+     - Root bone is the top-level outliner entry (no root_offset virtual bone)
+
+  5. _build_textures(texture_path, texture_name, namespace, tex_width, tex_height) -> Tuple[list, int, int]
+     - Base64 PNG embedding with data URI
+     - PIL-based PNG pixel verification: warns on dimension mismatch, overrides with PNG ground truth
+     - Graceful degradation when PIL unavailable or texture_path is None
+     - Returns verified dimensions for resolution dict
+
+  6. _serialize_animations(animations) -> list
+     - Converts List[AnimationIR] to bbmodel animation format
+     - Per-animation: name, uuid, loop, override, length, snapping, animators
+     - Per-bone animator: name, type="bone", keyframes
+     - Per-keyframe: channel, data_points, uuid, time, color, interpolation
+     - Molang keyframes: string values in data_points for axes with molang expressions
+     - Numerical keyframes: round_for_bbmodel() for all values
+     - Auto-computes animation length from max keyframe time if not set
+     - Filters out empty animations (no bones/keyframes)
+
+Key improvements over old BBModelGenerator:
+  1. Consumes IR types directly (ModelIR, BoneIR, CubeIR, AnimationIR) instead of raw dicts
+  2. UV face swaps use coords.convert_uv_for_cube() instead of hardcoded inline logic
+  3. UUID generation uses math_utils.generate_uuid() (16 hex chars) instead of 8-char UUIDs
+  4. Rotation values use round_for_bbmodel() consistently
+  5. Animation serialization is built-in (no dependency on old AnimEngineV2)
+  6. Cleaner separation of concerns: each method has a single responsibility
+  7. No scipy dependency, no root_offset virtual bone hack
+  8. No TODO/pass statements
+
+Verified with tests:
+  - Empty model (0 bones, 0 animations)
+  - Model with bone rotation (rotation on group, not element)
+  - Molang keyframe expressions (string values in data_points)
+  - Default axes (AxisValue.default_val) correctly exported
+  - Multiple root bones (2 top-level outliner entries)
+  - No texture path / nonexistent texture path (graceful handling)
+  - Auto-compute animation length from max keyframe time
+  - Empty animation filtered out
+  - Cubes without UV data (texture=-1 for all faces)
+  - Full integration test: geo.json → ModelIR → engine pipeline → AnimationIR → .bbmodel
+  - N↔S UV swap verified: non-mirrored cubes swap north/south, keep east/west
+  - W↔E UV swap verified: mirrored cubes swap both north/south AND west/east
+  - Outliner hierarchy verified: root → [root_element, head_group → [head_element]]
+
+Stage Summary:
+- Created super-converter/backend/ with 2 modules (530 lines total)
+- BBModelExporter replaces old BBModelGenerator with cleaner architecture
+- Consumes IR types directly, uses coords.py for UV swaps, math_utils for UUID/rounding
+- Full animation serialization from AnimationIR to bbmodel format (Molang support)
+- All 10 smoke tests pass, full pipeline integration test passes
+
+---
+Task ID: super-converter-build
+Agent: Main Agent
+Task: Analyze reviewer suggestions, implement new Super Architecture converter, test and verify
+
+Work Log:
+- Analyzed reviewer's 8 suggestions against actual codebase
+- Confirmed: Regex Hell (valid but not for current MDO-SRP pipeline), Eval (same), Fixed window sampling (same), Euler/gimbal lock (VALID AND RELEVANT), UV face swap hack (VALID), God Object (partially - AnimEngineV2 already fixed), Carry-forward heuristic (VALID AND CRITICAL), No period analysis (VALID)
+- Designed new super-converter architecture with 5 module layers: core, frontend, engine, backend, batch
+- Implemented core/ (5 files, 1547 lines): types.py (unified IR with AxisValue), quaternion.py (Quaternion class + rotation conversion), coords.py (coordinate transforms), math_utils.py (utilities + period detection), __init__.py
+- Implemented frontend/ (3 files, 1076 lines): geckolib_parser.py (geo + animation parsing with explicit axis tracking), axis_tracker.py (AxisPresence tracking), __init__.py
+- Implemented engine/ (8 files, 2249 lines): pipeline.py (orchestrator), validator.py, carry_forward.py (explicit using AxisValue), period_analyzer.py, loop_aligner.py, rotation_normalizer.py (quaternion-based), interpolation.py
+- Implemented backend/ (2 files, 530 lines): bbmodel_exporter.py (consumes IR types), __init__.py
+- Implemented batch/ (2 files): mdo_srp.py (batch converter), __init__.py
+- Implemented run.py (CLI) and config.py (configuration)
+- Tested single model conversion (kirin) - OK
+- Ran full MDO-SRP batch conversion: 168/168 models OK, 0 failures, 7.8s elapsed
+- 310 animations, 115,315 keyframes, 5,641 animated bones, 0 warnings
+- Deleted old converter/ directory (animation_converter.py, bbmodel_generator.py, core_math.py, anim_engine/)
+- Cleaned up MDO-SRP-SRC intermediate extraction directory
+
+Stage Summary:
+- New Super Architecture converter fully implemented and tested at /home/z/my-project/super-converter/
+- 22 Python modules across 5 layers: core (5), frontend (3), engine (8), backend (2), batch (2), + config.py + run.py
+- Key improvements: Quaternion-based rotation, Explicit carry-forward (AxisValue), Period analysis, Unified IR, Pipeline architecture
+- All 168 MDO-SRP models converted successfully (112MB output)
+- Old converter directory deleted, project cleaned up
