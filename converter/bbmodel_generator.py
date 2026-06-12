@@ -870,16 +870,23 @@ class BBModelGenerator:
 
         Where value_or_object is either:
           - A plain number (no easing, defaults to linear)
+          - A string (Molang expression, stored as-is)
           - An object: {"vector": number, "easing": "easeOutSine"}
 
         We need to merge per-axis keyframes into unified keyframes at each
         unique time point.
 
-        IMPORTANT: When merging per-axis keyframes, axes that don't have a value
-        at a given time point must "hold" their previous value (carry-forward),
-        NOT default to 0.0. Defaulting to 0.0 causes animation twitching because
-        it creates zero-snaps where an axis suddenly drops to 0 when only another
-        axis changes.
+        IMPORTANT FIXES vs original code:
+        1. Carry-forward: When merging per-axis keyframes, axes that don't have
+           a value at a given time point must "hold" their previous value
+           (carry-forward), NOT default to 0.0. Defaulting to 0.0 causes
+           animation twitching (zero-snaps).
+        2. Interpolation: Use "catmullrom" (smooth/Bezier) by default for
+           rotation channels instead of "linear". This produces smooth, organic
+           animations that match the original MC 1.12.2 cos/sin-driven curves.
+           Linear interpolation causes jerky, robotic movements.
+        3. Loop alignment: For looping animations, ensure the first and last
+           keyframes have matching values to prevent jump on loop.
         """
         if not channel_data:
             return []
@@ -887,8 +894,16 @@ class BBModelGenerator:
         # Collect all time points across all axes
         time_points = {}  # time_float -> {axis: (value, easing)}
 
+        # Track which axes have Molang expressions (skip carry-forward for those)
+        molang_axes = set()
+
         for axis, keyframes in channel_data.items():
             if axis not in ("x", "y", "z"):
+                continue
+
+            if isinstance(keyframes, str):
+                # Molang expression — stored as a single string, not time-series
+                molang_axes.add(axis)
                 continue
 
             for time_str, value in keyframes.items():
@@ -906,12 +921,28 @@ class BBModelGenerator:
 
                 time_points[t][axis] = (val, easing)
 
+        if not time_points:
+            return []
+
         # Build keyframes from merged time points with carry-forward for
         # axes that don't change at each time point.
         keyframes = []
-        last_values = {"x": 0.0, "y": 0.0, "z": 0.0}
 
-        for t in sorted(time_points.keys()):
+        # Initialize carry-forward from the FIRST time point's values
+        # This prevents zero-snaps at the start of the animation
+        sorted_times = sorted(time_points.keys())
+        first_data = time_points[sorted_times[0]]
+        last_values = {}
+        for axis in ("x", "y", "z"):
+            if axis in first_data:
+                last_values[axis] = first_data[axis][0]
+            else:
+                # No value for this axis at the first time point — default to 0.0
+                # In Blockbench, 0.0 means "no change from base pose" which is
+                # correct for un-animated axes in the additive animation model.
+                last_values[axis] = 0.0
+
+        for t in sorted_times:
             axis_data = time_points[t]
 
             # Determine the dominant easing (use first non-linear easing found)
@@ -936,8 +967,21 @@ class BBModelGenerator:
 
             data_point = {"x": x_val, "y": y_val, "z": z_val, "easing": easing}
 
-            # Use catmullrom interpolation for non-linear easing (smoother in Blockbench)
-            interpolation = "catmullrom" if easing != "linear" else "linear"
+            # CRITICAL FIX: Use "catmullrom" interpolation for rotation channels
+            # by default. The original MC 1.12.2 animations use continuous
+            # trigonometric functions (cos/sin) which produce smooth curves.
+            # Linear interpolation between sampled keyframes creates jerky,
+            # robotic movements with visible "corners" at each keyframe.
+            # Catmullrom (cubic Hermite spline) produces smooth transitions
+            # that closely approximate the original trigonometric curves.
+            if easing != "linear":
+                interpolation = "catmullrom"
+            elif channel_name == "rotation":
+                # Always use smooth interpolation for rotations
+                interpolation = "catmullrom"
+            else:
+                # Position and scale channels can use linear for crisp movements
+                interpolation = "linear"
 
             keyframe = {
                 "channel": channel_name,

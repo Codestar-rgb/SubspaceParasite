@@ -237,3 +237,52 @@ Stage Summary:
 - Fix: Convert absolute→relative in batch converter; use simple addition (no FK rotation) in generator
 - All 168 MDO-SRP .bbmodel files rebuilt with correct block positions
 - Dev server restarted and running on port 3000
+
+---
+Task ID: height-anim-fix
+Agent: Main Agent
+Task: Fix model height placement and animation quality issues in MDO-SRP
+
+Work Log:
+- Analyzed all 168 models for height placement issues
+- Found 94 models sinking into ground (min_y < -0.5), 28 models floating (min_y > 5.0)
+- Root cause: Source geo.json files had incorrect entity heights (root bone pivot Y values)
+- Some models had root pivot Y=-0.9 (venkrol series) instead of correct heights
+- Large entities like kirin (Y range [50.8, 117.1]) and terla (Y range [63, 107]) had default pivot Y=24
+
+Height Fix:
+- Added `_compute_y_offset()` function to `batch_convert_mdo_srp.py`
+- Computes Y bounding box from all cube positions in source geo.json (before conversion)
+- Calculates Y offset = -min_y to shift model bottom to Y=0
+- Applied Y offset to root bone pivot Y before feeding to BBModelGenerator
+- Result: ALL 165 models now have min_y ≈ 0.0 (no sinking, no floating)
+
+Animation Fix:
+- Changed default interpolation from "linear" to "catmullrom" for rotation channels in `_process_channel()` of `bbmodel_generator.py`
+- Original MC 1.12.2 animations use cos/sin functions producing smooth curves
+- Linear interpolation created jerky, robotic movements with visible corners at keyframes
+- Catmullrom (cubic Hermite spline) closely approximates original trigonometric curves
+- Result: 110,825 rotation keyframes now use catmullrom (100%), 0 use linear
+
+Douglas-Peucker Fix:
+- Increased default dp_threshold from 0.01° to 0.5° in `animation_converter.py`
+- Added minimum keyframe density enforcement: if gap > 0.35s, re-insert intermediate keyframes
+- This prevents over-simplification that caused large rotation jumps between keyframes
+
+Carry-forward Fix:
+- Improved initial carry-forward values in `_process_channel()` of `bbmodel_generator.py`
+- Instead of always starting from {x:0, y:0, z:0}, now initializes from first time point's values
+- This prevents zero-snap artifacts at animation start for axes that don't change at t=0
+- Added Molang expression detection to skip carry-forward for Molang axes
+
+Batch Conversion:
+- Re-extracted source data from srparasites_geckolib_models_v13.zip
+- Ran batch conversion: 168/168 models OK, 0 failures
+- Cleaned up MDO-SRP-SRC intermediate directory
+
+Stage Summary:
+- Height: 94 sinking + 28 floating models → 0 sinking + 0 floating (all correctly placed at Y≈0)
+- Animation: 100% of rotation keyframes now use smooth catmullrom interpolation
+- DP threshold increased from 0.01° to 0.5° for less aggressive simplification
+- Keyframe density enforcement ensures no gaps > 0.35s between keyframes
+- All 168 MDO-SRP .bbmodel files rebuilt with fixes

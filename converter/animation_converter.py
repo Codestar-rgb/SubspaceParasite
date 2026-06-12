@@ -92,7 +92,7 @@ class AnimationConverter:
         java_source: str,
         animation_name: str = "idle",
         sample_count: int = 120,
-        dp_threshold: float = 0.01,
+        dp_threshold: float = 0.5,
         time_scale: float = 1.0,
         sample_window_ticks: float = 200.0,
         static_rotations: Optional[Dict[str, Dict[str, float]]] = None,
@@ -1194,10 +1194,29 @@ class AnimationConverter:
     # Douglas-Peucker Simplification
     # ========================================================================
 
+    # Minimum time gap between keyframes for smooth animation (seconds)
+    # If Douglas-Peucker removes keyframes creating gaps larger than this,
+    # we re-insert intermediate keyframes to prevent jerky animation.
+    _MAX_KEYFRAME_GAP_SECONDS = 0.35
+
     def _douglas_peucker_simplify(
         self, keyframes: List[dict], threshold: float
     ) -> List[dict]:
-        """Simplify keyframes using Douglas-Peucker algorithm."""
+        """Simplify keyframes using Douglas-Peucker algorithm.
+
+        After DP simplification, we enforce a minimum keyframe density by
+        re-inserting keyframes from the original set if any gap exceeds
+        _MAX_KEYFRAME_GAP_SECONDS. This prevents the animation from becoming
+        too sparse, which causes visible jerkiness even with catmullrom
+        interpolation.
+
+        Args:
+            keyframes: List of keyframe dicts with 'time' and axis values
+            threshold: Douglas-Peucker distance threshold in degrees
+
+        Returns:
+            Simplified list of keyframes with enforced minimum density
+        """
         if len(keyframes) <= 2:
             return keyframes
 
@@ -1215,7 +1234,38 @@ class AnimationConverter:
         kept_indices.add(len(keyframes) - 1)
 
         sorted_indices = sorted(kept_indices)
-        return [keyframes[i] for i in sorted_indices]
+
+        # Enforce minimum keyframe density: if any gap between consecutive
+        # kept keyframes exceeds _MAX_KEYFRAME_GAP_SECONDS, re-insert
+        # intermediate keyframes from the original set.
+        dense_indices = list(sorted_indices)
+        i = 0
+        while i < len(dense_indices) - 1:
+            idx_a = dense_indices[i]
+            idx_b = dense_indices[i + 1]
+            time_a = keyframes[idx_a]['time']
+            time_b = keyframes[idx_b]['time']
+            gap = time_b - time_a
+
+            if gap > self._MAX_KEYFRAME_GAP_SECONDS:
+                # Find the midpoint keyframe in the original set
+                mid_time = (time_a + time_b) / 2.0
+                # Find the closest original keyframe to the midpoint
+                best_idx = None
+                best_dist = float('inf')
+                for j in range(idx_a + 1, idx_b):
+                    if j not in dense_indices:
+                        dist = abs(keyframes[j]['time'] - mid_time)
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_idx = j
+                if best_idx is not None:
+                    dense_indices.insert(i + 1, best_idx)
+                    # Don't advance i — check the new gap too
+                    continue
+            i += 1
+
+        return [keyframes[i] for i in sorted(dense_indices)]
 
     def _dp_axis(self, points: List[Tuple[float, float]], threshold: float) -> List[int]:
         """Douglas-Peucker for a single axis."""

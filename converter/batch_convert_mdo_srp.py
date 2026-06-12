@@ -32,6 +32,53 @@ if CONVERTER_DIR not in sys.path:
     sys.path.insert(0, CONVERTER_DIR)
 
 
+def _compute_y_offset(bones: list, abs_pivots: dict) -> float:
+    """Compute the Y offset needed to position the model so its bottom is at Y=0.
+
+    In the .bbmodel format, Y=0 is the ground plane. Models should be
+    positioned so the lowest point of their geometry is at approximately Y=0.
+    If the model extends below Y=0, it "sinks into the ground."
+    If the model floats above Y=0, it appears to hover.
+
+    This function examines all cube positions in the source geo.json (which
+    uses absolute coordinates) and computes the minimum Y value. The Y offset
+    is -min_y, which shifts the entire model up (or down) so the bottom
+    aligns with the ground plane.
+
+    Args:
+        bones: List of bone dicts from geo.json (with original absolute coords)
+        abs_pivots: Dict mapping bone_name -> [x, y, z] absolute pivots
+
+    Returns:
+        Y offset to add to root bone pivot Y (positive = shift up)
+    """
+    min_y = float('inf')
+
+    for bone in bones:
+        bone_name = bone['name']
+        abs_pivot = abs_pivots.get(bone_name, [0.0, 0.0, 0.0])
+
+        for cube in bone.get('cubes', []):
+            # Cube origin is ABSOLUTE in the source geo.json
+            origin = cube.get('origin', [0.0, 0.0, 0.0])
+            size = cube.get('size', [0.0, 0.0, 0.0])
+
+            # Minimum Y of this cube
+            cube_min_y = min(origin[1], origin[1] + size[1])
+            min_y = min(min_y, cube_min_y)
+
+    if min_y == float('inf') or abs(min_y) < 0.01:
+        # No cubes found, or already at Y=0
+        return 0.0
+
+    # Shift model so bottom is at Y=0
+    # If min_y < 0, y_offset > 0 (shift up to fix sinking)
+    # If min_y > 0, y_offset < 0 (shift down to fix floating)
+    y_offset = -min_y
+
+    return y_offset
+
+
 def _convert_geo_for_generator(geo_data: dict) -> dict:
     """Convert Bedrock geo.json format to the format expected by BBModelGenerator.
 
@@ -58,12 +105,18 @@ def _convert_geo_for_generator(geo_data: dict) -> dict:
         }]
     }
 
-    CRITICAL FIX: The source Bedrock geo.json files from SRParasites use ABSOLUTE
-    bone pivots and ABSOLUTE cube origins (both in world-space coordinates), NOT
-    relative ones. BBModelGenerator expects RELATIVE pivots (relative to parent)
-    and RELATIVE cube origins (relative to bone pivot). We must convert:
+    CRITICAL FIX 1: The source Bedrock geo.json files from SRParasites use
+    ABSOLUTE bone pivots and ABSOLUTE cube origins (both in world-space
+    coordinates), NOT relative ones. BBModelGenerator expects RELATIVE pivots
+    (relative to parent) and RELATIVE cube origins (relative to bone pivot).
+    We must convert:
       - Cube origins: cube_rel = cube_abs - bone_abs_pivot  (MUST be done first)
       - Bone pivots:  child_rel = child_abs - parent_abs    (done second)
+
+    CRITICAL FIX 2: Many source geo.json files have incorrect entity heights,
+    causing models to sink into the ground or float above it. We compute the
+    Y bounding box of the model and shift the root bone pivot so the model
+    bottom aligns with Y=0 (the ground plane in .bbmodel).
     """
     geom_list = geo_data.get('minecraft:geometry', [])
     if geom_list:
@@ -88,6 +141,11 @@ def _convert_geo_for_generator(geo_data: dict) -> dict:
         for bone in bones:
             abs_pivots_original[bone['name']] = list(bone.get('pivot', [0.0, 0.0, 0.0]))
 
+        # Step 1.5: Compute Y offset to fix model placement height
+        # We must do this BEFORE converting to relative, while cube origins
+        # are still in absolute coordinates.
+        y_offset = _compute_y_offset(bones, abs_pivots_original)
+
         # Step 2: Convert cube origins from absolute to relative
         # cube_rel = cube_abs - bone_abs_pivot
         for bone in bones:
@@ -109,7 +167,9 @@ def _convert_geo_for_generator(geo_data: dict) -> dict:
         for bone in bones:
             parent_name = bone.get('parent')
             if parent_name is None:
-                # Root-level bone: pivot stays as absolute
+                # Root-level bone: apply Y offset to fix placement height
+                # This shifts the entire model so bottom is at Y=0
+                bone['pivot'][1] += y_offset
                 continue
             parent_abs = abs_pivots_original.get(parent_name)
             if parent_abs is None:
@@ -131,6 +191,7 @@ def _convert_geo_for_generator(geo_data: dict) -> dict:
                 'texture_width': desc.get('texture_width', 256),
                 'texture_height': desc.get('texture_height', 256),
                 'bones': bones,
+                '_y_offset': y_offset,  # Pass Y offset to generator for animation adjustment
             }
         }
     else:
