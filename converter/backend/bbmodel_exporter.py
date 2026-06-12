@@ -1,0 +1,908 @@
+#!/usr/bin/env python3
+"""
+Super Architecture — BBModel Exporter
+======================================
+
+Export ModelIR and AnimationIR to the Blockbench .bbmodel format.
+
+The .bbmodel format is a JSON file containing model geometry, textures,
+and animations in a single document. Key structural differences from
+geo.json:
+
+  - UV format:  {uv: [u1, v1, u2, v2], texture: idx}
+                (vs geo.json's {uv:[u,v], uv_size:[w,h]})
+  - Outliner:   Hierarchical bone tree with UUID references to elements
+  - Elements:   Cubes with "from"/"to" (min/max corners) and "origin" (pivot)
+  - Textures:   Embedded as base64 data URIs
+  - Animations: Keyframes grouped per bone with channel/data_points structure
+
+CRITICAL: Coordinate System for .bbmodel
+=========================================
+  .bbmodel uses ABSOLUTE world-space coordinates for element positions and
+  bone pivots (origin). This is different from the IR which stores
+  bone-local (relative to parent) coordinates.
+
+  Element from/to: ABSOLUTE world position (bone-local origin + absolute pivot)
+  Element origin:  ABSOLUTE pivot of the bone (rotation center)
+  Group origin:    ABSOLUTE pivot of the bone
+
+  Absolute Pivot Computation:
+    - Root: abs_pivot = root.pivot (already includes Y offset from parser)
+    - Children: abs_pivot = parent_abs_pivot + child.pivot (simple addition)
+
+  The simple addition (no FK rotation) is correct because:
+    1. The source geo.json pivots are positional differences
+    2. .bbmodel FROM/TO coordinates are in pre-rotation world space
+    3. Blockbench applies rotations during rendering (no double-rotation)
+
+RH->LH Coordinate Corrections (applied in this exporter):
+    1. North<->South UV Face Swap: The M_model = diag(1,-1,-1) Z-flip maps
+       north_RH -> south_LH and south_RH -> north_LH, so UV data assigned
+       to 'north' in RH must be moved to 'south' in LH, and vice versa.
+       Applied via coords.convert_uv_face_north_south().
+    2. Geometric X-Mirror for mirrored cubes: When mirror=True, MC 1.12.2
+       applies scale(-1,1,1) which mirrors geometry around the bone pivot.
+       The geometric mirror (negating from/to X relative to absolute pivot)
+       must be applied in addition to setting mirror_uv=true.
+    3. West<->East UV Swap for mirrored cubes: After geometric X-mirror,
+       the face at -X (west) was originally at +X (east), so UV data
+       for 'west' and 'east' must be swapped.
+       Applied via coords.convert_uv_face_mirror().
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+import os
+import time as _time
+from typing import Any, Dict, List, Optional, Tuple
+
+from core.types import (
+    AXES,
+    CHANNELS,
+    AnimationIR,
+    AxisValue,
+    BoneAnimationIR,
+    BoneIR,
+    CubeIR,
+    KeyframeData,
+    ModelIR,
+)
+from core.coords import (
+    convert_uv_face_mirror,
+    convert_uv_face_north_south,
+    convert_uv_for_cube,
+)
+from core.math_utils import (
+    generate_uuid,
+    round_for_bbmodel,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# Face direction mapping order used in bbmodel
+FACE_NAMES: Tuple[str, ...] = ("north", "east", "south", "west", "up", "down")
+
+
+class BBModelExporter:
+    """Export ModelIR and AnimationIR to .bbmodel format.
+
+    Usage:
+        exporter = BBModelExporter()
+        bbmodel = exporter.export(model_ir, animations=[...], texture_path="model.png")
+        exporter.save(bbmodel, "output.bbmodel")
+    """
+
+    # ========================================================================
+    # Public API
+    # ========================================================================
+
+    def export(
+        self,
+        model: ModelIR,
+        animations: Optional[List[AnimationIR]] = None,
+        texture_path: Optional[str] = None,
+        texture_name: str = "model",
+        namespace: str = "srparasites",
+    ) -> dict:
+        """Generate a .bbmodel project dict from ModelIR and AnimationIR.
+
+        Args:
+            model: The ModelIR instance from the frontend parser.
+            animations: Optional list of AnimationIR instances from the
+                        engine pipeline.  If None or empty, the output
+                        will have an empty animations list.
+            texture_path: Path to a texture PNG file to embed as base64.
+                          If None, the texture entry will have an empty
+                          source string (no embedded image).
+            texture_name: Name for the texture entry in the .bbmodel.
+            namespace: Resource namespace for texture metadata.
+
+        Returns:
+            Dict representing the .bbmodel structure, ready for
+            json.dumps() or self.save().
+        """
+        bones = model.bones
+
+        # Extract short name from identifier like "geometry.kirin" -> "kirin"
+        identifier = model.identifier
+        short_name = identifier.split(".")[-1] if "." in identifier else identifier
+        geometry_name = f"geometry.{short_name}"
+
+        now = int(_time.time())
+
+        # ------------------------------------------------------------------
+        # Phase 1: Compute absolute world-space pivots for all bones
+        # ------------------------------------------------------------------
+        abs_pivots = self._compute_absolute_pivots(bones)
+
+        # ------------------------------------------------------------------
+        # Phase 2: Assign UUIDs to all bones and cubes
+        # ------------------------------------------------------------------
+        bone_uuids: Dict[str, str] = {}
+        element_uuids: Dict[Tuple[str, int], str] = {}
+
+        for bone_idx, bone in enumerate(bones):
+            # Use name + index to ensure uniqueness even if bone names
+            # were not properly deduplicated upstream
+            if bone.name in bone_uuids:
+                bone_uuids[bone.name] = generate_uuid()  # Regenerate for collision
+            else:
+                bone_uuids[bone.name] = generate_uuid()
+            for cube_idx in range(len(bone.cubes)):
+                element_uuids[(bone.name, cube_idx)] = generate_uuid()
+
+        # ------------------------------------------------------------------
+        # Phase 3: Build elements (cubes) list
+        # ------------------------------------------------------------------
+        elements = self._build_elements(bones, abs_pivots, element_uuids)
+
+        # ------------------------------------------------------------------
+        # Phase 4: Build groups (flat array) and outliner (tree)
+        # ------------------------------------------------------------------
+        groups, outliner = self._build_groups_and_outliner(
+            bones, bone_uuids, element_uuids, abs_pivots
+        )
+
+        # ------------------------------------------------------------------
+        # Phase 5: Build textures list (may override tex dimensions from PNG)
+        # ------------------------------------------------------------------
+        textures, tex_width, tex_height = self._build_textures(
+            texture_path, texture_name, namespace,
+            model.texture_width, model.texture_height,
+        )
+
+        # ------------------------------------------------------------------
+        # Phase 6: Serialize animations
+        # ------------------------------------------------------------------
+        serialized_anims = self._serialize_animations(animations or [])
+
+        # ------------------------------------------------------------------
+        # Assemble the final .bbmodel structure
+        # ------------------------------------------------------------------
+        bbmodel = {
+            "meta": {
+                "format_version": "5.0",
+                "model_format": "bedrock",
+                "model_identifier": short_name,
+                "creation_time": now,
+                "modification_time": now,
+                "box_uv": False,
+                "face_size": [1, 1],
+            },
+            "name": short_name,
+            "geometry_name": geometry_name,
+            "model_identifier": short_name,
+            "visible_box": [80, -50, 5],
+            "variable_placeholders": "",
+            "variable_placeholder_buttons": [],
+            "resolution": {
+                "width": tex_width,
+                "height": tex_height,
+            },
+            "elements": elements,
+            "groups": groups,
+            "outliner": outliner,
+            "textures": textures,
+            "animations": serialized_anims,
+        }
+
+        return bbmodel
+
+    def save(self, bbmodel: dict, filepath: str) -> None:
+        """Save the .bbmodel dict to a JSON file.
+
+        Args:
+            bbmodel: The .bbmodel structure dict from export().
+            filepath: Output file path (should end in .bbmodel).
+        """
+        parent_dir = os.path.dirname(filepath)
+        if parent_dir and not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(bbmodel, f, indent=2, ensure_ascii=False)
+
+    # ========================================================================
+    # Absolute Pivot Computation
+    # ========================================================================
+
+    def _compute_absolute_pivots(
+        self, bones: List[BoneIR]
+    ) -> Dict[str, List[float]]:
+        """Compute absolute world-space pivots for all bones.
+
+        Uses simple positional addition (no FK rotation):
+          child_abs = parent_abs + child_pivot_relative
+
+        This is correct because:
+          1. The source geo.json pivots are positional differences
+          2. .bbmodel FROM/TO coordinates are in pre-rotation world space
+          3. Blockbench applies rotations during rendering
+
+        Args:
+            bones: List of BoneIR instances (parent before child).
+
+        Returns:
+            Dict mapping bone_name -> [abs_x, abs_y, abs_z].
+        """
+        # Build bone name -> BoneIR lookup
+        bone_map: Dict[str, BoneIR] = {b.name: b for b in bones}
+
+        # Build parent -> children mapping
+        children_map: Dict[str, List[str]] = {}
+        for bone in bones:
+            if bone.parent is not None:
+                if bone.parent not in children_map:
+                    children_map[bone.parent] = []
+                children_map[bone.parent].append(bone.name)
+
+        abs_pivots: Dict[str, List[float]] = {}
+
+        # Iterative computation using stack
+        def compute_abs_iterative(start_bone: str, parent_abs: List[float]) -> None:
+            stack = [(start_bone, parent_abs)]
+            visited: set = set()
+
+            while stack:
+                bone_name, p_abs = stack.pop()
+
+                if bone_name in abs_pivots or bone_name in visited:
+                    continue
+                visited.add(bone_name)
+
+                bone = bone_map[bone_name]
+                pivot = list(bone.pivot)
+
+                # Simple addition: child_abs = parent_abs + child_pivot_relative
+                abs_pivot = [p_abs[i] + pivot[i] for i in range(3)]
+                abs_pivots[bone_name] = abs_pivot
+
+                # Push children onto stack
+                for child_name in children_map.get(bone_name, []):
+                    stack.append((child_name, abs_pivot))
+
+        # Find root bone(s) — bones without a parent
+        root_bones = [b for b in bones if b.parent is None]
+
+        for root_bone in root_bones:
+            root_abs = list(root_bone.pivot)
+            abs_pivots[root_bone.name] = root_abs
+
+            for child_name in children_map.get(root_bone.name, []):
+                compute_abs_iterative(child_name, root_abs)
+
+        # Handle bones that still don't have absolute pivots
+        # (orphaned due to broken cycles or missing parent references)
+        fallback_root = [0.0, 24.0, 0.0]
+        for bone_name in abs_pivots:
+            if "root" in bone_name.lower():
+                fallback_root = abs_pivots[bone_name]
+                break
+
+        for bone in bones:
+            if bone.name not in abs_pivots:
+                pivot = list(bone.pivot)
+                if bone.parent and bone.parent in abs_pivots:
+                    parent_abs = abs_pivots[bone.parent]
+                    abs_pivots[bone.name] = [
+                        parent_abs[i] + pivot[i] for i in range(3)
+                    ]
+                else:
+                    abs_pivots[bone.name] = [
+                        fallback_root[i] + pivot[i] for i in range(3)
+                    ]
+
+        return abs_pivots
+
+    # ========================================================================
+    # Elements (Cubes) Builder
+    # ========================================================================
+
+    def _build_elements(
+        self,
+        bones: List[BoneIR],
+        abs_pivots: Dict[str, List[float]],
+        element_uuids: Dict[Tuple[str, int], str],
+    ) -> list:
+        """Build the flat elements list from all bones' cubes.
+
+        Each element has:
+          - from/to: ABSOLUTE world-space min/max corners
+            from[i] = cube_origin[i] + abs_pivot[i]
+            to[i] = cube_origin[i] + cube_size[i] + abs_pivot[i]
+          - origin: bone's absolute pivot (rotation center)
+          - faces: UV data with N↔S swap from
+            coords.convert_uv_face_north_south()
+          - For mirrored cubes: geometric X-mirror + W↔E UV swap
+
+        Args:
+            bones: List of BoneIR instances.
+            abs_pivots: Dict mapping bone_name -> [abs_x, abs_y, abs_z].
+            element_uuids: Dict mapping (bone_name, cube_idx) -> uuid.
+
+        Returns:
+            List of element dicts in .bbmodel format.
+        """
+        elements = []
+        color_cycle = 0
+
+        for bone in bones:
+            abs_pivot = abs_pivots.get(bone.name, [0.0, 0.0, 0.0])
+
+            for cube_idx, cube in enumerate(bone.cubes):
+                elem_uuid = element_uuids[(bone.name, cube_idx)]
+                origin = cube.origin
+                size = cube.size
+                inflate = cube.inflate
+                mirror = cube.mirror
+
+                # Convert from bone-local to ABSOLUTE world space
+                from_pos = [
+                    float(origin[0]) + abs_pivot[0],
+                    float(origin[1]) + abs_pivot[1],
+                    float(origin[2]) + abs_pivot[2],
+                ]
+                to_pos = [
+                    float(origin[0]) + float(size[0]) + abs_pivot[0],
+                    float(origin[1]) + float(size[1]) + abs_pivot[1],
+                    float(origin[2]) + float(size[2]) + abs_pivot[2],
+                ]
+
+                # Geometric X-mirror for mirrored cubes.
+                # Mirror around the bone's absolute pivot X coordinate.
+                # Original: [ox+px, ox+w+px] -> Mirrored: [2*px-(ox+w+px), 2*px-(ox+px)]
+                #         = [px-ox-w, px-ox]
+                if mirror:
+                    px = abs_pivot[0]
+                    from_x_mirrored = 2 * px - (float(origin[0]) + float(size[0]) + px)
+                    to_x_mirrored = 2 * px - (float(origin[0]) + px)
+                    from_pos[0] = from_x_mirrored
+                    to_pos[0] = to_x_mirrored
+                    # Ensure from[0] <= to[0] (required by .bbmodel format)
+                    if from_pos[0] > to_pos[0]:
+                        from_pos[0], to_pos[0] = to_pos[0], from_pos[0]
+
+                # Element origin = bone's absolute pivot (rotation center)
+                bb_origin = [float(abs_pivot[0]), float(abs_pivot[1]), float(abs_pivot[2])]
+
+                # Build faces with UV conversion (includes face swaps)
+                faces = self._convert_faces(cube.uv, mirror=mirror)
+
+                element = {
+                    "name": f"{bone.name}_c{cube_idx}",
+                    "box_uv": False,
+                    "render_order": "default",
+                    "locked": False,
+                    "export": True,
+                    "scope": 0,
+                    "allow_mirror_modeling": True,
+                    "from": from_pos,
+                    "to": to_pos,
+                    "autouv": 0,
+                    "color": color_cycle % 8,
+                    "inflate": float(inflate),
+                    "mirror_uv": mirror,
+                    "rotation": [0.0, 0.0, 0.0],
+                    "origin": bb_origin,
+                    "uv_offset": [0, 0],
+                    "faces": faces,
+                    "type": "cube",
+                    "uuid": elem_uuid,
+                }
+
+                elements.append(element)
+                color_cycle += 1
+
+        return elements
+
+    def _convert_faces(
+        self, uv_data: Dict[str, Any], mirror: bool = False
+    ) -> dict:
+        """Convert face UV data from geo.json to .bbmodel format.
+
+        geo.json:  { "north": { "uv": [u, v], "uv_size": [w, h] }, ... }
+        bbmodel:   { "north": { "uv": [u, v, u+w, v+h], "texture": 0 }, ... }
+
+        Apply UV face swaps:
+          1. North↔South swap (RH→LH Z-flip correction) — always
+          2. West↔East swap — only for mirrored cubes
+
+        The face swaps are applied on the geo.json format data BEFORE
+        converting to bbmodel format, because the swap functions in
+        coords.py operate on {face: {uv, uv_size}} dicts.
+
+        For faces without UV data: set texture to -1, uv to [0,0,0,0].
+
+        Args:
+            uv_data: Dict mapping face_name -> {uv: [u,v], uv_size: [w,h]}.
+            mirror: Whether the cube has the mirror flag set.
+
+        Returns:
+            Dict mapping face_name -> {uv: [u1,v1,u2,v2], texture: int}.
+        """
+        # Step 1: Apply UV face swaps on the geo.json format data
+        swapped = convert_uv_for_cube(uv_data, mirror=mirror)
+
+        # Step 2: Convert format from geo.json to .bbmodel
+        faces: Dict[str, dict] = {}
+
+        for face_name in FACE_NAMES:
+            face_uv = swapped.get(face_name)
+
+            if face_uv is not None and isinstance(face_uv, dict):
+                u = float(face_uv.get("uv", [0.0, 0.0])[0])
+                v = float(face_uv.get("uv", [0.0, 0.0])[1])
+                w = float(face_uv.get("uv_size", [0.0, 0.0])[0])
+                h = float(face_uv.get("uv_size", [0.0, 0.0])[1])
+
+                faces[face_name] = {
+                    "uv": [u, v, u + w, v + h],
+                    "texture": 0,
+                }
+            else:
+                # Face without UV data — assign no texture
+                faces[face_name] = {
+                    "uv": [0.0, 0.0, 0.0, 0.0],
+                    "texture": -1,
+                }
+
+        return faces
+
+    # ========================================================================
+    # Groups and Outliner Builder
+    # ========================================================================
+
+    def _build_groups_and_outliner(
+        self,
+        bones: List[BoneIR],
+        bone_uuids: Dict[str, str],
+        element_uuids: Dict[Tuple[str, int], str],
+        abs_pivots: Dict[str, List[float]],
+    ) -> Tuple[list, list]:
+        """Build groups flat array and outliner tree structure.
+
+        Groups: flat list of bone group dicts with name, uuid, origin,
+                rotation, etc.
+
+        Outliner: hierarchical tree with uuid, isOpen, children (element
+                  UUIDs + nested groups).
+
+        The root bone is the top-level entry in the outliner. No
+        root_offset virtual bone is used — the old 180° Y rotation
+        hack was incorrect and has been removed.
+
+        Args:
+            bones: List of BoneIR instances.
+            bone_uuids: Dict mapping bone_name -> uuid.
+            element_uuids: Dict mapping (bone_name, cube_idx) -> uuid.
+            abs_pivots: Dict mapping bone_name -> [abs_x, abs_y, abs_z].
+
+        Returns:
+            Tuple of (groups_list, outliner_tree).
+        """
+        # Build bone name -> BoneIR lookup
+        bone_map: Dict[str, BoneIR] = {b.name: b for b in bones}
+
+        # Build parent -> children mapping
+        children_map: Dict[str, List[str]] = {}
+        root_bones: List[str] = []
+
+        for bone in bones:
+            if bone.parent is None:
+                root_bones.append(bone.name)
+            else:
+                if bone.parent not in children_map:
+                    children_map[bone.parent] = []
+                children_map[bone.parent].append(bone.name)
+
+        # Build groups flat array (all bones with full metadata)
+        groups = []
+        for bone in bones:
+            bone_uid = bone_uuids[bone.name]
+            abs_pivot = abs_pivots.get(bone.name, [0.0, 0.0, 0.0])
+
+            # Rotation — simplify equivalent rotations for clean output
+            rot = bone.rotation
+            rx, ry, rz = float(rot[0]), float(rot[1]), float(rot[2])
+
+            # Simplify rotations that are equivalent to simpler forms
+            # e.g., [-180, -180, 180] → [0, 0, 0] (identity)
+            # Only simplify if there are X/Z components that can be eliminated
+            if abs(rx) > 0.1 or abs(rz) > 0.1:
+                from core.quaternion import Quaternion
+                q = Quaternion.from_euler_zyx(rx, ry, rz, degrees=True)
+                identity = Quaternion.identity()
+                dot = abs(q.w * identity.w + q.x * identity.x + q.y * identity.y + q.z * identity.z)
+                if dot > 0.9999:
+                    rx, ry, rz = 0.0, 0.0, 0.0
+                else:
+                    # Check if equivalent to simple 180° Y rotation
+                    for test_ry in (180.0, -180.0):
+                        q_test = Quaternion.from_euler_zyx(0, test_ry, 0, degrees=True)
+                        dot_test = abs(q.w * q_test.w + q.x * q_test.x + q.y * q_test.y + q.z * q_test.z)
+                        if dot_test > 0.9999:
+                            rx, ry, rz = 0.0, test_ry, 0.0
+                            break
+
+            bb_rotation = [
+                round_for_bbmodel(rx),
+                round_for_bbmodel(ry),
+                round_for_bbmodel(rz),
+            ]
+            # Snap near-zero values to exact zero
+            for i in range(3):
+                if abs(bb_rotation[i]) < 1e-10:
+                    bb_rotation[i] = 0.0
+
+            group = {
+                "name": bone.name,
+                "uuid": bone_uid,
+                "export": True,
+                "locked": False,
+                "scope": 0,
+                "selected": False,
+                "_static": {"properties": {}, "temp_data": {}},
+                "origin": [
+                    float(abs_pivot[0]),
+                    float(abs_pivot[1]),
+                    float(abs_pivot[2]),
+                ],
+                "rotation": bb_rotation,
+                "bedrock_binding": bone.binding if bone.binding else "",
+                "color": 0,
+                "children": [],
+                "reset": False,
+                "shade": True,
+                "mirror_uv": False,
+                "visibility": True,
+                "autouv": 0,
+                "isOpen": False,
+                "primary_selected": False,
+            }
+            groups.append(group)
+
+        # Build outliner tree (iterative, cycle-safe)
+        def build_outliner_tree(start_bone: str) -> dict:
+            """Build outliner tree iteratively from start_bone."""
+            visited: set = set()
+            entries: Dict[str, dict] = {}
+
+            # BFS to collect all bones reachable from start_bone
+            queue = [start_bone]
+            bone_order: List[str] = []
+            while queue:
+                bn = queue.pop(0)
+                if bn in visited:
+                    continue
+                visited.add(bn)
+                bone_order.append(bn)
+                for child_name in children_map.get(bn, []):
+                    if child_name not in visited:
+                        queue.append(child_name)
+
+            # Build entries in reverse order (children before parents)
+            for bn in reversed(bone_order):
+                bone_uid = bone_uuids[bn]
+                children: list = []
+
+                # Add element UUIDs (cubes belonging to this bone)
+                bone_obj = bone_map.get(bn)
+                if bone_obj:
+                    for cube_idx in range(len(bone_obj.cubes)):
+                        elem_uuid = element_uuids[(bn, cube_idx)]
+                        children.append(elem_uuid)
+
+                # Add child bone group entries (already built)
+                for child_name in children_map.get(bn, []):
+                    if child_name in entries:
+                        children.append(entries[child_name])
+
+                entry: Dict[str, Any] = {
+                    "uuid": bone_uid,
+                    "isOpen": False,
+                }
+
+                if children:
+                    entry["children"] = children
+
+                entries[bn] = entry
+
+            return entries[start_bone]
+
+        # Build the outliner starting from root-level bones
+        outliner: list = []
+
+        # If there's a bone named "root", it's the single top-level entry
+        if "root" in bone_map:
+            outliner.append(build_outliner_tree("root"))
+        else:
+            # No explicit root bone — add top-level bones directly
+            for bone_name in root_bones:
+                outliner.append(build_outliner_tree(bone_name))
+
+        return groups, outliner
+
+    # ========================================================================
+    # Textures Builder
+    # ========================================================================
+
+    def _build_textures(
+        self,
+        texture_path: Optional[str],
+        texture_name: str,
+        namespace: str,
+        tex_width: int,
+        tex_height: int,
+    ) -> Tuple[list, int, int]:
+        """Build textures list with optional base64-embedded PNG.
+
+        Uses PIL to verify PNG dimensions against declared dimensions.
+        If mismatch, overrides with PNG actual dimensions (ground truth).
+
+        If texture_path is None or the file doesn't exist, the texture
+        entry will have an empty source string (no embedded image).
+
+        Args:
+            texture_path: Path to the texture PNG file, or None.
+            texture_name: Name for the texture entry.
+            namespace: Resource namespace for texture metadata.
+            tex_width: Declared texture width in pixels.
+            tex_height: Declared texture height in pixels.
+
+        Returns:
+            Tuple of (textures_list, verified_tex_width, verified_tex_height).
+        """
+        source = ""
+        png_width: Optional[int] = None
+        png_height: Optional[int] = None
+
+        if texture_path and os.path.isfile(texture_path):
+            # Read PNG and embed as base64 data URI
+            with open(texture_path, "rb") as f:
+                raw = f.read()
+            b64 = base64.b64encode(raw).decode("ascii")
+            source = f"data:image/png;base64,{b64}"
+
+            # PNG pixel verification: read actual dimensions
+            try:
+                from PIL import Image
+                with Image.open(texture_path) as img:
+                    png_width, png_height = img.size
+            except ImportError:
+                # PIL not available — skip verification gracefully
+                pass
+            except Exception:
+                # Could not read image — skip verification gracefully
+                pass
+
+        # If PNG verification succeeded, check for dimension mismatch
+        if png_width is not None and png_height is not None:
+            if png_width != tex_width or png_height != tex_height:
+                logger.warning(
+                    "Texture dimension mismatch: declared %dx%d, "
+                    "PNG actual %dx%d. Overriding with PNG dimensions "
+                    "(ground truth).",
+                    tex_width, tex_height, png_width, png_height,
+                )
+                tex_width = png_width
+                tex_height = png_height
+
+        tex_entry = {
+            "name": texture_name,
+            "folder": "entity/monster",
+            "namespace": namespace,
+            "source": source,
+            "mode": "bitmap",
+            "saved": True,
+            "uuid": generate_uuid(),
+            "width": tex_width,
+            "height": tex_height,
+            "uv_width": tex_width,
+            "uv_height": tex_height,
+        }
+
+        return [tex_entry], tex_width, tex_height
+
+    # ========================================================================
+    # Animation Serialization
+    # ========================================================================
+
+    def _serialize_animations(
+        self, animations: List[AnimationIR]
+    ) -> list:
+        """Convert AnimationIR list to bbmodel animation format.
+
+        Output format per animation:
+        {
+            "name": "animation.model.idle",
+            "uuid": "...",
+            "loop": "loop",
+            "override": false,
+            "length": 6.2832,
+            "snapping": 24,
+            "selected": false,
+            "anim_time_update": "",
+            "blend_weight": "",
+            "animators": {
+                "boneName": {
+                    "name": "boneName",
+                    "type": "bone",
+                    "keyframes": [ ... ]
+                }
+            }
+        }
+
+        Keyframe format:
+        {
+            "channel": "rotation",
+            "data_points": [{"x": ..., "y": ..., "z": ..., "easing": "linear"}],
+            "uuid": "...",
+            "time": 0.0,
+            "color": -1,
+            "interpolation": "catmullrom"
+        }
+
+        For Molang keyframes, the data_points contain string expressions
+        instead of numerical values for the affected axes.
+
+        Args:
+            animations: List of AnimationIR instances (already processed
+                        through the engine pipeline).
+
+        Returns:
+            List of animation dicts in .bbmodel format.
+        """
+        result: list = []
+
+        for anim in animations:
+            anim_dict = self._serialize_single_animation(anim)
+            if anim_dict is not None:
+                result.append(anim_dict)
+
+        return result
+
+    def _serialize_single_animation(self, anim: AnimationIR) -> Optional[dict]:
+        """Serialize a single AnimationIR to bbmodel animation dict.
+
+        Args:
+            anim: AnimationIR instance.
+
+        Returns:
+            Dict in .bbmodel animation format, or None if the animation
+            has no bones/keyframes.
+        """
+        if not anim.bones:
+            return None
+
+        animators: Dict[str, dict] = {}
+
+        for bone_name, bone_anim in anim.bones.items():
+            keyframes = self._serialize_bone_keyframes(bone_anim)
+            if keyframes:
+                animators[bone_name] = {
+                    "name": bone_name,
+                    "type": "bone",
+                    "keyframes": keyframes,
+                }
+
+        if not animators:
+            return None
+
+        # Compute animation length if not set
+        anim_length = anim.length
+        if anim_length <= 0:
+            # Find max keyframe time across all bones
+            max_time = 0.0
+            for bone_anim in anim.bones.values():
+                for kf in bone_anim.keyframes:
+                    if kf.time > max_time:
+                        max_time = kf.time
+            anim_length = round_for_bbmodel(max_time)
+
+        return {
+            "name": anim.name,
+            "uuid": generate_uuid(),
+            "loop": anim.loop,
+            "override": False,
+            "length": round_for_bbmodel(anim_length),
+            "snapping": 24,
+            "selected": False,
+            "anim_time_update": "",
+            "blend_weight": "",
+            "animators": animators,
+        }
+
+    def _serialize_bone_keyframes(
+        self, bone_anim: BoneAnimationIR
+    ) -> list:
+        """Serialize all keyframes for a bone animation.
+
+        Each KeyframeData becomes one bbmodel keyframe dict. The keyframes
+        are sorted by time then channel for deterministic output.
+
+        Args:
+            bone_anim: BoneAnimationIR instance with keyframes.
+
+        Returns:
+            List of keyframe dicts in .bbmodel format.
+        """
+        result: list = []
+
+        # Sort keyframes by time, then channel
+        sorted_kfs = sorted(
+            bone_anim.keyframes,
+            key=lambda kf: (kf.time, kf.channel),
+        )
+
+        for kf in sorted_kfs:
+            kf_dict = self._serialize_keyframe(kf)
+            if kf_dict is not None:
+                result.append(kf_dict)
+
+        return result
+
+    def _serialize_keyframe(self, kf: KeyframeData) -> Optional[dict]:
+        """Serialize a single KeyframeData to bbmodel keyframe dict.
+
+        For Molang keyframes, axes with Molang expressions are serialized
+        as string values instead of numbers.
+
+        Args:
+            kf: KeyframeData instance.
+
+        Returns:
+            Dict in .bbmodel keyframe format, or None if the keyframe
+            has no explicit data.
+        """
+        if not kf.has_explicit_axis():
+            return None
+
+        # Build data_points
+        data_point: Dict[str, Any] = {}
+
+        for axis in AXES:
+            molang_attr = f"molang_{axis}"
+            molang_expr = getattr(kf, molang_attr, "")
+            axis_val: AxisValue = getattr(kf, axis)
+
+            if molang_expr:
+                # Molang expression — use string value
+                data_point[axis] = molang_expr
+            else:
+                # Numerical value — round for output
+                data_point[axis] = round_for_bbmodel(axis_val.value)
+
+        data_point["easing"] = kf.easing
+
+        return {
+            "channel": kf.channel,
+            "data_points": [data_point],
+            "uuid": generate_uuid(),
+            "time": round_for_bbmodel(kf.time),
+            "color": -1,
+            "interpolation": kf.interpolation,
+        }

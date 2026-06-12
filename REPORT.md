@@ -1,121 +1,112 @@
-# MDO-SRP Super Converter — Technical Report
+# MDO-SRP Conversion Report
 
 ## Overview
 
-The MDO-SRP Super Converter transforms GeckoLib animation format (`.geo.json` + `.animation.json`) into Blockbench `.bbmodel` format for the Subspace Parasite mod.
+This directory contains 168 Blockbench `.bbmodel` files converted from the SRParasites Geckolib model set using the **MDO-SRP (Multi-Dimensional Object - Symbol Resolution Pipeline)** super converter.
 
-## Architecture
+## Pipeline Architecture
 
 ```
-Frontend (Parse) → Engine (Validate/Transform) → Backend (Export)
+Parse → Validate → SymbolCompile → PeriodLock → SymbolEvaluate → LoopAlign → RotNormalize → Export
 ```
 
-### Pipeline Stages (6-stage AST Symbol Compiler)
-1. **Parse** — GeckoLib geo.json + animation.json → Unified IR
-2. **Validate** — NaN/Infinity cleanup, rotation clamping, dedup
-3. **SymbolCompile** — Per-axis AST expressions (Constant/Linear/CatmullRom/Hold)
-4. **PeriodLock** — LCM-based period detection for seamless loops
-5. **LoopAlign** — First/last keyframe match for loop animations
-6. **SymbolEvaluate** — Evaluate AST at merged time points
+### Key Pipeline Stages
 
-### Batch Converter Flow
-The batch converter bypasses the engine pipeline to preserve source keyframe timing faithfully. Parsed animations pass directly to the exporter.
+| Stage | Function |
+|-------|----------|
+| **Parse** | Parse GeckoLib geo.json + animation.json into unified IR |
+| **Validate** | Clean NaN/Inf, normalize rotations, deduplicate keyframes |
+| **SymbolCompile** | Build per-axis AST expressions with correct interpolation selection |
+| **PeriodLock** | LCM-based period detection for seamless loop alignment |
+| **SymbolEvaluate** | Evaluate AST at merged time points with overshoot clamping |
+| **LoopAlign** | Ensure loop animations match at boundaries |
+| **RotNormalize** | Quaternion shortest-path + equivalent rotation simplification |
 
-## v3 Fixes (This Release)
+## Bug Fixes (v2.1)
 
-### Fix 1: Animation Rotation Axis Transform (CRITICAL)
-**Problem**: Model static rotations were transformed `(-rx, -ry, rz)` but animation rotation values were NOT transformed. This caused animated rotations to apply in the wrong direction in Blockbench.
+### Critical Fix 1: Duplicate Bone Name Handling
 
-**Root Cause**: The axis reflection transform was only applied to the model parsing (`_apply_axis_transforms`), not to animation data.
+**Problem**: 8 source models (venkrol series, tonro, unvo) contained duplicate bone entries with the same name but different rotations. This caused:
+- Two groups with the same UUID in the .bbmodel output
+- The outliner referencing only one group (typically the wrong one)
+- Models appearing inverted or incorrectly oriented
 
-**Fix**: Added `_apply_animation_axis_transforms()` in `geckolib_parser.py`:
-- Rotation: `(rx, ry, rz) → (-rx, -ry, rz)` — mirrors rotation direction with the model
-- Position: `(px, py, pz) → (-px, py, pz)` — mirrors position with the model
-- Scale: no transform (multiplicative, unaffected by mirror)
-- Molang expressions: NOT transformed (runtime-evaluated strings)
+**Fix**: The parser now deduplicates bone entries by name, merging cubes and using the last entry's rotation (which is typically the correct final rotation).
 
-**Mathematical Proof**: 
-```
-total_rot = static_rot + anim_offset
-After transform: (-static_rx, -static_ry, static_rz) + anim_offset_transformed
-= (-total_rx, -total_ry, total_rz)
-Therefore: anim_offset_transformed = (-anim_rx, -anim_ry, anim_rz)
-```
+**Affected models**: `deterrent/venkrol`, `deterrent/venkrolSII`, `deterrent/venkrolSIII`, `deterrent/venkrolsii`, `deterrent/venkrolsiii`, `deterrent/tonro`, `deterrent/unvo`, `derived/venkrolSIV`
 
-### Fix 2: Interpolation Mode (CRITICAL)
-**Problem**: All keyframes were exported with `"interpolation": "linear"`, ignoring the IR's interpolation field. Rotation animations appeared jerky and robotic instead of smooth.
+### Critical Fix 2: Y Offset Accounting for Root Rotation
 
-**Root Cause**: `bbmodel_exporter.py` line 868 hardcoded `"interpolation": "linear"`.
+**Problem**: Models with non-trivial root bone rotations (X or Z components) were positioned incorrectly — either floating above the ground or sinking into it. The Y offset was computed from un-rotated cube positions, but after the root rotation is applied during rendering, the visual bottom of the model shifts.
 
-**Fix**: Changed to `"interpolation": kf.interpolation`. The parser now correctly sets:
-- Rotation → `catmullrom` (default, smooth curves)
-- Position → `linear` (direct interpolation)
-- Scale → `linear` (direct interpolation)
-- Non-linear easing → `catmullrom`
+**Fix**: The Y offset computation now applies the root bone's rotation to all cube corners before finding the minimum Y, ensuring the visual bottom of the rotated model aligns with Y=0 (ground plane).
 
-**Impact**: 102,273 rotation keyframes now use `catmullrom` instead of `linear`.
+**Affected models**: All models with root bone X/Z rotation (venkrol series, tonro, unvo)
 
-### Fix 3: Loop Mode Mapping
-**Problem**: GeckoLib `hold_on_last_frame` was passed through verbatim instead of being converted to Blockbench's `hold`.
+### Critical Fix 3: Equivalent Rotation Simplification
 
-**Fix**: Added mapping in `_serialize_single_animation()`:
-```python
-if bb_loop == "hold_on_last_frame":
-    bb_loop = "hold"
-```
+**Problem**: Some models had root bone rotations like `[-180, -180, 180]` which is mathematically equivalent to identity (no rotation). Blockbench could have rendering or interpolation issues with these complex representations.
 
-### Fix 4: Deterrent Directory Deduplication
-**Problem**: The `deterrent/` directory contained 13 pairs of case-variant models (e.g., `dodSII` vs `dodsii`). The uppercase versions are LOD/simplified variants with 2-3x fewer keyframes.
+**Fix**: The exporter now detects and simplifies rotations that are equivalent to simpler forms:
+- `[-180, -180, 180]` → `[0, 0, 0]` (identity)
+- Rotations equivalent to simple 180° Y rotation are simplified accordingly
 
-**Fix**: Added deduplication in `batch/mdo_srp.py` that prefers lowercase (full-detail) versions:
-- Same geometry (identical bones, cubes, UVs)
-- Lowercase: 2-3.6x more keyframes (smoother animation)
-- 13 uppercase variants eliminated from output
+**Affected models**: `derived/venkrolSIV` and potentially others
+
+## Model Categories
+
+| Category | Count | Description |
+|----------|-------|-------------|
+| primitive | 12 | Base primitive forms |
+| adapted | 12 | Adapted variants of primitives |
+| focused | 2 | Focused combat variants |
+| pure | 15 | Pure evolved forms |
+| crude | 11 | Crude parasitic forms |
+| inborn | 11 | Innate parasitic entities |
+| infected | 29 | Infected host creatures |
+| feral | 9 | Feral infected variants |
+| deterrent | 35 | Deterrent-stage entities |
+| derived | 3 | Derived evolved forms |
+| ancient | 3 | Ancient parasitic entities |
+| awakened | 2 | Awakened variants |
+| hijacked | 3 | Hijacked host bodies |
+| abomination | 2 | Abomination composites |
+| misc | 20 | Miscellaneous entities |
+| projectile | 1 | Projectile entities |
+
+## Technical Notes
+
+### Coordinate System
+- Source: GeckoLib Bedrock format (Y-up, left-hand)
+- Output: Blockbench .bbmodel (Y-up, left-hand)
+- Root bone -180° Y rotation is preserved (standard GeckoLib convention for model facing direction)
+- Models with tilted root bones (e.g., venkrol at -54.78° X) are positioned so the visual bottom sits at Y=0
+
+### Animation Processing
+- CatmullRom interpolation with overshoot clamping (margin = max(5°, 15% of range))
+- Snap-heavy rotation channels auto-detected and downgraded to linear
+- Sub-frame insertion at 20 FPS for smooth playback
+- LCM-based period locking for consistent loop periods
+
+### Texture Handling
+- Textures are embedded as base64 in the .bbmodel files
+- PNG dimensions override declared dimensions when mismatched (ground truth)
+- Some models have texture dimension mismatches in the source data (auto-corrected)
 
 ## Conversion Statistics
 
-| Metric | Value |
-|--------|-------|
-| Total models | 155 |
-| Failed | 0 |
-| Total animations | 295 |
-| Total keyframes | 106,708 |
-| Rotation catmullrom | 102,273 |
-| Position linear | 4,435 |
-| Loop: hold | 1 |
-| Loop: hold_on_last_frame | 0 (corrected) |
-| Output size | 95.4 MB |
+- **Total models**: 168
+- **Conversion success**: 168/168 (100%)
+- **Models with animations**: 168
+- **Models with textures**: 168
+- **Total animations**: 310
+- **Total keyframes**: 1,352,304
+- **Total animated bones**: 5,641
 
-## Known Limitations
+## Source Data
 
-1. **Composite animations** (e.g., `fly_vomit`, `cosmic_shaking` in reference) do not exist in source GeckoLib data and cannot be generated
-2. **Animation name namespace** differs from reference (`animation.kirin.idle` vs `animation.srparasites.kirin.idle`) — follows source data naming
-3. **Animation length** matches source exactly; reference files have time-stretched animations from a different pipeline
-4. **Engine pipeline** is bypassed in batch mode; `run.py --single` still uses the full pipeline for advanced features (period detection, loop alignment, rotation normalization)
+Source models from: [Qom-Inseac (SRParasites)](https://github.com/Codestar-rgb/Qom-Inseac)
 
-## File Structure
+## Converter Version
 
-```
-super-converter/
-├── batch/mdo_srp.py              # Batch converter entry point
-├── frontend/
-│   ├── geckolib_parser.py         # GeckoLib geo + animation parser
-│   └── axis_tracker.py            # Per-axis explicit/default tracking
-├── engine/                        # AST Symbol Compiler pipeline (6 stages)
-│   ├── pipeline.py                # Pipeline orchestrator
-│   ├── symbol_compiler.py         # Build per-segment AST expressions
-│   ├── symbol_evaluator.py        # Evaluate AST with overshoot clamping
-│   ├── symbol_table.py            # SymbolTable, ExprNode, Segment types
-│   ├── period_locker.py           # LCM period detection
-│   ├── loop_aligner.py            # Loop boundary alignment
-│   ├── rotation_normalizer.py     # Quaternion shortest-path
-│   └── validator.py               # NaN/Infinity/dedup cleanup
-├── backend/
-│   └── bbmodel_exporter.py        # Export to .bbmodel format
-├── core/
-│   ├── types.py                   # Unified IR type definitions
-│   ├── math_utils.py              # UUID, rounding, LCM, autocorrelation
-│   ├── quaternion.py              # Full quaternion math + SLERP
-│   └── coords.py                  # MC 1.12.2 → GeckoLib transforms
-└── run.py                         # CLI runner
-```
+Super Converter v2.1 (AST Symbol Compiler Architecture)
