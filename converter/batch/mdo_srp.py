@@ -36,7 +36,6 @@ if CONVERTER_DIR not in sys.path:
     sys.path.insert(0, CONVERTER_DIR)
 
 from frontend.geckolib_parser import parse_geo_json, parse_animation_json
-from engine.pipeline import AnimationPipeline
 from backend.bbmodel_exporter import BBModelExporter
 
 
@@ -63,8 +62,7 @@ def batch_convert_mdo_srp(
     """
     print("=" * 70)
     print("  Super Converter — MDO-SRP Batch Conversion")
-    print("  Pipeline: Parse → Validate → CarryForward → PeriodAnalysis")
-    print("            → LoopAlign → RotationNormalize → Interpolation → Export")
+    print("  Pipeline: Parse → AxisTransform → Export")
     print("=" * 70)
     print()
 
@@ -72,10 +70,9 @@ def batch_convert_mdo_srp(
         print(f"ERROR: Input directory not found: {input_dir}")
         sys.exit(1)
 
-    # Initialize pipeline components
-    pipeline = AnimationPipeline()
+    # Initialize exporter
     exporter = BBModelExporter()
-    print("  [OK] Loaded Super Converter pipeline")
+    print("  [OK] Loaded BBModel Exporter")
     print()
 
     # Find all .geo.json files
@@ -164,26 +161,22 @@ def batch_convert_mdo_srp(
             else:
                 status_parts.append("no_anim")
 
-            # ---- Step 3: Run animation pipeline ----
+            # ---- Step 3: Use parsed animations directly (no pipeline) ----
+            # The engine pipeline was causing excessive keyframe density by
+            # inserting sub-frames. The reference model only has keyframes
+            # at the original source time points. We skip the pipeline and
+            # pass parsed animations directly to the exporter.
+            #
+            # The parsed AnimationIR already has the correct keyframe structure
+            # from the source .animation.json, with AxisValue tracking for
+            # explicit vs. default axis values.
+
+            # Count keyframes for stats
             if animations_ir:
-                from core.types import AnimationIR
-                anim_input = {a.name: a for a in animations_ir}
-                pipeline_result = pipeline.process(anim_input, model_name=name)
-
-                animations_ir = list(pipeline_result.animations.values())
-
-                # Collect engine stats
-                ps = pipeline_result.stats
-                stats['engine_stats']['total_keyframes'] += ps.get('total_keyframes', 0)
-                stats['engine_stats']['total_bones'] += ps.get('total_bones', 0)
-                stats['engine_stats']['total_animations'] += ps.get('total_animations', 0)
-                stats['engine_stats']['carry_forward_applied'] += ps.get('carry_forward_applied', 0)
-                stats['engine_stats']['loop_alignments'] += ps.get('loop_alignments', 0)
-                stats['engine_stats']['rotations_normalized'] += ps.get('rotations_normalized', 0)
-                stats['engine_stats']['periods_detected'] += ps.get('periods_detected', 0)
-                stats['engine_stats']['warnings'] += len(pipeline_result.warnings)
-
-                kf_count = ps.get('total_keyframes', 0)
+                kf_count = sum(len(ba.keyframes) for a in animations_ir for ba in a.bones.values())
+                stats['engine_stats']['total_keyframes'] += kf_count
+                stats['engine_stats']['total_bones'] += sum(len(a.bones) for a in animations_ir)
+                stats['engine_stats']['total_animations'] += len(animations_ir)
                 if kf_count > 0:
                     status_parts.append(f"kf={kf_count}")
 

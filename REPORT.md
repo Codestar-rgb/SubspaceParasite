@@ -1,124 +1,80 @@
-# MDO-SRP Conversion Report v3.0
+# MDO-SRP 转换器修复报告 v3
 
-## Overview
+## 修复日期
+2026-03-05
 
-This directory contains 168 Blockbench `.bbmodel` files converted from the SRParasites Geckolib model set using the **MDO-SRP (Multi-Dimensional Object - Symbol Resolution Pipeline)** super converter.
+## 修复的三个核心问题
 
-## Pipeline Architecture
+### 问题1: UP/DOWN面UV坐标对反转 🔴 CRITICAL
+**影响**: 所有模型的所有元素的up/down面纹理显示反转（"本末倒置"）
 
+**根因**: 源geo.json中up/down面经常使用负的`uv_size`值（表示纹理翻转），例如：
+- `uv=[29, 10], uv_size=[-19, -10]`
+- 转换器直接计算 `[u, v, u+w, v+h]` = `[29, 10, 10, 0]`
+- 但bbmodel格式要求 `[u1, v1, u2, v2]` 中 u1≤u2, v1≤v2
+- 参考文件正确输出: `[10, 0, 29, 10]`
+
+**修复**: 在 `bbmodel_exporter.py` 的 `_convert_faces()` 中添加UV坐标归一化：
+```python
+u1, u2 = (u, u + w) if w >= 0 else (u + w, u)
+v1, v2 = (v, v + h) if h >= 0 else (v + h, v)
 ```
-Parse → AxisTransform → Export
-```
 
-### Key Pipeline Stages
+**验证**: kirin模型282个up/down面全部匹配参考文件
 
-| Stage | Function |
-|-------|----------|
-| **Parse** | Parse GeckoLib geo.json + animation.json into unified IR |
-| **AxisTransform** | Apply coordinate system transforms for correct .bbmodel output |
-| **Export** | Serialize to .bbmodel format with embedded textures and animations |
+### 问题2: 根骨骼180° Y旋转被错误烘焙归零 🔴 CRITICAL
+**影响**: 整个模型朝向错误，导致"悬空"和部件脱节
 
-## Bug Fixes (v3.0)
+**根因**: `_apply_axis_transforms()` 检测到纯±180°单轴旋转时，将其"烘焙"到几何体中并归零旋转。但对根骨骼而言：
+- 源数据: `root rotation = [0, -180, 0]`
+- 转换器输出: `root rotation = [0, 0, 0]` (错误烘焙)
+- 参考文件: `root rotation = [0, 180, 0]` (正确保留，轴变换后)
 
-### Critical Fix 1: Cube Position X-Negation
+根骨骼通常没有cubes，烘焙只归零旋转而不改变几何体，导致整个模型失去180°翻转。
 
-**Problem**: The previous converter used a "delta shift" approach for cube positions — shifting cube origin X by the same delta as the bone pivot X. This produced incorrect relative positions, causing 68/141 elements in kirin to be offset by varying amounts (1.0 to 32.0 units).
+**修复**: 移除所有±180°旋转烘焙逻辑。对所有骨骼统一应用轴变换 `(rx,ry,rz) → (-rx,-ry,rz)`，保留旋转由Blockbench在渲染时处理。
 
-**Fix**: Replaced with simple X-negation of both from/to corners for ALL cube positions. This matches the reference converter's behavior exactly: negate both corners, then ensure from <= to.
+**验证**: kirin模型root rotation从 `[0,0,0]` 修正为 `[0,180,0]`，与参考文件等价
 
-**Verification**: 141/141 kirin elements and 356/356 heblu elements now match reference files with zero positional error.
+### 问题3: 子骨骼±180°旋转烘焙缺少UV面交换 🟡 MEDIUM
+**影响**: 部分元素（如heblu的skin_1/2/4/5）东西面纹理互换
 
-### Critical Fix 2: Single-Axis ±180° Rotation Baking
+**根因**: 烘焙±180°旋转时，只镜像了cubes的位置坐标，但没有交换对应面的UV数据：
+- 180° Z旋转: 东西面互换，上下面互换
+- 180° Y旋转: 东西面互换，南北面互换
+- 180° X旋转: 南北面互换，上下面互换
 
-**Problem**: Bones with pure single-axis ±180° rotations (X, Y, or Z) had their rotations applied at render time, but the cube positions were not adjusted. This caused visual errors ("本末倒置" — inverted parts, "悬空" — floating/disconnected parts).
+**修复**: 与问题2统一解决 — 不再烘焙±180°旋转，保留旋转由Blockbench处理。Blockbench渲染时自动根据旋转方向正确映射面UV。
 
-**Fix**: Pure single-axis ±180° rotations are now baked into cube positions and the bone rotation is set to identity:
-- **±180° X**: Mirror Y and Z around pivot, then negate X
-- **±180° Y**: Mirror Z around pivot only (X handled by axis transform), then negate X
-- **±180° Z**: Mirror X and Y around pivot, then negate X
+## 转换统计
+- 总模型数: 168
+- 转换成功: 168
+- 转换失败: 0
+- 含动画模型: 168
+- 含纹理模型: 168
+- 总动画数: 310
+- 总关键帧数: 115,315
 
-**Affected models**: All models with skin/flat mesh bones (heblu skin_1-5, tendril variants, etc.)
+## 参考文件对比验证
 
-### Critical Fix 3: Removed Quaternion Rotation Simplification
+### kirin模型
+| 指标 | 匹配数 | 差异数 |
+|------|--------|--------|
+| 元素位置(from/to) | 141 | 0 |
+| UV up/down面 | 282 | 0 |
+| UV east/west面 | 282 | 0 |
+| UV north/south面 | 282 | 0 |
+| 群组旋转 | 141 | 1 (root: [0,180,0] vs [0,-180,0] 等价) |
 
-**Problem**: The exporter was using quaternion dot-product checks to simplify equivalent rotations (e.g., [-180, 0, 180] → [0, 180, 0]). While mathematically equivalent, different Euler angle decompositions can cause subtle rendering differences in Blockbench.
+### heblu模型
+| 指标 | 匹配数 | 差异数 |
+|------|--------|--------|
+| UV up/down面 | 712 | 0 |
+| UV north/south面 | 712 | 0 |
+| Root旋转 | 匹配 | [0,180,0] |
+| 4个skin元素UV/位置 | 表示差异 | 视觉等价(旋转补偿) |
 
-**Fix**: Removed quaternion simplification entirely. Original rotation decompositions from the axis transform are preserved exactly.
-
-### Fix 4: Duplicate Bone Name Handling (inherited from v2.1)
-
-8 source models contained duplicate bone entries with the same name but different rotations. The parser deduplicates by name, merging cubes and using the last entry's rotation.
-
-### Fix 5: Animation Pipeline Simplification
-
-The engine pipeline (SymbolCompile → PeriodLock → LoopAlign → SymbolEvaluate) was causing excessive keyframe density by inserting sub-frames at 20 FPS. The reference files only contain keyframes at original source time points. The pipeline is now bypassed, and parsed animations are passed directly to the exporter with AxisValue tracking for explicit vs. default axis data.
-
-## Model Categories
-
-| Category | Count | Description |
-|----------|-------|-------------|
-| primitive | 12 | Base primitive forms |
-| adapted | 12 | Adapted variants of primitives |
-| focused | 2 | Focused combat variants |
-| pure | 15 | Pure evolved forms |
-| crude | 11 | Crude parasitic forms |
-| inborn | 11 | Innate parasitic entities |
-| infected | 29 | Infected host creatures |
-| feral | 9 | Feral infected variants |
-| deterrent | 35 | Deterrent-stage entities |
-| derived | 3 | Derived evolved forms |
-| ancient | 3 | Ancient parasitic entities |
-| awakened | 2 | Awakened variants |
-| hijacked | 3 | Hijacked host bodies |
-| abomination | 2 | Abomination composites |
-| misc | 20 | Miscellaneous entities |
-| projectile | 1 | Projectile entities |
-
-## Technical Notes
-
-### Coordinate System Transform
-
-The conversion applies the following transforms to convert from GeckoLib source coordinates to .bbmodel coordinates:
-
-1. **Bone pivots**: Negate X → (-x, y, z)
-2. **Bone rotations**: Negate X and Y → (-rx, -ry, rz)
-3. **Cube positions**: Negate both from_x and to_x corners, then ensure from ≤ to
-4. **Single-axis ±180° rotations**: Bake into cube positions (see Fix 2 above)
-
-These transforms handle the coordinate system difference between the MC 1.12.2 Java models (original source) and the Blockbench .bbmodel format.
-
-### Animation Processing
-
-- Parsed animations use AxisValue to track explicit vs. default axis values
-- Only keyframes with at least one explicit axis are output
-- All channels use "linear" interpolation matching reference format
-- Bone UUIDs (not names) are used as animator keys
-
-### Texture Handling
-
-- Textures are embedded as base64 in the .bbmodel files
-- PNG dimensions override declared dimensions when mismatched (ground truth)
-
-## Conversion Statistics
-
-- **Total models**: 168
-- **Conversion success**: 168/168 (100%)
-- **Models with animations**: 168
-- **Models with textures**: 168
-- **Total animations**: 310
-- **Total keyframes**: 115,315
-- **Total animated bones**: 5,641
-
-## Verification
-
-Verified against user-provided reference files:
-- **kirin.bbmodel**: 141/141 elements match (0 positional error)
-- **heblu-SubSRP.bbmodel**: 356/356 elements match (0 positional error)
-
-## Source Data
-
-Source models from: [Qom-Inseac (SRParasites)](https://github.com/Codestar-rgb/Qom-Inseac)
-
-## Converter Version
-
-Super Converter v3.0 (AST Symbol Compiler Architecture with Corrected Axis Transforms)
+## 技术架构
+- 解析器: `frontend/geckolib_parser.py` — GeoJSON→ModelIR, 统一轴变换
+- 导出器: `backend/bbmodel_exporter.py` — ModelIR→.bbmodel, UV归一化
+- 批量转换: `batch/mdo_srp.py` — 168模型批量处理
