@@ -9,11 +9,12 @@ ready for serialization to .bbmodel format.
 
 Pipeline stages (in order):
   1. Validate      — Clean and validate parsed data
-  2. CarryForward  — Fill missing axes using explicit carry-forward
+  2. CarryForward  — Fill missing axes using interpolation-based fill
   3. PeriodAnalysis — Detect animation periods for seamless loops
   4. LoopAlign     — Ensure loop animations match at boundaries
-  5. RotationNormalize — Quaternion-based rotation normalization
-  6. Interpolation — Select adaptive interpolation modes
+  5. RotationNormalize — Quaternion-based rotation normalization (minimal)
+  6. Interpolation — Select adaptive interpolation modes per segment
+  7. SubFrameInsert — Insert intermediate keyframes for smooth playback
 
 Usage:
     from engine import AnimationPipeline, PipelineResult

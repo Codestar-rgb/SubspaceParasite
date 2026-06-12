@@ -787,3 +787,43 @@ Stage Summary:
 - Key improvements: Quaternion-based rotation, Explicit carry-forward (AxisValue), Period analysis, Unified IR, Pipeline architecture
 - All 168 MDO-SRP models converted successfully (112MB output)
 - Old converter directory deleted, project cleaned up
+
+---
+Task ID: anim-fix-v3
+Agent: Main Agent
+Task: Fix animation frame skipping, stuttering, speed anomalies in MDO-SRP models
+
+Work Log:
+- Analyzed root causes of animation issues: frame flashing, skipping, stuttering, abnormal speed changes
+- Identified 4 critical bugs in the super-converter pipeline:
+  1. carry_forward.py used "last explicit value" for missing axes at merged time points → created STEP FUNCTIONS where GeckoLib expects smooth interpolation (affects 1,247 multi-axis time mismatch cases)
+  2. rotation_normalizer.py forced Euler→Quaternion→Euler round-trip for EVERY keyframe → changed exact source values via decomposition ambiguity
+  3. interpolation.py applied single interpolation mode to entire channel → CatmullRom overshoot on large time gaps (1,632 gaps > 1 second)
+  4. No sub-frame keyframe insertion for sparse animations → large gaps cause interpolation artifacts
+- Rewrote carry_forward.py: replaced step-function carry-forward with INTERPOLATION-BASED fill
+  - Each axis's own time series is preserved and used for interpolation at merged time points
+  - CatmullRom interpolation for rotation channels, linear for position/scale
+  - Boundary extension for CatmullRom control points at segment endpoints
+- Rewrote rotation_normalizer.py: only applies fixes when there's an ACTUAL problem
+  - Quaternion shortest-path only when dot product < 0
+  - Angle discontinuity correction only when delta > 180°
+  - Source values preserved exactly when no problem exists
+- Rewrote interpolation.py: per-segment adaptive interpolation selection
+  - Rotation: CatmullRom by default, linear for large gaps (>0.5s) with slow changes
+  - Position/scale: linear by default
+  - Per-segment analysis instead of global channel-wide decision
+- Created subframe_inserter.py: new pipeline stage for sub-frame keyframe insertion
+  - Inserts intermediate keyframes at 1/20 second intervals (20 fps)
+  - Evaluates CatmullRom or linear interpolation at sub-frame times
+  - Ensures dense keyframe distribution for smooth playback
+- Updated pipeline.py: added SubFrameInsert as stage 7 (after Interpolation)
+- Rebuilt MDO-SRP: 168/168 models OK, 337,981 keyframes (3x more than before)
+- Validation: 100% loop boundary match rate (5,265/5,265 bones), uniform time gaps (0.033-0.1s)
+
+Stage Summary:
+- 4 critical animation bugs fixed in super-converter pipeline
+- Keyframes increased from ~115K to 338K due to sub-frame insertion (denser = smoother)
+- Interpolation-based carry-forward replaces step functions (fixes frame skipping)
+- Minimal rotation normalization preserves exact source values (fixes jitter)
+- Per-segment interpolation selection avoids CatmullRom overshoot (fixes flashing)
+- All 168 MDO-SRP models rebuilt with fixed converter, 0 failures

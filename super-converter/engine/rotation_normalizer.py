@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """
-Super Architecture — Rotation Normalizer
-==========================================
+Super Architecture — Rotation Normalizer (Fixed)
+==================================================
 
-Quaternion-based rotation normalization.
+Rotation normalization that PRESERVES exact source Euler angles.
 
-For each bone's rotation channel:
-  1. Convert each keyframe's Euler angles to a quaternion
-  2. Ensure consecutive quaternions take the shortest path
-     (flip sign if dot product is negative)
-  3. Convert back to Euler angles
+CRITICAL FIX: The previous implementation converted every keyframe through
+Euler → Quaternion → Euler round-trip, which CHANGED the exact values even
+when there was no problem to fix. The quaternion decomposition can produce
+different Euler angles that represent the same rotation, but with different
+component values. This introduced subtle jitter in the animation.
 
-This eliminates:
-  - 360° jumps (e.g., 350° → 10° instead of 350° → 370°)
-  - Gimbal lock artifacts at ±90° pitch
-  - Inconsistent rotation paths between keyframes
+The new implementation only applies corrections when there is an ACTUAL
+problem:
+  1. Consecutive quaternion shortest-path (dot product < 0)
+  2. Large angle discontinuities (> 180°) between consecutive keyframes
 
-Also normalizes all rotation values to [-360, 360] range.
+For keyframes that are already consistent, the values are preserved exactly.
 
 All transforms produce new data — input is never mutated.
 """
@@ -43,20 +43,12 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Quaternion dot product
+# Threshold for detecting angle discontinuity
 # ---------------------------------------------------------------------------
 
-def _quaternion_dot(q1: Quaternion, q2: Quaternion) -> float:
-    """Compute the dot product of two quaternions.
-
-    Args:
-        q1: First quaternion.
-        q2: Second quaternion.
-
-    Returns:
-        The dot product (scalar).
-    """
-    return q1.w * q2.w + q1.x * q2.x + q1.y * q2.y + q1.z * q2.z
+# If the delta on any axis between consecutive keyframes exceeds this,
+# we apply shortest-path correction.
+DISCONTINUITY_THRESHOLD_DEGREES: float = 180.0
 
 
 # ---------------------------------------------------------------------------
@@ -69,13 +61,17 @@ def _normalize_bone_rotations(
     model_name: str,
     stats: dict,
 ) -> BoneAnimationIR:
-    """Normalize rotation keyframes for one bone using quaternion math.
+    """Normalize rotation keyframes for one bone, preserving exact values.
 
-    For each rotation keyframe:
-      1. Convert Euler angles to quaternion
-      2. Ensure consecutive quaternions take the shortest path
-      3. Convert back to Euler angles
-      4. Normalize to [-360, 360] range
+    Instead of the old approach (Euler → Quaternion → Euler for every keyframe),
+    we now only apply corrections when there's an actual problem:
+
+      1. Shortest-path: If consecutive quaternions have negative dot product,
+         flip the second quaternion.
+      2. Angle discontinuity: If any axis has a jump > 180° between
+         consecutive keyframes, adjust to the shortest path.
+
+    Keyframes that don't have these problems are left EXACTLY as-is.
 
     Args:
         bone_anim: The bone's animation data.
@@ -103,10 +99,8 @@ def _normalize_bone_rotations(
     rot_kfs.sort(key=lambda k: k.time)
 
     shortest_path_fixes = 0
-    rotations_normalized = 0
 
-    # Step 1: Build quaternions from rotation keyframes
-    # Use the GeckoLib/Blockbench convention: Euler ZYX (extrinsic)
+    # Step 1: Build quaternions for shortest-path analysis
     quaternions: List[Quaternion] = []
     for kf in rot_kfs:
         q = Quaternion.from_euler_zyx(
@@ -114,13 +108,31 @@ def _normalize_bone_rotations(
         )
         quaternions.append(q.normalize())
 
-    # Step 2: Ensure consecutive quaternions take the shortest path
-    # If the dot product between consecutive quaternions is negative,
-    # flip the sign of the second quaternion (q and -q represent the
-    # same rotation, but the flipped version takes the shorter path).
+    # Step 2: Check if consecutive quaternions need shortest-path fix
+    needs_quaternion_fix = [False] * len(quaternions)
     for i in range(1, len(quaternions)):
-        dot = _quaternion_dot(quaternions[i - 1], quaternions[i])
+        dot = (
+            quaternions[i - 1].w * quaternions[i].w +
+            quaternions[i - 1].x * quaternions[i].x +
+            quaternions[i - 1].y * quaternions[i].y +
+            quaternions[i - 1].z * quaternions[i].z
+        )
         if dot < 0.0:
+            needs_quaternion_fix[i] = True
+
+    # Step 3: Apply fixes only where needed
+    new_rot_kfs: List[KeyframeData] = []
+
+    for i, kf in enumerate(rot_kfs):
+        rx, ry, rz = kf.x.value, kf.y.value, kf.z.value
+
+        # First, normalize to [-360, 360] range
+        rx = normalize_rotation(rx)
+        ry = normalize_rotation(ry)
+        rz = normalize_rotation(rz)
+
+        # Apply quaternion shortest-path fix if needed
+        if needs_quaternion_fix[i]:
             # Flip the quaternion to take the shortest path
             quaternions[i] = Quaternion(
                 -quaternions[i].w,
@@ -128,32 +140,19 @@ def _normalize_bone_rotations(
                 -quaternions[i].y,
                 -quaternions[i].z,
             )
-            shortest_path_fixes += 1
+            # Decompose back to Euler
+            rx_new, ry_new, rz_new = quaternions[i].to_euler_zyx(degrees=True)
+            rx_new = normalize_rotation(rx_new)
+            ry_new = normalize_rotation(ry_new)
+            rz_new = normalize_rotation(rz_new)
 
-    # Step 3: Convert back to Euler angles and build new keyframes
-    new_rot_kfs: List[KeyframeData] = []
+            if (not values_match(rx, rx_new, tolerance=0.01) or
+                    not values_match(ry, ry_new, tolerance=0.01) or
+                    not values_match(rz, rz_new, tolerance=0.01)):
+                rx, ry, rz = rx_new, ry_new, rz_new
+                shortest_path_fixes += 1
 
-    for i, kf in enumerate(rot_kfs):
-        # Decompose quaternion back to Euler angles
-        rx, ry, rz = quaternions[i].to_euler_zyx(degrees=True)
-
-        # Normalize to [-360, 360]
-        rx = normalize_rotation(rx)
-        ry = normalize_rotation(ry)
-        rz = normalize_rotation(rz)
-
-        # Track how many values changed significantly
-        old_vals = (kf.x.value, kf.y.value, kf.z.value)
-        new_vals = (rx, ry, rz)
-
-        changed = False
-        for old, new in zip(old_vals, new_vals):
-            if not values_match(old, new, tolerance=0.01):
-                changed = True
-                rotations_normalized += 1
-
-        # Create new keyframe with normalized rotation values
-        new_kf = KeyframeData(
+        new_rot_kfs.append(KeyframeData(
             time=kf.time,
             channel=kf.channel,
             x=AxisValue.explicit_val(rx),
@@ -165,53 +164,53 @@ def _normalize_bone_rotations(
             molang_x=kf.molang_x,
             molang_y=kf.molang_y,
             molang_z=kf.molang_z,
-        )
-        new_rot_kfs.append(new_kf)
+        ))
 
-    # Step 4: Apply euler_shortest_path between consecutive keyframes
-    # as an additional safeguard for any remaining angle discontinuities
+    # Step 4: Apply euler_shortest_path for remaining angle discontinuities
+    # This handles cases where individual axis values jump by more than 180°
     for i in range(1, len(new_rot_kfs)):
         prev = new_rot_kfs[i - 1]
         curr = new_rot_kfs[i]
 
-        rx_adj, ry_adj, rz_adj = euler_shortest_path(
-            prev.x.value, prev.y.value, prev.z.value,
-            curr.x.value, curr.y.value, curr.z.value,
-        )
+        # Check if there's a large discontinuity on any axis
+        has_discontinuity = False
+        for axis in AXES:
+            prev_val = getattr(prev, axis).value
+            curr_val = getattr(curr, axis).value
+            if abs(curr_val - prev_val) > DISCONTINUITY_THRESHOLD_DEGREES:
+                has_discontinuity = True
+                break
 
-        # Only update if the adjustment is significant
-        if (not values_match(curr.x.value, rx_adj, tolerance=0.01) or
-                not values_match(curr.y.value, ry_adj, tolerance=0.01) or
-                not values_match(curr.z.value, rz_adj, tolerance=0.01)):
-            new_rot_kfs[i] = KeyframeData(
-                time=curr.time,
-                channel=curr.channel,
-                x=AxisValue.explicit_val(normalize_rotation(rx_adj)),
-                y=AxisValue.explicit_val(normalize_rotation(ry_adj)),
-                z=AxisValue.explicit_val(normalize_rotation(rz_adj)),
-                easing=curr.easing,
-                interpolation=curr.interpolation,
-                is_molang=curr.is_molang,
-                molang_x=curr.molang_x,
-                molang_y=curr.molang_y,
-                molang_z=curr.molang_z,
+        if has_discontinuity:
+            rx_adj, ry_adj, rz_adj = euler_shortest_path(
+                prev.x.value, prev.y.value, prev.z.value,
+                curr.x.value, curr.y.value, curr.z.value,
             )
-            shortest_path_fixes += 1
 
-    # Also normalize position and scale keyframes (just value normalization,
-    # no quaternion math needed)
-    normalized_other: List[KeyframeData] = []
-    for kf in other_kfs:
-        # For position and scale, just ensure values are finite
-        # (rotation normalization doesn't apply)
-        normalized_other.append(kf)
+            # Only update if the adjustment is significant
+            if (not values_match(curr.x.value, rx_adj, tolerance=0.01) or
+                    not values_match(curr.y.value, ry_adj, tolerance=0.01) or
+                    not values_match(curr.z.value, rz_adj, tolerance=0.01)):
+                new_rot_kfs[i] = KeyframeData(
+                    time=curr.time,
+                    channel=curr.channel,
+                    x=AxisValue.explicit_val(normalize_rotation(rx_adj)),
+                    y=AxisValue.explicit_val(normalize_rotation(ry_adj)),
+                    z=AxisValue.explicit_val(normalize_rotation(rz_adj)),
+                    easing=curr.easing,
+                    interpolation=curr.interpolation,
+                    is_molang=curr.is_molang,
+                    molang_x=curr.molang_x,
+                    molang_y=curr.molang_y,
+                    molang_z=curr.molang_z,
+                )
+                shortest_path_fixes += 1
 
-    # Combine and sort
-    all_kfs = new_rot_kfs + normalized_other
+    # Combine rotation and other keyframes
+    all_kfs = new_rot_kfs + other_kfs
     all_kfs.sort(key=lambda k: (k.time, k.channel))
 
     stats["shortest_path_fixes"] = stats.get("shortest_path_fixes", 0) + shortest_path_fixes
-    stats["rotations_normalized"] = stats.get("rotations_normalized", 0) + rotations_normalized
 
     return BoneAnimationIR(
         bone_name=bone_anim.bone_name,
@@ -228,20 +227,11 @@ def normalize_rotations(
     model_name: str = "",
     stats: dict = None,
 ) -> Dict[str, AnimationIR]:
-    """Normalize rotation keyframes using quaternion math.
+    """Normalize rotation keyframes, preserving exact values where possible.
 
-    For each bone's rotation channel:
-    1. Convert each keyframe's Euler angles to a quaternion
-    2. Ensure consecutive quaternions take the shortest path
-       (flip sign if dot product is negative)
-    3. Convert back to Euler angles
-
-    This eliminates:
-    - 360° jumps (e.g., 350° → 10° instead of 350° → 370°)
-    - Gimbal lock artifacts at ±90° pitch
-    - Inconsistent rotation paths between keyframes
-
-    Also normalizes all rotation values to [-360, 360] range.
+    Only applies corrections when there is an actual problem:
+      - Negative quaternion dot product (shortest path)
+      - Large angle discontinuities (> 180°) between consecutive keyframes
 
     Args:
         animations: Dict mapping animation_name -> AnimationIR.
@@ -255,7 +245,6 @@ def normalize_rotations(
         stats = {}
 
     stats.setdefault("shortest_path_fixes", 0)
-    stats.setdefault("rotations_normalized", 0)
 
     result: Dict[str, AnimationIR] = {}
 

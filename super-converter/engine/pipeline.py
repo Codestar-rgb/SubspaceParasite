@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-Super Architecture — Animation Processing Pipeline
-====================================================
+Super Architecture — Animation Processing Pipeline (Fixed)
+============================================================
 
-The main pipeline orchestrator.  Replaces the old AnimEngineV2 with a
-cleaner, more correct architecture.
+The main pipeline orchestrator with sub-frame insertion stage.
 
 Pipeline: Parse → Validate → CarryForward → PeriodAnalysis →
-          LoopAlign → RotationNormalize → Interpolation → Ready
+          LoopAlign → RotationNormalize → Interpolation → SubFrameInsert → Ready
 
 Each stage:
   - Receives data from the previous stage
@@ -37,6 +36,7 @@ from .period_analyzer import analyze_periods
 from .loop_aligner import align_loops
 from .rotation_normalizer import normalize_rotations
 from .interpolation import select_interpolation
+from .subframe_inserter import insert_subframes
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class AnimationPipeline:
     """Super Architecture animation processing pipeline.
 
     Pipeline: Parse → Validate → CarryForward → PeriodAnalysis →
-              LoopAlign → RotationNormalize → Interpolation → Ready
+              LoopAlign → RotationNormalize → Interpolation → SubFrameInsert → Ready
 
     Each stage:
     - Receives data from the previous stage
@@ -98,11 +98,12 @@ class AnimationPipeline:
 
         Pipeline stages (in order):
           1. Validate      — Clean and validate parsed data
-          2. CarryForward  — Fill missing axes using explicit carry-forward
+          2. CarryForward  — Fill missing axes using interpolation-based fill
           3. PeriodAnalysis — Detect animation periods for seamless loops
           4. LoopAlign     — Ensure loop animations match at boundaries
-          5. RotationNormalize — Quaternion-based rotation normalization
-          6. Interpolation — Select adaptive interpolation modes
+          5. RotationNormalize — Quaternion-based rotation normalization (minimal)
+          6. Interpolation — Select adaptive interpolation modes per segment
+          7. SubFrameInsert — Insert intermediate keyframes for smooth playback
 
         Args:
             animations: Dict mapping animation_name -> AnimationIR, as
@@ -151,7 +152,7 @@ class AnimationPipeline:
         )
 
         # ------------------------------------------------------------------
-        # Stage 2: Carry-Forward
+        # Stage 2: Carry-Forward (Interpolation-based)
         # ------------------------------------------------------------------
         t0 = _time.monotonic()
         carry_stats: Dict[str, Any] = {}
@@ -160,8 +161,9 @@ class AnimationPipeline:
         self._stage_timings["carry_forward"] = _time.monotonic() - t0
 
         logger.info(
-            "[%s] CarryForward: %d axes filled",
+            "[%s] CarryForward: %d axes filled, %d axes interpolated",
             model_name, carry_stats.get("axes_filled", 0),
+            carry_stats.get("axes_interpolated", 0),
         )
 
         # ------------------------------------------------------------------
@@ -201,7 +203,7 @@ class AnimationPipeline:
         )
 
         # ------------------------------------------------------------------
-        # Stage 5: Rotation Normalization
+        # Stage 5: Rotation Normalization (minimal, only fixes real problems)
         # ------------------------------------------------------------------
         t0 = _time.monotonic()
         rot_stats: Dict[str, Any] = {}
@@ -210,18 +212,17 @@ class AnimationPipeline:
         self._stage_timings["rotation_normalize"] = _time.monotonic() - t0
 
         logger.info(
-            "[%s] RotationNormalize: %d shortest-path fixes, %d rotations normalized",
+            "[%s] RotationNormalize: %d shortest-path fixes",
             model_name,
             rot_stats.get("shortest_path_fixes", 0),
-            rot_stats.get("rotations_normalized", 0),
         )
 
         # ------------------------------------------------------------------
-        # Stage 6: Interpolation Selection
+        # Stage 6: Interpolation Selection (per-segment adaptive)
         # ------------------------------------------------------------------
         t0 = _time.monotonic()
         interp_stats: Dict[str, Any] = {}
-        final = select_interpolation(normalized, model_name, interp_stats)
+        interp_selected = select_interpolation(normalized, model_name, interp_stats)
         stats["interpolation"] = interp_stats
         self._stage_timings["interpolation"] = _time.monotonic() - t0
 
@@ -231,6 +232,21 @@ class AnimationPipeline:
             interp_stats.get("catmullrom_count", 0),
             interp_stats.get("linear_count", 0),
             interp_stats.get("snap_heavy_overrides", 0),
+        )
+
+        # ------------------------------------------------------------------
+        # Stage 7: Sub-frame Insertion
+        # ------------------------------------------------------------------
+        t0 = _time.monotonic()
+        sub_stats: Dict[str, Any] = {}
+        final = insert_subframes(interp_selected, model_name, sub_stats)
+        stats["subframe_insert"] = sub_stats
+        self._stage_timings["subframe_insert"] = _time.monotonic() - t0
+
+        logger.info(
+            "[%s] SubFrameInsert: %d sub-frames inserted",
+            model_name,
+            sub_stats.get("subframes_inserted", 0),
         )
 
         # ------------------------------------------------------------------
