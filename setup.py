@@ -4,7 +4,7 @@ MinecraftModelMigrator-Pro - Setup Configuration
 ==================================================
 Package: minecraft-model-migrator
 Version: 1.0.0
-Entry point: converter.cli:main
+Entry point: cli:main
 """
 
 from setuptools import setup, find_packages
@@ -21,7 +21,8 @@ setup(
     packages=find_packages(),
     entry_points={
         'console_scripts': [
-            'minecraft-model-migrator=converter.cli:main',
+            'minecraft-model-migrator=cli:main',
+            'animforge=animforge.main:main',
         ],
     },
     install_requires=[
@@ -30,7 +31,7 @@ setup(
     ],
     extras_require={
         'full': [
-            'javalang',  # Java AST parsing (optional)
+            'javalang',
         ],
         'dev': [
             'pytest',
@@ -38,8 +39,8 @@ setup(
         ],
     },
     package_data={
-        'converter': [
-            'templates/*.j2',
+        'templates': [
+            '*.j2',
         ],
     },
     include_package_data=True,
@@ -47,7 +48,7 @@ setup(
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python :: 3',
+        'Programming Language': 'Python :: 3',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
