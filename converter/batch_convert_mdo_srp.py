@@ -245,6 +245,16 @@ def main():
         'has_tex': 0,
         'errors': [],
         'categories': {},
+        'anim_stats': {
+            'total_keyframes': 0,
+            'total_bones': 0,
+            'total_animations': 0,
+            'molang_keyframes': 0,
+            'carry_forward_applied': 0,
+            'loop_alignments': 0,
+            'rotations_normalized': 0,
+            'warnings': 0,
+        },
     }
 
     start_time = time.time()
@@ -319,6 +329,32 @@ def main():
             file_size = os.path.getsize(out_path)
             status_parts.append(f"bbmodel({len(elements)}e, {len(animations)}a, {file_size/1024:.0f}KB)")
 
+            # Collect animation conversion stats from AnimEngineV2
+            anim_result = bbmodel_generator.get_last_anim_result()
+            if anim_result:
+                anim_stats = anim_result.stats
+                pipeline = anim_stats.get('pipeline_stages', {})
+
+                stats['anim_stats']['total_keyframes'] += anim_stats.get('total_keyframes', 0)
+                stats['anim_stats']['total_bones'] += anim_stats.get('total_bones', 0)
+                stats['anim_stats']['total_animations'] += anim_stats.get('total_animations', 0)
+                stats['anim_stats']['molang_keyframes'] += anim_stats.get('molang_keyframes', 0)
+                stats['anim_stats']['warnings'] += len(anim_result.warnings)
+
+                # Transform stage stats
+                transform_stats = pipeline.get('transform', {})
+                stats['anim_stats']['carry_forward_applied'] += transform_stats.get('carry_forward_applied', 0)
+                stats['anim_stats']['loop_alignments'] += transform_stats.get('loop_alignments', 0)
+
+                # Validate stage stats
+                validate_stats = pipeline.get('validate', {})
+                stats['anim_stats']['rotations_normalized'] += validate_stats.get('rotations_normalized', 0)
+
+                # Show keyframe count in status line
+                kf_count = anim_stats.get('total_keyframes', 0)
+                if kf_count > 0:
+                    status_parts.append(f"kf={kf_count}")
+
         except Exception as e:
             stats['fail'] += 1
             stats['categories'][category]['fail'] += 1
@@ -345,6 +381,20 @@ def main():
     print(f"  With animations:        {stats['has_anim']}")
     print(f"  With textures:          {stats['has_tex']}")
     print()
+
+    # Animation Engine V2 Stats
+    anim_s = stats['anim_stats']
+    if anim_s['total_animations'] > 0:
+        print(f"  --- Animation Engine V2 ---")
+        print(f"  Total animations:       {anim_s['total_animations']}")
+        print(f"  Total keyframes:        {anim_s['total_keyframes']}")
+        print(f"  Total animated bones:   {anim_s['total_bones']}")
+        print(f"  Molang keyframes:       {anim_s['molang_keyframes']}")
+        print(f"  Carry-forward fixes:    {anim_s['carry_forward_applied']}")
+        print(f"  Loop alignments:        {anim_s['loop_alignments']}")
+        print(f"  Rotations normalized:   {anim_s['rotations_normalized']}")
+        print(f"  Conversion warnings:    {anim_s['warnings']}")
+        print()
     print(f"  --- By Category ---")
     for cat in sorted(stats['categories'].keys()):
         cs = stats['categories'][cat]

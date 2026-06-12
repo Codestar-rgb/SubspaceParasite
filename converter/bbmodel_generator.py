@@ -66,6 +66,9 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
+# AnimEngineV2 — pipeline-based animation converter
+from anim_engine import AnimEngineV2
+
 # NOTE: scipy.spatial.transform.Rotation was REMOVED.
 # Per HANDOFF_DOC Bug #3, .bbmodel uses the SAME extrinsic XYZ convention as
 # geo.json. Rotation values should be passed through directly without
@@ -98,7 +101,7 @@ class BBModelGenerator:
     """
 
     def __init__(self):
-        pass
+        self._anim_engine = AnimEngineV2()
 
     # ========================================================================
     # UUID Generation
@@ -321,9 +324,14 @@ class BBModelGenerator:
         )
 
         # ------------------------------------------------------------------
-        # Phase 6: Build animations
+        # Phase 6: Build animations (using AnimEngineV2 pipeline)
         # ------------------------------------------------------------------
-        animations = self._build_animations(anim_json) if anim_json else []
+        animations = []
+        self._last_anim_result = None  # Store for stats access
+        if anim_json:
+            anim_result = self._anim_engine.convert(anim_json, model_name=short_name)
+            animations = anim_result.animations
+            self._last_anim_result = anim_result
 
         # ------------------------------------------------------------------
         # Assemble the final .bbmodel structure
@@ -746,255 +754,23 @@ class BBModelGenerator:
     # Animations Builder
     # ========================================================================
 
-    def _build_animations(self, anim_json: dict) -> list:
+    # NOTE: _build_animations and _process_channel are DEPRECATED.
+    # Animation conversion is now handled by AnimEngineV2 (anim_engine package).
+    # The old inline methods have been removed. The pipeline-based approach
+    # provides: validation, logging, error recovery, carry-forward,
+    # loop alignment, rotation normalization, and per-keyframe easing.
+
+    def get_last_anim_result(self):
+        """Get the ConversionResult from the last generate() call.
+
+        Returns the AnimEngineV2 ConversionResult which contains:
+            - animations: list of bbmodel animation dicts
+            - warnings: list of warning strings
+            - stats: dict with detailed conversion statistics
+
+        This is useful for batch converters that want to report animation stats.
         """
-        Convert from the converter's animation JSON format to bbmodel animation format.
-
-        Input (converter animation.json):
-        {
-          "format_version": "1.8.0",
-          "animations": {
-            "animation.model.idle": {
-              "loop": "loop",
-              "animation_length": 6.2832,
-              "bones": {
-                "boneName": {
-                  "rotation": {
-                    "x": {
-                      "0.0000": value_or_{"vector": val, "easing": name},
-                      ...
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        Output (bbmodel animations):
-        [
-          {
-            "name": "animation.model.idle",
-            "uuid": "...",
-            "loop": "loop",
-            "override": false,
-            "length": 6.2832,
-            "snapping": 24,
-            "selected": false,
-            "anim_time_update": "",
-            "blend_weight": "",
-            "animators": {
-              "boneName": {
-                "name": "boneName",
-                "type": "bone",
-                "keyframes": [
-                  {
-                    "channel": "rotation",
-                    "data_points": [{"x": ..., "y": ..., "z": ..., "easing": "linear"}],
-                    "uuid": "...",
-                    "time": 0.0,
-                    "color": -1,
-                    "interpolation": "linear"
-                  }
-                ]
-              }
-            }
-          }
-        ]
-        """
-        animations_list = []
-
-        anims = anim_json.get("animations", {})
-
-        for anim_name, anim_data in anims.items():
-            loop_mode = anim_data.get("loop", "once")
-            anim_length = anim_data.get("animation_length", 0.0)
-            bones_data = anim_data.get("bones", {})
-
-            animators = {}
-
-            for bone_name, bone_anim in bones_data.items():
-                keyframes = []
-
-                # Process rotation channel
-                rotation_data = bone_anim.get("rotation", {})
-                rot_keyframes = self._process_channel(rotation_data, "rotation")
-                keyframes.extend(rot_keyframes)
-
-                # Process position channel (if present)
-                position_data = bone_anim.get("position", {})
-                pos_keyframes = self._process_channel(position_data, "position")
-                keyframes.extend(pos_keyframes)
-
-                # Process scale channel (if present)
-                scale_data = bone_anim.get("scale", {})
-                scale_keyframes = self._process_channel(scale_data, "scale")
-                keyframes.extend(scale_keyframes)
-
-                if keyframes:
-                    # Sort keyframes by time
-                    keyframes.sort(key=lambda kf: kf["time"])
-                    animators[bone_name] = {
-                        "name": bone_name,
-                        "type": "bone",
-                        "keyframes": keyframes,
-                    }
-
-            animation = {
-                "name": anim_name,
-                "uuid": self._uuid(),
-                "loop": loop_mode,
-                "override": False,
-                "length": float(anim_length),
-                "snapping": 24,
-                "selected": False,
-                "anim_time_update": "",
-                "blend_weight": "",
-                "animators": animators,
-            }
-
-            animations_list.append(animation)
-
-        return animations_list
-
-    def _process_channel(self, channel_data: dict, channel_name: str) -> list:
-        """
-        Process a single channel (rotation/position/scale) from the animation data.
-
-        The channel data is per-axis:
-        {
-          "x": { "time_str": value_or_object, ... },
-          "y": { "time_str": value_or_object, ... },
-          "z": { "time_str": value_or_object, ... }
-        }
-
-        Where value_or_object is either:
-          - A plain number (no easing, defaults to linear)
-          - A string (Molang expression, stored as-is)
-          - An object: {"vector": number, "easing": "easeOutSine"}
-
-        We need to merge per-axis keyframes into unified keyframes at each
-        unique time point.
-
-        IMPORTANT FIXES vs original code:
-        1. Carry-forward: When merging per-axis keyframes, axes that don't have
-           a value at a given time point must "hold" their previous value
-           (carry-forward), NOT default to 0.0. Defaulting to 0.0 causes
-           animation twitching (zero-snaps).
-        2. Interpolation: Use "catmullrom" (smooth/Bezier) by default for
-           rotation channels instead of "linear". This produces smooth, organic
-           animations that match the original MC 1.12.2 cos/sin-driven curves.
-           Linear interpolation causes jerky, robotic movements.
-        3. Loop alignment: For looping animations, ensure the first and last
-           keyframes have matching values to prevent jump on loop.
-        """
-        if not channel_data:
-            return []
-
-        # Collect all time points across all axes
-        time_points = {}  # time_float -> {axis: (value, easing)}
-
-        # Track which axes have Molang expressions (skip carry-forward for those)
-        molang_axes = set()
-
-        for axis, keyframes in channel_data.items():
-            if axis not in ("x", "y", "z"):
-                continue
-
-            if isinstance(keyframes, str):
-                # Molang expression — stored as a single string, not time-series
-                molang_axes.add(axis)
-                continue
-
-            for time_str, value in keyframes.items():
-                t = float(time_str)
-
-                if t not in time_points:
-                    time_points[t] = {}
-
-                if isinstance(value, dict):
-                    val = float(value.get("vector", 0.0))
-                    easing = value.get("easing", "linear")
-                else:
-                    val = float(value)
-                    easing = "linear"
-
-                time_points[t][axis] = (val, easing)
-
-        if not time_points:
-            return []
-
-        # Build keyframes from merged time points with carry-forward for
-        # axes that don't change at each time point.
-        keyframes = []
-
-        # Initialize carry-forward from the FIRST time point's values
-        # This prevents zero-snaps at the start of the animation
-        sorted_times = sorted(time_points.keys())
-        first_data = time_points[sorted_times[0]]
-        last_values = {}
-        for axis in ("x", "y", "z"):
-            if axis in first_data:
-                last_values[axis] = first_data[axis][0]
-            else:
-                # No value for this axis at the first time point — default to 0.0
-                # In Blockbench, 0.0 means "no change from base pose" which is
-                # correct for un-animated axes in the additive animation model.
-                last_values[axis] = 0.0
-
-        for t in sorted_times:
-            axis_data = time_points[t]
-
-            # Determine the dominant easing (use first non-linear easing found)
-            easing = "linear"
-            for axis in ("x", "y", "z"):
-                if axis in axis_data:
-                    _, axis_easing = axis_data[axis]
-                    if axis_easing != "linear":
-                        easing = axis_easing
-                        break
-
-            # Carry-forward: use last known value for axes not present at this time
-            # This prevents zero-snaps that cause twitching
-            x_val = axis_data.get("x", (last_values["x"], "linear"))[0]
-            y_val = axis_data.get("y", (last_values["y"], "linear"))[0]
-            z_val = axis_data.get("z", (last_values["z"], "linear"))[0]
-
-            # Update last known values for carry-forward
-            last_values["x"] = x_val
-            last_values["y"] = y_val
-            last_values["z"] = z_val
-
-            data_point = {"x": x_val, "y": y_val, "z": z_val, "easing": easing}
-
-            # CRITICAL FIX: Use "catmullrom" interpolation for rotation channels
-            # by default. The original MC 1.12.2 animations use continuous
-            # trigonometric functions (cos/sin) which produce smooth curves.
-            # Linear interpolation between sampled keyframes creates jerky,
-            # robotic movements with visible "corners" at each keyframe.
-            # Catmullrom (cubic Hermite spline) produces smooth transitions
-            # that closely approximate the original trigonometric curves.
-            if easing != "linear":
-                interpolation = "catmullrom"
-            elif channel_name == "rotation":
-                # Always use smooth interpolation for rotations
-                interpolation = "catmullrom"
-            else:
-                # Position and scale channels can use linear for crisp movements
-                interpolation = "linear"
-
-            keyframe = {
-                "channel": channel_name,
-                "data_points": [data_point],
-                "uuid": self._uuid(),
-                "time": t,
-                "color": -1,
-                "interpolation": interpolation,
-            }
-
-            keyframes.append(keyframe)
-
-        return keyframes
+        return getattr(self, '_last_anim_result', None)
 
     # ========================================================================
     # Save Method

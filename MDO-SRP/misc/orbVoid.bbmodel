@@ -3,8 +3,8 @@
     "format_version": "5.0",
     "model_format": "bedrock",
     "model_identifier": "orbVoid",
-    "creation_time": 1781253391,
-    "modification_time": 1781253391,
+    "creation_time": 1781254760,
+    "modification_time": 1781254760,
     "box_uv": false,
     "face_size": [
       1,
@@ -119,7 +119,7 @@
         }
       },
       "type": "cube",
-      "uuid": "045fb6b9"
+      "uuid": "0c7c03d2"
     },
     {
       "name": "kd_c0",
@@ -214,7 +214,7 @@
         }
       },
       "type": "cube",
-      "uuid": "64e1da94"
+      "uuid": "55631c20"
     },
     {
       "name": "kd_1_c0",
@@ -309,7 +309,7 @@
         }
       },
       "type": "cube",
-      "uuid": "8750568b"
+      "uuid": "ff41ba56"
     },
     {
       "name": "mainbody_1_c0",
@@ -404,7 +404,7 @@
         }
       },
       "type": "cube",
-      "uuid": "6a0d4160"
+      "uuid": "a8452443"
     },
     {
       "name": "mainbody_2_c0",
@@ -499,13 +499,13 @@
         }
       },
       "type": "cube",
-      "uuid": "13c44796"
+      "uuid": "8be96eb9"
     }
   ],
   "groups": [
     {
       "name": "root",
-      "uuid": "10e05f3e",
+      "uuid": "f8acd765",
       "export": true,
       "locked": false,
       "scope": 0,
@@ -537,7 +537,7 @@
     },
     {
       "name": "mainbody",
-      "uuid": "40b09360",
+      "uuid": "d5c3cced",
       "export": true,
       "locked": false,
       "scope": 0,
@@ -569,7 +569,7 @@
     },
     {
       "name": "kd",
-      "uuid": "f01b98c5",
+      "uuid": "f952be7f",
       "export": true,
       "locked": false,
       "scope": 0,
@@ -601,7 +601,7 @@
     },
     {
       "name": "kd_1",
-      "uuid": "88ffa90d",
+      "uuid": "55367b10",
       "export": true,
       "locked": false,
       "scope": 0,
@@ -633,7 +633,7 @@
     },
     {
       "name": "mainbody_1",
-      "uuid": "e96f68c8",
+      "uuid": "d812c5b2",
       "export": true,
       "locked": false,
       "scope": 0,
@@ -665,7 +665,7 @@
     },
     {
       "name": "mainbody_2",
-      "uuid": "a6c89028",
+      "uuid": "7193b955",
       "export": true,
       "locked": false,
       "scope": 0,
@@ -698,40 +698,40 @@
   ],
   "outliner": [
     {
-      "uuid": "10e05f3e",
+      "uuid": "f8acd765",
       "isOpen": false,
       "children": [
         {
-          "uuid": "40b09360",
+          "uuid": "d5c3cced",
           "isOpen": false,
           "children": [
-            "045fb6b9"
+            "0c7c03d2"
           ]
         },
         {
-          "uuid": "f01b98c5",
+          "uuid": "f952be7f",
           "isOpen": false,
           "children": [
-            "64e1da94",
+            "55631c20",
             {
-              "uuid": "e96f68c8",
+              "uuid": "d812c5b2",
               "isOpen": false,
               "children": [
-                "6a0d4160"
+                "a8452443"
               ]
             }
           ]
         },
         {
-          "uuid": "88ffa90d",
+          "uuid": "55367b10",
           "isOpen": false,
           "children": [
-            "8750568b",
+            "ff41ba56",
             {
-              "uuid": "a6c89028",
+              "uuid": "7193b955",
               "isOpen": false,
               "children": [
-                "13c44796"
+                "8be96eb9"
               ]
             }
           ]
@@ -747,7 +747,7 @@
       "source": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABLBAMAAAB0Nj+EAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAADUExURQAAAKd6PdoAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAYdEVYdFNvZnR3YXJlAFBhaW50Lk5FVCA1LjEuOBtp6qgAAAC2ZVhJZklJKgAIAAAABQAaAQUAAQAAAEoAAAAbAQUAAQAAAFIAAAAoAQMAAQAAAAIAAAAxAQIAEAAAAFoAAABphwQAAQAAAGoAAAAAAAAADHcBAOgDAAAMdwEA6AMAAFBhaW50Lk5FVCA1LjEuOAADAACQBwAEAAAAMDIzMAGgAwABAAAAAQAAAAWgBAABAAAAlAAAAAAAAAACAAEAAgAEAAAAUjk4AAIABwAEAAAAMDEwMAAAAACsv/ozX4hUUAAAABpJREFUSMftwQENAAAAwqD3T20PBwQAAAB/ag7xAAGtzWnoAAAAAElFTkSuQmCC",
       "mode": "bitmap",
       "saved": true,
-      "uuid": "34efcf4c",
+      "uuid": "892b59d0",
       "width": 100,
       "height": 75,
       "uv_width": 100,
@@ -757,7 +757,7 @@
   "animations": [
     {
       "name": "animation.orbvoid.idle",
-      "uuid": "4c8073f5",
+      "uuid": "e213759a0fdc4232",
       "loop": "loop",
       "override": false,
       "length": 0.5,
@@ -780,8 +780,23 @@
                   "easing": "linear"
                 }
               ],
-              "uuid": "04f16b0d",
+              "uuid": "b554172d7a7c46db",
               "time": 0.0,
+              "color": -1,
+              "interpolation": "linear"
+            },
+            {
+              "channel": "position",
+              "data_points": [
+                {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0,
+                  "easing": "linear"
+                }
+              ],
+              "uuid": "ca0fed87d3b84449",
+              "time": 0.5,
               "color": -1,
               "interpolation": "linear"
             }

@@ -313,3 +313,132 @@ Stage Summary:
 - Project structure now clean: MDO-SRP (168 bbmodels, 111MB), converter (4 files, 248K), download (source zip, 6MB)
 - MDO-SRP rebuilt with latest converter including height fix, catmullrom interpolation, and carry-forward fixes
 - All 168 models across 16 categories converted successfully with 0 failures
+
+---
+Task ID: anim-v2-main
+Agent: general-purpose
+Task: Design and build new AnimEngineV2 architecture for animation conversion
+
+Work Log:
+- Analyzed current bbmodel_generator.py animation handling (170+ lines of _process_channel inline)
+- Identified 17 problems: monolithic design, no validation, no logging, fragile carry-forward, no loop alignment, naive easing, no per-channel interpolation, UUID collision risk, etc.
+- Designed pipeline architecture: Parse → Validate → Transform → Serialize
+- Created /home/z/my-project/converter/anim_engine/ with 8 modules:
+  - types.py (129 lines) — Dataclasses for AnimKeyframe, BoneAnimation, AnimationData, ConversionResult
+  - utils.py (161 lines) — UUID gen, rotation normalization, easing, value parsing
+  - parser.py (318 lines) — Parse GeckoLib animation.json into intermediate format
+  - validator.py (325 lines) — Validate/clean data (NaN, time, rotation normalization, dedup, snap detection)
+  - transform.py (474 lines) — Carry-forward, interpolation, loop alignment, C0 continuity
+  - serializer.py (201 lines) — AnimationData → bbmodel dict format
+  - engine.py (217 lines) — Main AnimEngineV2 orchestrator
+  - __init__.py (42 lines) — Package init
+- Integrated AnimEngineV2 into bbmodel_generator.py (removed 170+ lines of inline code, replaced with engine delegation)
+- Updated batch_convert_mdo_srp.py to print AnimEngineV2 stats
+- Ran batch conversion: 168/168 models OK, 310 animations, 115,351 keyframes, 34,212 carry-forward fixes, 1,604 loop alignments, 0 warnings
+
+Stage Summary:
+- New AnimEngineV2 pipeline architecture replaces 170+ lines of inline animation code
+- Key improvements: rotation normalization [-360,360], loop alignment, per-keyframe easing, snap-heavy detection, 16-hex UUIDs, per-channel interpolation defaults
+- All 168 MDO-SRP models rebuilt with new engine, 0 failures
+- Converter folder: anim_engine/ (8 modules) + bbmodel_generator.py + batch_convert_mdo_srp.py + legacy files
+
+---
+Task ID: anim-v2-main
+Agent: general-purpose
+Task: Build new animation converter (AnimEngineV2)
+
+Work Log:
+- Read worklog.md and all current source files (bbmodel_generator.py, batch_convert_mdo_srp.py)
+- Analyzed the 12 architecture problems and 5 animation quality problems with the old inline animation code
+- Designed and implemented a pipeline-based animation converter at converter/anim_engine/
+- Created 8 module files:
+
+  1. types.py — Dataclasses (AnimKeyframe, BoneAnimation, AnimationData, ConversionResult) and constants
+     - Per-keyframe easing, interpolation, channel tracking
+     - 16-hex-char UUIDs (reduced collision risk vs old 8-char)
+     - Frozen dataclass for AnimKeyframe (immutable data flow)
+     - Constants: DEFAULT_INTERPOLATION (rotation→catmullrom, position/scale→linear), VALID_EASINGS, VALID_LOOP_MODES
+
+  2. utils.py — Pure helper functions (no side effects, easy to unit test)
+     - generate_uuid() — 16-hex-char UUIDs
+     - normalize_rotation() — [-360, 360] range normalization
+     - is_valid_number() — NaN/Infinity check
+     - values_match() — Approximate float comparison
+     - round_for_bbmodel() — 6-decimal-place rounding
+     - select_interpolation() — Per-channel defaults (rotation→catmullrom, position/scale→linear)
+     - parse_geckolib_value() — Handle plain number, {"vector": N, "easing": S}, Molang string
+
+  3. parser.py — Parse GeckoLib animation.json into AnimationData
+     - Handles all GeckoLib value types
+     - Merges per-axis time series into unified keyframes
+     - Preserves Molang expressions as special keyframe markers
+     - Per-bone and per-channel error recovery (bad bones skipped with warnings)
+
+  4. validator.py — Validate and clean parsed data
+     - NaN/Infinity value detection and removal
+     - Time range validation (clamp to [0, anim_length])
+     - Rotation normalization to [-360, 360]
+     - Keyframe deduplication by (time, channel) pairs
+     - Snap-heavy animation detection (for interpolation override)
+     - Empty bone/animation removal with warnings
+
+  5. transform.py — Transformation pipeline (carry-forward, interpolation, loop alignment)
+     - Carry-forward: fills missing axes using last known values (prevents zero-snaps)
+     - Interpolation selection: rotation→catmullrom (linear for snap-heavy), position/scale→linear
+     - Loop alignment: ensures first and last keyframes match for loop animations
+     - C0 continuity: adds synthetic end keyframe at anim_length for smooth loop transitions
+     - Per-keyframe easing from source data (not a single dominant easing)
+
+  6. serializer.py — Convert AnimationData to bbmodel animation dicts
+     - Generates proper bbmodel keyframe format with UUIDs
+     - Handles Molang expressions in data_points
+     - Proper sort order (by time, then channel)
+
+  7. engine.py — Main AnimEngineV2 orchestrator
+     - Pipeline: Parse → Validate → Transform → Serialize
+     - Collects warnings and stats from each stage
+     - Default loop mode for animations without explicit loop setting
+     - Can be used standalone or integrated into BBModelGenerator
+
+  8. __init__.py — Package init, exports AnimEngineV2 and key types
+
+- Updated bbmodel_generator.py:
+  - Added `from anim_engine import AnimEngineV2` import
+  - Changed __init__ to create `self._anim_engine = AnimEngineV2()`
+  - Replaced `_build_animations(anim_json)` with `self._anim_engine.convert(anim_json, model_name=short_name)`
+  - Removed inline `_build_animations()` and `_process_channel()` methods (170+ lines of complex logic)
+  - Added `get_last_anim_result()` method for batch converter stats access
+  - Stored `self._last_anim_result` for stats retrieval
+
+- Updated batch_convert_mdo_srp.py:
+  - Added `anim_stats` dict to track animation conversion statistics
+  - Collects stats from AnimEngineV2 ConversionResult after each model
+  - Prints Animation Engine V2 section in summary with: total animations, keyframes,
+    animated bones, Molang keyframes, carry-forward fixes, loop alignments,
+    rotations normalized, conversion warnings
+  - Shows per-model keyframe count (kf=N) in status line
+
+- Ran batch conversion: 168/168 models OK, 0 failures
+  - 310 total animations converted
+  - 115,351 total keyframes generated
+  - 5,641 animated bones processed
+  - 34,212 carry-forward fixes applied
+  - 1,604 loop alignments performed
+  - 0 conversion warnings
+  - 6.0s elapsed
+
+Stage Summary:
+- Created converter/anim_engine/ package with 8 modules implementing pipeline architecture
+- Pipeline: Parse → Validate → Transform → Serialize (immutable data flow)
+- Each stage has clear input/output types, validation, logging, error recovery
+- Key improvements over old inline code:
+  - Rotation normalization ([-360, 360] range)
+  - Per-keyframe easing from source data (not single dominant)
+  - Snap-heavy detection for interpolation override
+  - Loop alignment with C0 continuity (synthetic end keyframes)
+  - 16-hex-char UUIDs (reduced collision risk)
+  - Comprehensive validation (NaN, Infinity, time range)
+  - Structured logging with per-model/per-animation/per-bone granularity
+  - Error recovery (bad bones/animations skipped, not fatal)
+- All 168 models convert successfully with AnimEngineV2
+- Old _build_animations and _process_channel methods removed from BBModelGenerator
