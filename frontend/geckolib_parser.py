@@ -865,9 +865,21 @@ def _parse_single_animation(
         bones=bones,
     )
 
-    # Apply axis reflection transforms to animation values
-    # (rotation: negate X/Y, position: negate X — same as model transforms)
-    anim_ir = _apply_animation_axis_transforms(anim_ir)
+    # NOTE: Animation axis transforms are NOT applied here.
+    # The model geometry has been axis-transformed (X negated, rotation X/Y negated),
+    # but animation values should remain as-is because:
+    #   1. Animation offsets are applied in the bone's LOCAL coordinate system
+    #   2. The bone's local axes are determined by the FK chain (including static rotation)
+    #   3. For bones with 180° Y static rotation (common in SRParasites models),
+    #      the local X axis is already flipped, so negating animation X/Y would
+    #      DOUBLE-flip the rotation, producing incorrect results.
+    #   4. The reference SubspaceParasite converter does NOT transform animation values.
+    #
+    # Mathematically, for a bone with static rotation (0, -180, 0) and animation (rx, ry, rz):
+    #   Original total: (rx, -180+ry, rz)
+    #   After model transform: static becomes (0, 180, 0)
+    #   With original anim values: total = (rx, 180+ry, rz) ≡ (rx, -180+ry, rz) ✓
+    #   With negated anim values: total = (-rx, 180-ry, rz) ≠ (rx, -180+ry, rz) ✗
 
     return anim_ir
 

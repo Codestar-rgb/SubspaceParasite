@@ -805,10 +805,21 @@ class BBModelExporter:
     def _serialize_bone_keyframes(
         self, bone_anim: BoneAnimationIR
     ) -> list:
-        """Serialize all keyframes for a bone animation.
+        """Serialize all keyframes for a bone animation with carry-forward.
 
         Each KeyframeData becomes one bbmodel keyframe dict. The keyframes
         are sorted by time then channel for deterministic output.
+
+        CARRY-FORWARD FIX:
+        When a bone has data on multiple axes with different time points
+        (e.g., rotation.y at t=0.5 but no rotation.z at that time),
+        the non-explicit axes should carry forward the value from the
+        PREVIOUS keyframe that had an explicit value for that axis,
+        rather than defaulting to 0.0.
+
+        Without carry-forward, a bone with y=5, z=10 at t=0 and y=8 at t=0.5
+        would output (y=8, z=0) at t=0.5, causing z to snap from 10 to 0
+        and creating a visible twitch/jump.
 
         Args:
             bone_anim: BoneAnimationIR instance with keyframes.
@@ -824,12 +835,74 @@ class BBModelExporter:
             key=lambda kf: (kf.time, kf.channel),
         )
 
+        # Apply carry-forward per (channel, axis) before serialization.
+        # Track the last explicit value for each (channel, axis) pair.
+        last_explicit: Dict[Tuple[str, str], float] = {}  # (channel, axis) -> value
+
         for kf in sorted_kfs:
-            kf_dict = self._serialize_keyframe(kf)
+            # Apply carry-forward to non-explicit axes
+            carried_kf = self._apply_carry_forward(kf, last_explicit)
+            kf_dict = self._serialize_keyframe(carried_kf)
             if kf_dict is not None:
                 result.append(kf_dict)
 
         return result
+
+    @staticmethod
+    def _apply_carry_forward(
+        kf: KeyframeData,
+        last_explicit: Dict[Tuple[str, str], float],
+    ) -> KeyframeData:
+        """Apply carry-forward to non-explicit axis values.
+
+        For each axis in the keyframe's channel, if the axis is not explicit
+        (i.e., the source data didn't provide a value at this time point),
+        use the last explicit value from a previous keyframe instead of 0.0.
+
+        This prevents "twitching" when bones animate on multiple axes with
+        different keyframe timing.
+
+        Args:
+            kf: The keyframe to apply carry-forward to.
+            last_explicit: Dict mapping (channel, axis) -> last explicit value.
+                           Updated in-place with any explicit values found.
+
+        Returns:
+            New KeyframeData with carry-forward applied.
+        """
+        key = kf.channel
+        new_axes = {}
+
+        for axis in AXES:
+            axis_val: AxisValue = getattr(kf, axis)
+            axis_key = (key, axis)
+
+            if axis_val.explicit:
+                # Update the last explicit value tracker
+                last_explicit[axis_key] = axis_val.value
+                new_axes[axis] = axis_val
+            else:
+                # Non-explicit: carry forward from last explicit value
+                if axis_key in last_explicit:
+                    carried_value = last_explicit[axis_key]
+                    new_axes[axis] = AxisValue(value=carried_value, explicit=False)
+                else:
+                    # No previous explicit value — use default 0.0
+                    new_axes[axis] = axis_val
+
+        return KeyframeData(
+            time=kf.time,
+            channel=kf.channel,
+            x=new_axes["x"],
+            y=new_axes["y"],
+            z=new_axes["z"],
+            easing=kf.easing,
+            interpolation=kf.interpolation,
+            is_molang=kf.is_molang,
+            molang_x=kf.molang_x,
+            molang_y=kf.molang_y,
+            molang_z=kf.molang_z,
+        )
 
     def _serialize_keyframe(self, kf: KeyframeData) -> Optional[dict]:
         """Serialize a single KeyframeData to bbmodel keyframe dict.
