@@ -286,3 +286,30 @@ Stage Summary:
 - DP threshold increased from 0.01° to 0.5° for less aggressive simplification
 - Keyframe density enforcement ensures no gaps > 0.35s between keyframes
 - All 168 MDO-SRP .bbmodel files rebuilt with fixes
+
+---
+Task ID: cleanup-v2
+Agent: Main Agent
+Task: Clean up old/redundant files and rebuild MDO-SRP
+
+Work Log:
+- Explored project directory structure - identified 10+ old directories, 158+ old zip files, many redundant files
+- Deleted old output directories: MODSRP (57MB), MROLF-TGNBF-OUTPUT (205MB), db/output (582MB), converter/output (9.7MB), public/converted (5.5MB), MCMOD-SRP, MROLF-TGNBF, converted_output
+- Deleted old archives: MROLF-TGNBF.tar.gz, batch_output.tar.gz, koasc-edcvb-updated.tar.gz, SDMCXKIFFNEK.zip, MinecraftModelMigrator-Pro-backup.zip, converter_package.tar.gz, koasc-edcvb-push.bundle, MinecraftModelMigrator-Pro.zip, cfr.jar
+- Deleted old screenshots: page_screenshot2.png, screenshot-top.png, screenshot-end.png, screenshot-very-bottom.png, screenshot-bottom.png, screenshot_main.png, page_screenshot.png, screenshot-full.png
+- Deleted root-level one-off Python scripts: compare_rotations_v2.py
+- Deleted MODSRP-Code/, agent-ctx/, tests/, examples/, converter_package/, decompiled/, jar_extract/
+- Cleaned converter/ folder: removed 18 old version files (bbmodel_animation_converter v3-v20, unversioned), 30+ one-off scripts, MinecraftModelMigrator-Pro.zip, old subdirectories (animforge, enhancements, parsers, output, templates, __pycache__), old docs
+- Converter folder reduced from 70+ files to 4 essential files: animation_converter.py, batch_convert_mdo_srp.py, bbmodel_generator.py, core_math.py
+- Cleaned db/ folder: removed 158 zip files, all .bbmodel/.geo.json/.animation.json/.png/.java/.json intermediate files, custom.db, geckolib_mod_dev/ directory
+- Cleaned download/ folder: removed MinecraftModelMigrator-Pro-GeckoLib.zip, SDMCXKIFFNEK.zip (kept srparasites_geckolib_models_v13.zip)
+- Cleaned public/: removed MinecraftModelMigrator-Pro.zip
+- Cleaned upload/: removed all old debug/test files (Heblu-MC.bbmodel, SRParasites-1.10.4.jar, etc.)
+- Rebuilt MDO-SRP: extracted source from srparasites_geckolib_models_v13.zip, ran batch conversion 168/168 OK, cleaned intermediate MDO-SRP-SRC
+- Dev server started successfully on port 3000
+
+Stage Summary:
+- Total space freed: ~900MB+ of old/redundant data removed
+- Project structure now clean: MDO-SRP (168 bbmodels, 111MB), converter (4 files, 248K), download (source zip, 6MB)
+- MDO-SRP rebuilt with latest converter including height fix, catmullrom interpolation, and carry-forward fixes
+- All 168 models across 16 categories converted successfully with 0 failures
