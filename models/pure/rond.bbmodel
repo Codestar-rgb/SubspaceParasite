@@ -3,8 +3,8 @@
     "format_version": "5.0",
     "model_format": "bedrock",
     "model_identifier": "rond",
-    "creation_time": 1781271999,
-    "modification_time": 1781271999,
+    "creation_time": 1781280877,
+    "modification_time": 1781280877,
     "box_uv": false,
     "face_size": [
       1,
@@ -29,7 +29,7 @@
   "groups": [
     {
       "name": "root",
-      "uuid": "50860dbda1b74f23",
+      "uuid": "794141546857422a",
       "export": true,
       "locked": false,
       "scope": 0,
@@ -62,7 +62,7 @@
   ],
   "outliner": [
     {
-      "uuid": "50860dbda1b74f23",
+      "uuid": "794141546857422a",
       "isOpen": false
     }
   ],
@@ -74,7 +74,7 @@
       "source": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAIAAADkharWAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsIAAA7CARUoSoAAAAAcSURBVChTY/z//z8DKYAJShMNRjUQA4a+BgYGAPVYAxW+Sb4PAAAAAElFTkSuQmCC",
       "mode": "bitmap",
       "saved": true,
-      "uuid": "c5f4b62f6b744095",
+      "uuid": "fad3315140954459",
       "width": 16,
       "height": 12,
       "uv_width": 16,
@@ -84,7 +84,7 @@
   "animations": [
     {
       "name": "animation.rond.idle",
-      "uuid": "910ea5fd28eb4e69",
+      "uuid": "e30ba2c3b5e8448d",
       "loop": "loop",
       "override": false,
       "length": 0.5,
@@ -93,7 +93,7 @@
       "anim_time_update": "",
       "blend_weight": "",
       "animators": {
-        "50860dbda1b74f23": {
+        "794141546857422a": {
           "name": "root",
           "type": "bone",
           "keyframes": [
@@ -101,12 +101,13 @@
               "channel": "position",
               "data_points": [
                 {
+                  "easing": "linear",
                   "x": 0.0,
                   "y": 0.0,
                   "z": 0.0
                 }
               ],
-              "uuid": "076ef29b560340d2",
+              "uuid": "3f5bec169cf04a73",
               "time": 0.0,
               "color": -1,
               "interpolation": "linear"
