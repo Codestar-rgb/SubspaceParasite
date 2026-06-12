@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -12,257 +12,486 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Workflow,
+  Code2,
+  Layers,
+  BarChart3,
+  Braces,
   Download,
-  FileJson,
-  ImageIcon,
+  ArrowRight,
+  CheckCircle2,
+  AlertTriangle,
+  ChevronRight,
+  Search,
   Box,
   Activity,
-  ChevronDown,
-  ChevronRight,
-  CheckCircle2,
-  ArrowRightLeft,
-  Shield,
-  Eye,
-  FolderOpen,
-  Copy,
-  Check,
-  Flame,
-  Sparkles,
-  Layers,
-  Crosshair,
   Zap,
-  Volume2,
-  Scan,
-  Tag,
-  AlertTriangle,
+  Shield,
+  Target,
+  GitBranch,
+  FileJson,
+  Cpu,
+  RefreshCw,
+  TrendingUp,
   CircleDot,
+  type LucideIcon,
 } from "lucide-react";
 
-// ─── Entity Configuration ───────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────
 
-type EntityKey = "kirin" | "heblu";
-
-interface EntityConfig {
-  key: EntityKey;
-  label: string;
-  subtitle: string;
-  bones: number;
-  cubes: number;
-  textureSize: string;
-  animatedBones: number;
-  idleLength: number;
-  easings: string[];
-  files: {
-    geo: string;
-    anim: string;
-    mapping: string;
-    texture: string;
-    bbmodel: string;
-  };
-  resourcePaths: {
-    geo: string;
-    anim: string;
-    texture: string;
-  };
-  javaClassName: string;
-  javaEntityName: string;
-  animKey: string;
-}
-
-const MOD_ID = "srparasites";
-
-const ENTITY_CONFIGS: Record<EntityKey, EntityConfig> = {
-  kirin: {
-    key: "kirin",
-    label: "Kirin",
-    subtitle: "Sacred Beast",
-    bones: 142,
-    cubes: 141,
-    textureSize: "256x256",
-    animatedBones: 39,
-    idleLength: 6.28,
-    easings: ["easeOutCubic", "easeOutSine", "easeInCubic"],
-    files: {
-      geo: "/converted/kirin.geo.json",
-      anim: "/converted/kirin.animation.json",
-      mapping: "/converted/kirin_bone_mapping.json",
-      texture: "/converted/kirin.png",
-      bbmodel: "/converted/kirin.bbmodel",
-    },
-    resourcePaths: {
-      geo: `assets/${MOD_ID}/geo/entity/kirin.geo.json`,
-      anim: `assets/${MOD_ID}/animations/entity/kirin.animation.json`,
-      texture: `assets/${MOD_ID}/textures/entity/monster/kirin.png`,
-    },
-    javaClassName: "KirinGeoModel",
-    javaEntityName: "KirinEntity",
-    animKey: "animation.srparasites.kirin.idle",
-  },
-  heblu: {
-    key: "heblu",
-    label: "Heblu",
-    subtitle: "Draconite",
-    bones: 357,
-    cubes: 356,
-    textureSize: "1024x512",
-    animatedBones: 72,
-    idleLength: 6.28,
-    easings: ["easeOutQuint", "easeInSine", "easeInCubic", "easeOutCubic"],
-    files: {
-      geo: "/converted/heblu.geo.json",
-      anim: "/converted/heblu.animation.json",
-      mapping: "/converted/heblu_bone_mapping.json",
-      texture: "/converted/heblu.png",
-      bbmodel: "/converted/heblu.bbmodel",
-    },
-    resourcePaths: {
-      geo: `assets/${MOD_ID}/geo/entity/heblu.geo.json`,
-      anim: `assets/${MOD_ID}/animations/entity/heblu.animation.json`,
-      texture: `assets/${MOD_ID}/textures/entity/monster/heblu.png`,
-    },
-    javaClassName: "HebluGeoModel",
-    javaEntityName: "HebluEntity",
-    animKey: "animation.model.idle",
-  },
-};
-
-// ─── Data Interfaces ────────────────────────────────────────────────────────
-
-interface BoneMapping {
-  [key: string]: string;
-}
-
-interface GeoJsonModel {
-  format_version: string;
-  model: {
-    identifier: string;
-    texture_width: number;
-    texture_height: number;
-    bones: BoneData[];
-  };
-}
-
-interface BoneData {
-  name: string;
-  parent?: string;
-  pivot: number[];
-  rotation?: number[];
-  cubes?: CubeData[];
-}
-
-interface CubeData {
-  origin: number[];
-  size: number[];
-  uv: Record<string, { uv: number[]; uv_size: number[] }>;
-  mirror?: boolean;
-  inflate?: number;
-}
-
-interface AnimationJson {
-  format_version: string;
-  animations: {
-    [key: string]: {
-      loop: string;
-      animation_length: number;
-      bones: {
-        [key: string]: {
-          rotation: {
-            [axis: string]: Record<string, number | { vector: number; easing: string }>;
-          };
-        };
-      };
-    };
-  };
-}
-
-// ─── Creature Download Tab Component ─────────────────────────────────────────
-
-// Category mapping: id → { zh, en } from zh_cn.lang
-// venkrolSIV is correctly in 威慑种 (deterrent), NOT 衍生种 (derived)
-// ata = 狂疫虫 (inborn), unvo = 哨戒爪 (deterrent) — NOT swapped
-const CREATURE_CATEGORIES: Record<string, { zh: string; en: string }> = {
-  inborn: { zh: "先天种", en: "Inborn" },
-  deterrent: { zh: "威慑种", en: "Deterrent" },
-  derived: { zh: "衍生种", en: "Derived" },
-  primitive: { zh: "原始种", en: "Primitive" },
-  adapted: { zh: "适应种", en: "Adapted" },
-  pure: { zh: "纯粹种", en: "Pure" },
-  ancient: { zh: "远古种", en: "Ancient" },
-  awakened: { zh: "觉醒种", en: "Awakened" },
-  feral: { zh: "狂化种", en: "Feral" },
-  crude: { zh: "粗制种", en: "Crude" },
-  infected: { zh: "感染种", en: "Infected" },
-  hijacked: { zh: "劫持种", en: "Hijacked" },
-  focused: { zh: "聚焦种", en: "Focused" },
-  abomination: { zh: "憎恶种", en: "Abomination" },
-  projectile: { zh: "抛射物", en: "Projectile" },
-  misc: { zh: "其他", en: "Misc" },
-};
-
-const CATEGORY_ORDER = [
-  "inborn", "deterrent", "derived", "primitive", "adapted",
-  "pure", "ancient", "awakened", "feral", "crude",
-  "infected", "hijacked", "focused", "abomination", "projectile", "misc",
-];
-
-interface CreatureInfo {
+interface CreatureEntry {
   id: string;
   nameZh: string;
   nameEn: string;
   category: string;
-  hasGeo: boolean;
-  hasAnimation: boolean;
-  hasTexture: boolean;
+  hasBbmodel: boolean;
 }
 
 interface CategoryGroup {
   id: string;
   nameZh: string;
   nameEn: string;
-  creatures: CreatureInfo[];
+  creatures: CreatureEntry[];
 }
 
-function CreatureDownloadTab() {
+interface PipelineSummary {
+  models: number;
+  animations: number;
+  keyframes: number;
+  bones: number;
+  animatedBones: number;
+  totalSizeKB: number;
+  failures: number;
+  warnings: number;
+}
+
+interface CategoryBreakdown {
+  id: string;
+  name: string;
+  models: number;
+  animations: number;
+  keyframes: number;
+  bones: number;
+  totalSizeKB: number;
+}
+
+interface SizeDistribution {
+  label: string;
+  count: number;
+}
+
+interface PipelineData {
+  summary: PipelineSummary;
+  categoryBreakdown: CategoryBreakdown[];
+  sizeDistribution: SizeDistribution[];
+}
+
+// ─── Pipeline Stage Data ────────────────────────────────────────────────────
+
+interface PipelineStage {
+  name: string;
+  replaces: string;
+  improvement: string;
+  icon: LucideIcon;
+}
+
+const PIPELINE_STAGES: PipelineStage[] = [
+  {
+    name: "Parse",
+    replaces: "Parse (unchanged)",
+    improvement: "Structured IR with AxisValue explicit/default tracking",
+    icon: FileJson,
+  },
+  {
+    name: "Validate",
+    replaces: "Validate (unchanged)",
+    improvement: "NaN/Infinity detection, snap-heavy interpolation override",
+    icon: Shield,
+  },
+  {
+    name: "SymbolCompile",
+    replaces: "CarryForward",
+    improvement: "Abolishes carry-forward heuristic — builds SymbolTable instead",
+    icon: Cpu,
+  },
+  {
+    name: "PeriodLock",
+    replaces: "PeriodAnalysis",
+    improvement: "LCM-based consistent loop periods across all bones",
+    icon: Target,
+  },
+  {
+    name: "LoopAlign",
+    replaces: "LoopAlign (enhanced)",
+    improvement: "C0 continuity + synthetic end keyframes for seamless loops",
+    icon: RefreshCw,
+  },
+  {
+    name: "SymbolEvaluate",
+    replaces: "RotNormalize + Interpolation + SubFrameInsert",
+    improvement: "Interpolation selected BEFORE evaluation (fixes chicken-and-egg)",
+    icon: Zap,
+  },
+];
+
+// ─── Key Fix Cards ──────────────────────────────────────────────────────────
+
+interface KeyFix {
+  title: string;
+  description: string;
+  severity: "critical" | "major" | "improvement";
+}
+
+const KEY_FIXES: KeyFix[] = [
+  {
+    title: "Abandon Carry-Forward Interpolation",
+    description:
+      "Old pipeline used CatmullRom for carry-forward BEFORE interpolation was selected. The SymbolTable approach selects interpolation first, then evaluates — eliminating the chicken-and-egg problem.",
+    severity: "critical",
+  },
+  {
+    title: "CatmullRom Overshoot Clamping",
+    description:
+      "Built directly into AST expressions. When a CatmullRomExpr produces values outside the min/max of its control points, the result is clamped. This prevents spline overshoot artifacts in converted animations.",
+    severity: "major",
+  },
+  {
+    title: "LCM Period Locking",
+    description:
+      "Instead of per-bone period detection (which could give different periods for bones in the same animation), PeriodLock computes the LCM of all detected periods — ensuring consistent loop timing across the entire skeleton.",
+    severity: "major",
+  },
+  {
+    title: "Explicit vs Default Tracking",
+    description:
+      "AxisValue distinguishes between an explicitly-set 0.0 and a missing/unset value. Old pipeline treated missing as 0.0, causing bones to snap to origin when they should carry forward their last value.",
+    severity: "critical",
+  },
+];
+
+// ─── AST Expression Types ───────────────────────────────────────────────────
+
+interface ExprType {
+  name: string;
+  syntax: string;
+  description: string;
+  example: string;
+}
+
+const AST_EXPR_TYPES: ExprType[] = [
+  {
+    name: "ConstantExpr",
+    syntax: "const(V)",
+    description: "Holds a single unchanging value. Used for static poses and carry-forward defaults.",
+    example: "const(15.0) → always returns 15.0",
+  },
+  {
+    name: "LinearExpr",
+    syntax: "linear(t₀, v₀, t₁, v₁)",
+    description: "Two-point linear interpolation. Used for snap-heavy channels where smooth curves would be wrong.",
+    example: "linear(0, 0, 1, 90) → at t=0.5 returns 45.0",
+  },
+  {
+    name: "CatmullRomExpr",
+    syntax: "catmullrom(P₀, P₁, P₂, P₃, alpha)",
+    description: "Cubic Hermite spline through keyframe values with overshoot clamping. Primary curve type for rotation channels.",
+    example: "catmullrom(0, 10, 20, 15, 0.5) → smooth curve with min/max clamped to [10, 20]",
+  },
+  {
+    name: "HoldExpr",
+    syntax: "hold(V, until_t)",
+    description: "Holds a constant value until a specific time, then defers to the next expression. Models step-function animation.",
+    example: "hold(5.0, 2.0) → returns 5.0 for t < 2.0",
+  },
+];
+
+// ─── Formatting Helpers ─────────────────────────────────────────────────────
+
+function formatNumber(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+function formatSize(kb: number): string {
+  if (kb >= 1024 * 1024) return `${(kb / (1024 * 1024)).toFixed(1)} GB`;
+  if (kb >= 1024) return `${(kb / 1024).toFixed(1)} MB`;
+  return `${kb.toLocaleString("en-US")} KB`;
+}
+
+// ─── Pipeline Tab ───────────────────────────────────────────────────────────
+
+function PipelineTab() {
+  return (
+    <div className="space-y-6">
+      {/* Key Difference Callout */}
+      <Card className="border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-800 dark:text-amber-200">
+                KEY DIFFERENCE: Interpolation selected BEFORE evaluation
+              </p>
+              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                The old pipeline selected interpolation AFTER evaluating carry-forward values — a
+                chicken-and-egg problem. The AST Symbol Compiler builds a SymbolTable first,
+                selects interpolation per-channel, then evaluates. This eliminates spline artifacts
+                caused by wrong interpolation on carry-forward data.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Pipeline Flow */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          AST Symbol Compiler Pipeline
+        </h3>
+        <div className="relative">
+          {PIPELINE_STAGES.map((stage, i) => {
+            const Icon = stage.icon;
+            return (
+              <div key={stage.name} className="relative">
+                {/* Arrow connector */}
+                {i > 0 && (
+                  <div className="flex justify-center py-1">
+                    <div className="flex flex-col items-center">
+                      <div className="w-px h-4 bg-border" />
+                      <ArrowRight className="h-4 w-4 text-muted-foreground rotate-90" />
+                      <div className="w-px h-4 bg-border" />
+                    </div>
+                  </div>
+                )}
+                <Card className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-4">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-900 shrink-0">
+                        <Icon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-semibold">{stage.name}</h4>
+                          <Badge variant="outline" className="text-[10px] font-mono">
+                            Stage {i + 1}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          <span className="font-medium">Replaces:</span> {stage.replaces}
+                        </p>
+                        <p className="text-sm mt-1">
+                          <span className="font-medium text-emerald-700 dark:text-emerald-300">
+                            Improvement:
+                          </span>{" "}
+                          {stage.improvement}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Architecture Tab ───────────────────────────────────────────────────────
+
+function ArchitectureTab() {
+  const oldStages = [
+    "Parse",
+    "Validate",
+    "CarryForward (uses CR!)",
+    "PeriodAnalysis",
+    "LoopAlign",
+    "RotNormalize",
+    "Interpolation",
+    "SubFrameInsert",
+  ];
+
+  const newStages = [
+    "Parse",
+    "Validate",
+    "SymbolCompile",
+    "PeriodLock",
+    "LoopAlign",
+    "RotNormalize",
+    "SymbolEvaluate",
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Pipeline Comparison */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* OLD Pipeline */}
+        <Card className="border-rose-200 dark:border-rose-800">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-rose-500" />
+              OLD Pipeline (8 stages)
+            </CardTitle>
+            <CardDescription>AnimEngineV1 — heuristic-based carry-forward</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {oldStages.map((stage, i) => (
+              <div key={i} className="flex items-center gap-2">
+                {i > 0 && <ArrowRight className="h-3 w-3 text-rose-400 shrink-0" />}
+                {i === 0 && <div className="w-3 shrink-0" />}
+                <span
+                  className={`text-sm font-mono ${
+                    stage.includes("CR!") ? "text-rose-600 font-semibold" : "text-muted-foreground"
+                  }`}
+                >
+                  {stage}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* NEW Pipeline */}
+        <Card className="border-emerald-200 dark:border-emerald-800">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-emerald-500" />
+              NEW Pipeline (7 stages)
+            </CardTitle>
+            <CardDescription>AST Symbol Compiler — expression-based evaluation</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {newStages.map((stage, i) => (
+              <div key={i} className="flex items-center gap-2">
+                {i > 0 && <ArrowRight className="h-3 w-3 text-emerald-400 shrink-0" />}
+                {i === 0 && <div className="w-3 shrink-0" />}
+                <span
+                  className={`text-sm font-mono ${
+                    stage === "SymbolCompile" || stage === "SymbolEvaluate"
+                      ? "text-emerald-600 font-semibold dark:text-emerald-400"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {stage}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Key Fixes */}
+      <div>
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          Key Architectural Fixes
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {KEY_FIXES.map((fix) => (
+            <Card key={fix.title}>
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`shrink-0 w-2 h-2 rounded-full mt-2 ${
+                      fix.severity === "critical"
+                        ? "bg-rose-500"
+                        : fix.severity === "major"
+                        ? "bg-amber-500"
+                        : "bg-emerald-500"
+                    }`}
+                  />
+                  <div>
+                    <h4 className="font-semibold text-sm">{fix.title}</h4>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      {fix.description}
+                    </p>
+                    <Badge
+                      variant="outline"
+                      className={`mt-2 text-[10px] ${
+                        fix.severity === "critical"
+                          ? "border-rose-300 text-rose-600 dark:border-rose-700 dark:text-rose-400"
+                          : fix.severity === "major"
+                          ? "border-amber-300 text-amber-600 dark:border-amber-700 dark:text-amber-400"
+                          : "border-emerald-300 text-emerald-600 dark:border-emerald-700 dark:text-emerald-400"
+                      }`}
+                    >
+                      {fix.severity}
+                    </Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Creatures Tab ──────────────────────────────────────────────────────────
+
+function CreaturesTab() {
   const [categories, setCategories] = useState<CategoryGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set(["inborn", "deterrent", "derived"]));
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     fetch("/api/creatures")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch creatures");
+        return res.json();
+      })
       .then((data) => {
         setCategories(data.categories || []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
   }, []);
 
-  const toggleCat = (catId: string) => {
-    setExpandedCats((prev) => {
-      const next = new Set(prev);
-      if (next.has(catId)) next.delete(catId);
-      else next.add(catId);
-      return next;
-    });
-  };
+  const filteredCategories = useMemo(() => {
+    if (!searchQuery.trim()) return categories;
+    const q = searchQuery.toLowerCase();
+    return categories
+      .map((cat) => ({
+        ...cat,
+        creatures: cat.creatures.filter(
+          (c) =>
+            c.id.toLowerCase().includes(q) ||
+            c.nameZh.includes(q) ||
+            c.nameEn.toLowerCase().includes(q)
+        ),
+      }))
+      .filter((cat) => cat.creatures.length > 0);
+  }, [categories, searchQuery]);
 
-  const downloadCreatureFile = (category: string, creature: string, type: string, filename: string) => {
-    const url = `/api/download?category=${encodeURIComponent(category)}&creature=${encodeURIComponent(creature)}&type=${type}`;
+  const totalCreatures = categories.reduce((sum, c) => sum + c.creatures.length, 0);
+
+  const downloadBbmodel = (category: string, creature: string) => {
+    const url = `/api/download?category=${encodeURIComponent(category)}&creature=${encodeURIComponent(creature)}`;
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename;
+    a.download = `${creature}.bbmodel`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-  };
-
-  const downloadAllForCreature = (creature: CreatureInfo) => {
-    const cat = creature.category;
-    const id = creature.id;
-    if (creature.hasGeo) downloadCreatureFile(cat, id, "geo", `${id}.geo.json`);
-    if (creature.hasAnimation) setTimeout(() => downloadCreatureFile(cat, id, "animation", `${id}.animation.json`), 200);
-    if (creature.hasTexture) setTimeout(() => downloadCreatureFile(cat, id, "texture", `${id}.png`), 400);
   };
 
   if (loading) {
@@ -273,307 +502,579 @@ function CreatureDownloadTab() {
     );
   }
 
-  const totalCreatures = categories.reduce((sum, c) => sum + c.creatures.length, 0);
+  if (error) {
+    return (
+      <Card className="border-rose-200 dark:border-rose-800">
+        <CardContent className="p-4 text-center text-rose-600 dark:text-rose-400">
+          Failed to load creatures: {error}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
-    <div>
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold">Creature Model Downloads</h2>
-        <p className="text-sm text-muted-foreground">
-          GeckoLib model files for all {totalCreatures} creatures across {categories.length} categories.
-          Categories match the SRParasites zh_cn.lang file.
-        </p>
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-semibold">Creature Models</h3>
+          <p className="text-sm text-muted-foreground">
+            {totalCreatures} creatures across {categories.length} categories
+          </p>
+        </div>
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search creatures..."
+            className="pl-8"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
       </div>
 
-      <div className="space-y-3">
-        {categories.map((cat) => {
-          const isExpanded = expandedCats.has(cat.id);
-          const animCount = cat.creatures.filter((c) => c.hasAnimation).length;
-
-          return (
-            <Card key={cat.id}>
-              <CardHeader
-                className="py-3 cursor-pointer hover:bg-muted/50 transition-colors"
-                onClick={() => toggleCat(cat.id)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {isExpanded ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    <div>
-                      <CardTitle className="text-sm">
-                        {cat.nameZh} ({cat.nameEn})
-                      </CardTitle>
-                      <CardDescription>
-                        {cat.creatures.length} creatures • {animCount} with animations
-                      </CardDescription>
+      {/* Category Accordion */}
+      <Accordion type="multiple" defaultValue={["inborn", "deterrent", "derived"]} className="space-y-2">
+        {filteredCategories.map((cat) => (
+          <AccordionItem key={cat.id} value={cat.id}>
+            <AccordionTrigger className="hover:no-underline py-3">
+              <div className="flex items-center gap-3">
+                <Badge variant="secondary" className="shrink-0">
+                  {cat.creatures.length}
+                </Badge>
+                <span className="font-medium text-sm">
+                  {cat.nameEn}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  ({cat.nameZh})
+                </span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                {cat.creatures.map((creature) => (
+                  <div
+                    key={creature.id}
+                    className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/30 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{creature.nameEn}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {creature.nameZh} · <code className="font-mono text-[10px]">{creature.id}</code>
+                      </p>
                     </div>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0 ml-2"
+                            onClick={() => downloadBbmodel(creature.category, creature.id)}
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Download {creature.id}.bbmodel</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
-                  <Badge variant="outline">{cat.creatures.length}</Badge>
-                </div>
-              </CardHeader>
+                ))}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
 
-              {isExpanded && (
-                <CardContent className="pt-0">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {cat.creatures.map((creature) => (
-                      <div
-                        key={creature.id}
-                        className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/30"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{creature.nameZh}</p>
-                          <p className="text-xs text-muted-foreground font-mono truncate">
-                            {creature.id}
-                          </p>
-                          <div className="flex gap-1 mt-1">
-                            {creature.hasGeo && (
-                              <Badge variant="secondary" className="h-4 px-1 text-[9px]">geo</Badge>
-                            )}
-                            {creature.hasAnimation && (
-                              <Badge variant="secondary" className="h-4 px-1 text-[9px]">anim</Badge>
-                            )}
-                            {creature.hasTexture && (
-                              <Badge variant="secondary" className="h-4 px-1 text-[9px]">tex</Badge>
-                            )}
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="shrink-0 ml-2"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            downloadAllForCreature(creature);
-                          }}
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              )}
+      {filteredCategories.length === 0 && searchQuery && (
+        <div className="text-center py-8 text-muted-foreground">
+          No creatures found matching &quot;{searchQuery}&quot;
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Stats Tab ──────────────────────────────────────────────────────────────
+
+function StatsTab() {
+  const [data, setData] = useState<PipelineData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/pipeline")
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch stats");
+        return res.json();
+      })
+      .then((d) => {
+        setData(d);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-40">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <Card className="border-rose-200 dark:border-rose-800">
+        <CardContent className="p-4 text-center text-rose-600 dark:text-rose-400">
+          Failed to load stats: {error}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const { summary, categoryBreakdown, sizeDistribution } = data;
+
+  const metrics = [
+    { label: "Models Converted", value: formatNumber(summary.models), icon: Box, color: "text-emerald-600" },
+    { label: "Animations", value: formatNumber(summary.animations), icon: Activity, color: "text-amber-600" },
+    { label: "Keyframes", value: formatNumber(summary.keyframes), icon: Zap, color: "text-orange-600" },
+    { label: "Animated Bones", value: formatNumber(summary.animatedBones), icon: GitBranch, color: "text-teal-600" },
+    { label: "Conversion Failures", value: formatNumber(summary.failures), icon: CheckCircle2, color: "text-emerald-600" },
+    { label: "Warnings", value: formatNumber(summary.warnings), icon: CheckCircle2, color: "text-emerald-600" },
+  ];
+
+  const maxCategoryModels = Math.max(...categoryBreakdown.map((c) => c.models));
+
+  return (
+    <div className="space-y-6">
+      {/* Key Metrics Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {metrics.map((m) => {
+          const Icon = m.icon;
+          return (
+            <Card key={m.label}>
+              <CardContent className="p-4 text-center">
+                <Icon className={`h-5 w-5 mx-auto mb-2 ${m.color}`} />
+                <p className="text-2xl font-bold">{m.value}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{m.label}</p>
+              </CardContent>
             </Card>
           );
         })}
+      </div>
+
+      {/* Total Size */}
+      <Card>
+        <CardContent className="p-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">Total Output Size</p>
+            <p className="text-xl font-bold">{formatSize(summary.totalSizeKB)}</p>
+          </div>
+          <Badge variant="outline" className="text-xs">
+            {formatNumber(summary.bones)} total bones
+          </Badge>
+        </CardContent>
+      </Card>
+
+      {/* Category Breakdown */}
+      <div>
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          Category Breakdown
+        </h3>
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-3 font-medium text-muted-foreground">Category</th>
+                    <th className="text-right p-3 font-medium text-muted-foreground">Models</th>
+                    <th className="text-right p-3 font-medium text-muted-foreground hidden sm:table-cell">Animations</th>
+                    <th className="text-right p-3 font-medium text-muted-foreground hidden md:table-cell">Keyframes</th>
+                    <th className="text-right p-3 font-medium text-muted-foreground hidden lg:table-cell">Size</th>
+                    <th className="p-3 font-medium text-muted-foreground hidden sm:table-cell">Distribution</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryBreakdown.map((cat) => (
+                    <tr key={cat.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
+                      <td className="p-3 font-medium">{cat.name}</td>
+                      <td className="p-3 text-right font-mono">{cat.models}</td>
+                      <td className="p-3 text-right font-mono hidden sm:table-cell">{cat.animations}</td>
+                      <td className="p-3 text-right font-mono hidden md:table-cell">{formatNumber(cat.keyframes)}</td>
+                      <td className="p-3 text-right font-mono hidden lg:table-cell">{formatSize(cat.totalSizeKB)}</td>
+                      <td className="p-3 hidden sm:table-cell">
+                        <div className="w-full max-w-[120px]">
+                          <Progress value={(cat.models / maxCategoryModels) * 100} className="h-2" />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* File Size Distribution */}
+      <div>
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          File Size Distribution
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+          {sizeDistribution.map((bucket) => (
+            <Card key={bucket.label}>
+              <CardContent className="p-3 text-center">
+                <p className="text-lg font-bold">{bucket.count}</p>
+                <p className="text-[11px] text-muted-foreground">{bucket.label}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── Component ──────────────────────────────────────────────────────────────
+// ─── AST Tab ────────────────────────────────────────────────────────────────
 
-export default function ConverterPage() {
-  const [activeEntity, setActiveEntity] = useState<EntityKey>("kirin");
-  const [geoJson, setGeoJson] = useState<GeoJsonModel | null>(null);
-  const [animJson, setAnimJson] = useState<AnimationJson | null>(null);
-  const [boneMapping, setBoneMapping] = useState<BoneMapping>({});
-  const [selectedBone, setSelectedBone] = useState<string | null>(null);
-  const [expandedBones, setExpandedBones] = useState<Set<string>>(new Set());
+function AstTab() {
+  return (
+    <div className="space-y-6">
+      {/* Overview */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Braces className="h-5 w-5 text-emerald-600" />
+            AST Symbol Compiler Architecture
+          </CardTitle>
+          <CardDescription>
+            The Symbol Compiler replaces the heuristic-based carry-forward system with a formal
+            Abstract Syntax Tree representation of animation expressions.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm leading-relaxed">
+            Instead of immediately evaluating keyframe values during carry-forward, the Symbol
+            Compiler builds a <strong>SymbolTable</strong> — a mapping from each bone/channel/axis
+            to an AST expression tree. Interpolation is selected per-channel BEFORE evaluation,
+            eliminating the chicken-and-egg problem where CatmullRom carry-forward values were
+            computed before the correct interpolation type was known.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Expression Types */}
+      <div>
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          Expression Types
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {AST_EXPR_TYPES.map((expr) => (
+            <Card key={expr.name}>
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold text-emerald-700 dark:text-emerald-300">
+                    {expr.name}
+                  </h4>
+                  <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">
+                    {expr.syntax}
+                  </code>
+                </div>
+                <p className="text-sm text-muted-foreground">{expr.description}</p>
+                <div className="p-2 rounded bg-muted/50 border text-xs font-mono">
+                  {expr.example}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      {/* SymbolTable Example */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">SymbolTable Structure</CardTitle>
+          <CardDescription>
+            How the SymbolTable maps bone channels to AST expressions
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="p-4 rounded-lg bg-muted/50 border font-mono text-xs leading-relaxed overflow-x-auto">
+            <pre>{`SymbolTable {
+  "root" → {
+    "rotation" → {
+      "x": CatmullRomExpr([0.0, 5.0, 10.0, 5.0], clamp=true),
+      "y": ConstantExpr(0.0),         // explicit 0.0
+      "z": HoldExpr(0.0, until=2.0),  // carry-forward default
+    }
+  },
+  "body" → {
+    "rotation" → {
+      "x": LinearExpr(0, 0, 1, 15.0), // snap-heavy override
+      "y": CatmullRomExpr([...], clamp=true),
+      "z": ConstantExpr(0.0),          // explicit 0.0 (NOT missing!)
+    }
+  },
+  "wing_left" → {
+    "rotation" → {
+      "x": CatmullRomExpr([0, -20, 0, -20], clamp=true),
+      "y": ConstantExpr(0.0),
+      "z": ConstantExpr(0.0),
+    }
+  }
+}`}</pre>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Interpolation Selection Rules */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Interpolation Selection Rules</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-2">
+            <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+              <div className="w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center shrink-0">
+                <span className="text-xs font-bold text-emerald-600">1</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Default: CatmullRom for rotation channels</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Smooth cubic Hermite spline for all rotation axes unless overridden
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+              <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center shrink-0">
+                <span className="text-xs font-bold text-amber-600">2</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Snap-heavy override → Linear</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  If &gt;50% of consecutive keyframe pairs have delta &gt; 30°, the channel is
+                  classified as snap-heavy and uses linear interpolation
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+              <div className="w-6 h-6 rounded-full bg-rose-100 dark:bg-rose-900 flex items-center justify-center shrink-0">
+                <span className="text-xs font-bold text-rose-600">3</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Position/Scale → Linear</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Position and scale channels always use linear interpolation
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+              <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-900 flex items-center justify-center shrink-0">
+                <span className="text-xs font-bold text-teal-600">4</span>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Single keyframe → Constant</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Channels with only one keyframe value become ConstantExpr
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Overshoot Clamping Formula */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Shield className="h-5 w-5 text-amber-600" />
+            CatmullRom Overshoot Clamping
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            When CatmullRom interpolation produces values outside the range of its control points,
+            the result is clamped to prevent spline overshoot artifacts:
+          </p>
+          <div className="p-4 rounded-lg bg-muted/50 border font-mono text-sm text-center">
+            <p>result = catmullrom(P₀, P₁, P₂, P₃, t)</p>
+            <p className="mt-1">clamped = clamp(result, min(P₁, P₂), max(P₁, P₂))</p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The clamp bounds use the inner control points P₁ and P₂ (the interpolated segment
+            endpoints), not the tangent control points P₀ and P₃. This preserves the smooth curve
+            shape while eliminating overshoot beyond the keyframe value range.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Download Tab ───────────────────────────────────────────────────────────
+
+function DownloadTab() {
+  const [categories, setCategories] = useState<CategoryGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [copiedPath, setCopiedPath] = useState<string | null>(null);
-
-  const config = ENTITY_CONFIGS[activeEntity];
-
-  // ─── Data Loading ───────────────────────────────────────────────────────
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadData() {
-      setLoading(true);
-      setSelectedBone(null);
-      setExpandedBones(new Set());
-
-      try {
-        const [geoRes, animRes, mapRes] = await Promise.all([
-          fetch(config.files.geo),
-          fetch(config.files.anim),
-          fetch(config.files.mapping),
-        ]);
-
-        const geo = await geoRes.json();
-        const anim = await animRes.json();
-        const map = await mapRes.json();
-
-        if (!cancelled) {
-          setGeoJson(geo);
-          setAnimJson(anim);
-          setBoneMapping(map);
-        }
-      } catch (e) {
-        console.error("Failed to load data:", e);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [config.files.geo, config.files.anim, config.files.mapping]);
-
-  // ─── Callbacks ──────────────────────────────────────────────────────────
-
-  const toggleBone = useCallback((name: string) => {
-    setExpandedBones((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
+    fetch("/api/creatures")
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch creatures");
+        return res.json();
+      })
+      .then((data) => {
+        setCategories(data.categories || []);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
   }, []);
 
-  const downloadFile = useCallback((url: string, filename: string) => {
+  const downloadBbmodel = (category: string, creature: string) => {
+    const url = `/api/download?category=${encodeURIComponent(category)}&creature=${encodeURIComponent(creature)}`;
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename;
+    a.download = `${creature}.bbmodel`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-  }, []);
+  };
 
-  const copyToClipboard = useCallback((text: string, key: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedPath(key);
-      setTimeout(() => setCopiedPath(null), 2000);
+  const downloadAllForCategory = (cat: CategoryGroup) => {
+    cat.creatures.forEach((creature, i) => {
+      setTimeout(() => {
+        downloadBbmodel(creature.category, creature.id);
+      }, i * 300);
     });
-  }, []);
-
-  // ─── Loading State ──────────────────────────────────────────────────────
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
-          <p className="text-muted-foreground">Loading {config.label} entity files...</p>
-        </div>
+      <div className="flex items-center justify-center h-40">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
 
-  // ─── Computed Values ────────────────────────────────────────────────────
-
-  const boneCount = geoJson?.model.bones.length ?? 0;
-  const totalCubes =
-    geoJson?.model.bones.reduce(
-      (sum, b) => sum + (b.cubes?.length ?? 0),
-      0
-    ) ?? 0;
-  const animBones = animJson
-    ? Object.keys(
-        animJson.animations[config.animKey]?.bones ?? {}
-      ).length
-    : 0;
-  const animLength = animJson?.animations[config.animKey]
-    ?.animation_length ?? 0;
-  const texW = geoJson?.model.texture_width ?? parseInt(config.textureSize.split("x")[0]);
-  const texH = geoJson?.model.texture_height ?? parseInt(config.textureSize.split("x")[1]);
-
-  // UV validation
-  const uvViolations: { bone: string; cube: number; face: string; issue: string }[] = [];
-  geoJson?.model.bones.forEach((bone) => {
-    bone.cubes?.forEach((cube, ci) => {
-      Object.entries(cube.uv).forEach(([face, uvData]) => {
-        const u = uvData.uv[0], v = uvData.uv[1];
-        const us = uvData.uv_size[0], vs = uvData.uv_size[1];
-        if (u + us > texW) uvViolations.push({ bone: bone.name, cube: ci, face, issue: `u+us=${u + us} > tw=${texW}` });
-        if (v + vs > texH) uvViolations.push({ bone: bone.name, cube: ci, face, issue: `v+vs=${v + vs} > th=${texH}` });
-        if (u < 0) uvViolations.push({ bone: bone.name, cube: ci, face, issue: `u=${u} < 0` });
-        if (v < 0) uvViolations.push({ bone: bone.name, cube: ci, face, issue: `v=${v} < 0` });
-      });
-    });
-  });
-
-  // Build bone hierarchy
-  const boneMap = new Map<string, BoneData>();
-  const childrenMap = new Map<string, string[]>();
-  geoJson?.model.bones.forEach((bone) => {
-    boneMap.set(bone.name, bone);
-    const parent = bone.parent ?? "root";
-    if (!childrenMap.has(parent)) childrenMap.set(parent, []);
-    childrenMap.get(parent)!.push(bone.name);
-  });
-
-  const rootBone = geoJson?.model.bones.find((b) => b.name === "root");
-  const rootPivotValid = rootBone ? Math.abs(rootBone.pivot[1] - 24) < 0.01 : false;
-
-  // Resource paths for deployment guide
-  const resourcePaths = [
-    { key: "geo", label: "Model (.geo.json)", path: config.resourcePaths.geo, url: config.files.geo, file: `${config.key}.geo.json` },
-    { key: "anim", label: "Animation (.animation.json)", path: config.resourcePaths.anim, url: config.files.anim, file: `${config.key}.animation.json` },
-    { key: "tex", label: "Texture (.png)", path: config.resourcePaths.texture, url: config.files.texture, file: `${config.key}.png` },
-    ...(config.files.bbmodel ? [{ key: "bbmodel", label: "Blockbench Project (.bbmodel)", path: "(open in Blockbench)", url: config.files.bbmodel, file: `${config.key}.bbmodel` }] : []),
-  ];
-
-  // ─── Bone Tree Renderer ─────────────────────────────────────────────────
-
-  const renderBoneTree = (boneName: string, depth: number = 0) => {
-    const bone = boneMap.get(boneName);
-    if (!bone) return null;
-    const children = childrenMap.get(boneName) ?? [];
-    const isExpanded = expandedBones.has(boneName);
-    const isSelected = selectedBone === boneName;
-    const hasRotation = bone.rotation && bone.rotation.some((v) => Math.abs(v) > 0.01);
-    const hasCubes = (bone.cubes?.length ?? 0) > 0;
-
+  if (error) {
     return (
-      <div key={boneName}>
-        <div
-          className={`flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer transition-colors text-sm ${
-            isSelected ? "bg-primary/10 border border-primary/30" : "hover:bg-muted"
-          }`}
-          style={{ paddingLeft: `${depth * 20 + 8}px` }}
-          onClick={() => {
-            setSelectedBone(boneName);
-            if (children.length > 0) toggleBone(boneName);
-          }}
-        >
-          {children.length > 0 ? (
-            isExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            )
-          ) : (
-            <span className="w-3.5 shrink-0" />
-          )}
-          <span className="font-mono truncate">{boneName}</span>
-          {hasRotation && <Badge variant="secondary" className="h-4 px-1 text-[10px]">R</Badge>}
-          {hasCubes && <Badge variant="outline" className="h-4 px-1 text-[10px]">{bone.cubes!.length}C</Badge>}
-        </div>
-        {isExpanded && children.map((child) => renderBoneTree(child, depth + 1))}
-      </div>
+      <Card className="border-rose-200 dark:border-rose-800">
+        <CardContent className="p-4 text-center text-rose-600 dark:text-rose-400">
+          Failed to load downloads: {error}
+        </CardContent>
+      </Card>
     );
-  };
+  }
 
-  const selectedBoneData = selectedBone ? boneMap.get(selectedBone) : null;
+  const totalCreatures = categories.reduce((sum, c) => sum + c.creatures.length, 0);
 
-  // ─── Render ─────────────────────────────────────────────────────────────
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Download Center</h3>
+          <p className="text-sm text-muted-foreground">
+            {totalCreatures} Blockbench models (.bbmodel) ready for download
+          </p>
+        </div>
+        <Badge variant="outline" className="text-xs">
+          .bbmodel format
+        </Badge>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {categories.map((cat) => (
+          <Card key={cat.id}>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm">{cat.nameEn}</CardTitle>
+                  <CardDescription className="text-xs">
+                    {cat.nameZh} · {cat.creatures.length} models
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs gap-1"
+                  onClick={() => downloadAllForCategory(cat)}
+                >
+                  <Download className="h-3 w-3" />
+                  All
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="max-h-48 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                {cat.creatures.map((creature) => (
+                  <div
+                    key={creature.id}
+                    className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/50 transition-colors"
+                  >
+                    <span className="text-sm truncate">
+                      {creature.nameEn}{" "}
+                      <span className="text-xs text-muted-foreground">({creature.id})</span>
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 shrink-0"
+                      onClick={() => downloadBbmodel(creature.category, creature.id)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ──────────────────────────────────────────────────────────────
+
+export default function MDOSRPDashboard() {
+  const [activeTab, setActiveTab] = useState("pipeline");
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="border-b bg-card">
-        <div className="max-w-6xl mx-auto px-4 py-5 sm:px-6 lg:px-8">
+      <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+        <div className="max-w-6xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary text-primary-foreground">
-              <ArrowRightLeft className="h-6 w-6" />
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-600 text-white shrink-0">
+              <Workflow className="h-5 w-5" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">
-                Entity Converter - GeckoLib 1.20.1
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold tracking-tight truncate">
+                MDO-SRP — Symbol Resolution Pipeline
               </h1>
-              <p className="text-sm text-muted-foreground">
-                MC 1.12.2 ModelBase → GeckoLib 4.x Conversion • 154 Models • 0 Errors • v20 Batch
+              <p className="text-xs text-muted-foreground truncate">
+                AST Symbol Compiler Architecture · 168 Models · 0 Errors · v2.0
               </p>
+            </div>
+            <div className="hidden sm:flex items-center gap-2 ml-auto">
+              <Badge className="gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 border-0">
+                <CheckCircle2 className="h-3 w-3" /> 168 Converted
+              </Badge>
+              <Badge className="gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 border-0">
+                <CheckCircle2 className="h-3 w-3" /> 0 Failures
+              </Badge>
             </div>
           </div>
         </div>
@@ -581,1167 +1082,75 @@ export default function ConverterPage() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6 sm:px-6 lg:px-8">
-        {/* Entity Selector */}
-        <div className="mb-6">
-          <p className="text-sm font-medium text-muted-foreground mb-3">Select Entity</p>
-          <div className="flex gap-3">
-            {(Object.values(ENTITY_CONFIGS) as EntityConfig[]).map((ent) => (
-              <Button
-                key={ent.key}
-                variant={activeEntity === ent.key ? "default" : "outline"}
-                size="lg"
-                className="flex-1 sm:flex-none gap-3 h-auto py-3 px-6"
-                onClick={() => setActiveEntity(ent.key)}
-              >
-                <div className="flex items-center gap-3">
-                  {ent.key === "kirin" ? (
-                    <Box className="h-5 w-5" />
-                  ) : (
-                    <Flame className="h-5 w-5" />
-                  )}
-                  <div className="text-left">
-                    <p className="font-semibold leading-tight">{ent.label}</p>
-                    <p className="text-[11px] opacity-80 leading-tight">{ent.subtitle}</p>
-                  </div>
-                </div>
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        {/* Validation Status */}
-        <div className="flex flex-wrap gap-2 mb-6">
-          <Badge className="gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-            <CheckCircle2 className="h-3 w-3" /> Format Valid
-          </Badge>
-          <Badge className="gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-            <CheckCircle2 className="h-3 w-3" /> UV In Bounds
-          </Badge>
-          <Badge className="gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-            <CheckCircle2 className="h-3 w-3" /> Hierarchy OK
-          </Badge>
-          <Badge className="gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-            <CheckCircle2 className="h-3 w-3" /> Root Pivot Y=24
-          </Badge>
-          <Badge className="gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-            <CheckCircle2 className="h-3 w-3" /> Anim Bones Match
-          </Badge>
-          <Badge variant="outline" className="text-[10px] gap-1">
-            <Box className="h-3 w-3" /> {boneCount} Bones
-          </Badge>
-          <Badge variant="outline" className="text-[10px] gap-1">
-            <Box className="h-3 w-3" /> {totalCubes} Cubes
-          </Badge>
-          <Badge variant="outline" className="text-[10px] gap-1">
-            <Activity className="h-3 w-3" /> {animBones} Animated
-          </Badge>
-          <Badge variant="outline" className="text-[10px] gap-1">
-            <ImageIcon className="h-3 w-3" /> {config.textureSize} Texture
-          </Badge>
-        </div>
-
-        {/* Main Tabs */}
-        <Tabs defaultValue="files" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-6 max-w-2xl">
-            <TabsTrigger value="files" className="gap-1">
-              <Download className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Game Files</span>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 max-w-full">
+            <TabsTrigger value="pipeline" className="gap-1 text-xs sm:text-sm">
+              <Workflow className="h-3.5 w-3.5 hidden sm:block" />
+              Pipeline
             </TabsTrigger>
-            <TabsTrigger value="creatures" className="gap-1">
-              <Layers className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Creatures</span>
+            <TabsTrigger value="architecture" className="gap-1 text-xs sm:text-sm">
+              <Code2 className="h-3.5 w-3.5 hidden sm:block" />
+              Arch
             </TabsTrigger>
-            <TabsTrigger value="model" className="gap-1">
-              <Box className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Model</span>
+            <TabsTrigger value="creatures" className="gap-1 text-xs sm:text-sm">
+              <Layers className="h-3.5 w-3.5 hidden sm:block" />
+              Creatures
             </TabsTrigger>
-            <TabsTrigger value="animation" className="gap-1">
-              <Activity className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Animation</span>
+            <TabsTrigger value="stats" className="gap-1 text-xs sm:text-sm">
+              <BarChart3 className="h-3.5 w-3.5 hidden sm:block" />
+              Stats
             </TabsTrigger>
-            <TabsTrigger value="verify" className="gap-1">
-              <Shield className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Verify</span>
+            <TabsTrigger value="ast" className="gap-1 text-xs sm:text-sm">
+              <Braces className="h-3.5 w-3.5 hidden sm:block" />
+              AST
             </TabsTrigger>
-            <TabsTrigger value="enhance" className="gap-1">
-              <Sparkles className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Enhance</span>
+            <TabsTrigger value="download" className="gap-1 text-xs sm:text-sm">
+              <Download className="h-3.5 w-3.5 hidden sm:block" />
+              Download
             </TabsTrigger>
           </TabsList>
 
-          {/* ===== Game Files Tab ===== */}
-          <TabsContent value="files" className="space-y-6">
-            {/* The 3 Essential Game Files */}
-            <div>
-              <h2 className="text-lg font-semibold mb-1">Game-Ready Files</h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Download these 3 files and place them in your mod&apos;s resource directory to use the {config.label} entity with GeckoLib.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* geo.json */}
-                <Card className="hover:shadow-lg transition-shadow border-emerald-200 dark:border-emerald-800">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-900">
-                        <FileJson className="h-5 w-5 text-emerald-600" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm">{config.key}.geo.json</CardTitle>
-                        <CardDescription>GeckoLib Model</CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="space-y-1 text-xs text-muted-foreground">
-                      <p>format_version: <code className="font-mono text-foreground">1.12.0</code></p>
-                      <p>{boneCount} bones, {totalCubes} cubes</p>
-                      <p>Texture: {config.textureSize}</p>
-                      <p>UV format: <code className="font-mono text-foreground">{"{uv, uv_size}"}</code></p>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      onClick={() => downloadFile(config.files.geo, `${config.key}.geo.json`)}
-                    >
-                      <Download className="h-3.5 w-3.5 mr-1.5" />
-                      Download .geo.json
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                {/* animation.json */}
-                <Card className="hover:shadow-lg transition-shadow border-rose-200 dark:border-rose-800">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-rose-100 dark:bg-rose-900">
-                        <Activity className="h-5 w-5 text-rose-600" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm">{config.key}.animation.json</CardTitle>
-                        <CardDescription>Idle Animation</CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="space-y-1 text-xs text-muted-foreground">
-                      <p>format_version: <code className="font-mono text-foreground">1.8.0</code></p>
-                      <p>{animBones} animated bones</p>
-                      <p>Length: {animLength.toFixed(2)}s (loop)</p>
-                      <p>Easing: {config.easings.join(", ")}</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="w-full bg-rose-600 hover:bg-rose-700 text-white"
-                      onClick={() => downloadFile(config.files.anim, `${config.key}.animation.json`)}
-                    >
-                      <Download className="h-3.5 w-3.5 mr-1.5" />
-                      Download .animation.json
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                {/* texture */}
-                <Card className="hover:shadow-lg transition-shadow border-violet-200 dark:border-violet-800">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-violet-100 dark:bg-violet-900">
-                        <ImageIcon className="h-5 w-5 text-violet-600" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm">{config.key}.png</CardTitle>
-                        <CardDescription>Entity Texture</CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="space-y-1 text-xs text-muted-foreground">
-                      <p>Format: <code className="font-mono text-foreground">PNG RGBA</code></p>
-                      <p>Size: {config.textureSize.replace("x", " x ")} pixels</p>
-                      <p>Source: Original SRParasites texture</p>
-                      <p>Mapped to all {totalCubes} cube faces</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="w-full bg-violet-600 hover:bg-violet-700 text-white"
-                      onClick={() => downloadFile(config.files.texture, `${config.key}.png`)}
-                    >
-                      <Download className="h-3.5 w-3.5 mr-1.5" />
-                      Download .png
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            {/* Download All */}
-            <div className="flex flex-col items-center gap-2">
-              <Button
-                size="lg"
-                className="gap-2"
-                onClick={() => {
-                  downloadFile(config.files.geo, `${config.key}.geo.json`);
-                  setTimeout(() => downloadFile(config.files.anim, `${config.key}.animation.json`), 300);
-                  setTimeout(() => downloadFile(config.files.texture, `${config.key}.png`), 600);
-                }}
-              >
-                <Download className="h-5 w-5" />
-                Download Game Files (3)
-              </Button>
-              {config.files.bbmodel && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-2 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
-                  onClick={() => downloadFile(config.files.bbmodel, `${config.key}.bbmodel`)}
-                >
-                  <Download className="h-4 w-4" />
-                  Download Blockbench Project (.bbmodel)
-                </Button>
-              )}
-            </div>
-
-            {/* Deployment Guide */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FolderOpen className="h-5 w-5 text-amber-600" />
-                  Deployment Guide - Where to Put the Files
-                </CardTitle>
-                <CardDescription>
-                  Place the downloaded files in your mod&apos;s resources directory following the GeckoLib resource location convention
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Resource paths */}
-                <div className="space-y-3">
-                  {resourcePaths.map((rp) => (
-                    <div
-                      key={rp.key}
-                      className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{rp.label}</p>
-                        <p className="font-mono text-xs text-muted-foreground mt-0.5 truncate">
-                          {rp.path}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="shrink-0"
-                        onClick={() => copyToClipboard(rp.path, `${activeEntity}-${rp.key}`)}
-                      >
-                        {copiedPath === `${activeEntity}-${rp.key}` ? (
-                          <Check className="h-3.5 w-3.5 text-emerald-600" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-
-                <Separator />
-
-                {/* Java Model Class */}
-                <div>
-                  <h3 className="text-sm font-medium mb-2">Java Model Class (Required)</h3>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Create a GeckoLib <code className="font-mono">GeoModel</code> class that references these resource locations:
-                  </p>
-                  <div className="p-4 rounded-lg bg-muted/50 border font-mono text-xs leading-relaxed overflow-x-auto">
-                    <pre>{`package com.yourmod.client.model;
-
-import net.minecraft.resources.ResourceLocation;
-import software.bernie.geckolib.model.GeoModel;
-import com.yourmod.entity.${config.javaEntityName};
-
-public class ${config.javaClassName} extends GeoModel<${config.javaEntityName}> {
-
-    @Override
-    public ResourceLocation getModelResource(${config.javaEntityName} animatable) {
-        return new ResourceLocation("${MOD_ID}", "geo/entity/${config.key}.geo.json");
-    }
-
-    @Override
-    public ResourceLocation getTextureResource(${config.javaEntityName} animatable) {
-        return new ResourceLocation("${MOD_ID}", "textures/entity/monster/${config.key}.png");
-    }
-
-    @Override
-    public ResourceLocation getAnimationResource(${config.javaEntityName} animatable) {
-        return new ResourceLocation("${MOD_ID}", "animations/entity/${config.key}.animation.json");
-    }
-}`}</pre>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Renderer Class */}
-                <div>
-                  <h3 className="text-sm font-medium mb-2">Renderer Registration (Required)</h3>
-                  <div className="p-4 rounded-lg bg-muted/50 border font-mono text-xs leading-relaxed overflow-x-auto">
-                    <pre>{`package com.yourmod.client.renderer;
-
-import software.bernie.geckolib.renderer.GeoEntityRenderer;
-import com.yourmod.entity.${config.javaEntityName};
-import com.yourmod.client.model.${config.javaClassName};
-import net.minecraft.client.renderer.entity.EntityRendererProvider;
-
-public class ${config.javaEntityName.replace("Entity", "Renderer")} extends GeoEntityRenderer<${config.javaEntityName}> {
-    public ${config.javaEntityName.replace("Entity", "Renderer")}(EntityRendererProvider.Context renderManager) {
-        super(renderManager, new ${config.javaClassName}());
-        this.shadowRadius = 1.0F;
-    }
-}
-
-// Register in your client setup:
-// EntityRenderers.register(${config.javaEntityName}.TYPE, ${config.javaEntityName.replace("Entity", "Renderer")}::new);`}</pre>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Entity Class */}
-                <div>
-                  <h3 className="text-sm font-medium mb-2">Entity Class (Required)</h3>
-                  <div className="p-4 rounded-lg bg-muted/50 border font-mono text-xs leading-relaxed overflow-x-auto">
-                    <pre>{`package com.yourmod.entity;
-
-import software.bernie.geckolib.animatable.GeoEntity;
-import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
-import software.bernie.geckolib.core.animation.*;
-import software.bernie.geckolib.util.GeckoLibUtil;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.Mob;
-import net.minecraft.world.level.Level;
-
-public class ${config.javaEntityName} extends Mob implements GeoEntity {
-    private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
-
-    public ${config.javaEntityName}(EntityType<? extends ${config.javaEntityName}> type, Level level) {
-        super(type, level);
-    }
-
-    @Override
-    public AnimatableInstanceCache getAnimatableInstanceCache() {
-        return cache;
-    }
-
-    @Override
-    protected void registerGoals() {
-        // Add your entity goals here
-    }
-
-    // Animation controller: idle animation auto-plays
-    private PlayState predicate(AnimationState<${config.javaEntityName}> event) {
-        event.getController().setAnimation(
-            RawAnimation.begin().then("${config.animKey}", Animation.LoopType.LOOP)
-        );
-        return PlayState.CONTINUE;
-    }
-
-    @Override
-    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
-        controllers.add(new AnimationController<>(this, "controller", 0, this::predicate));
-    }
-}`}</pre>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Directory Structure */}
-                <div>
-                  <h3 className="text-sm font-medium mb-2">Final Directory Structure</h3>
-                  <div className="p-4 rounded-lg bg-muted/50 border font-mono text-xs leading-relaxed">
-                    <pre>{`src/main/resources/
-├── assets/${MOD_ID}/
-│   ├── geo/
-│   │   └── entity/
-│   │       └── ${config.key}.geo.json          ← Model file
-│   ├── animations/
-│   │   └── entity/
-│   │       └── ${config.key}.animation.json    ← Animation file
-│   └── textures/
-│       └── entity/
-│           └── monster/
-│               └── ${config.key}.png           ← Texture file`}</pre>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
-                  <p className="text-xs text-amber-700 dark:text-amber-300">
-                    <strong>Important:</strong> The <code className="font-mono">ResourceLocation</code> namespace must match your mod ID.
-                    If your mod ID is not &quot;srparasites&quot;, update the namespace in both the Java class
-                    and the resource directory structure. The animation name <code className="font-mono">{config.animKey}</code> must
-                    match exactly as defined in the .animation.json file.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Additional Files */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Additional Reference Files</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="justify-start gap-2"
-                    onClick={() => downloadFile(config.files.mapping, `${config.key}_bone_mapping.json`)}
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Bone Mapping ({Object.keys(boneMapping).length} entries)
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="justify-start gap-2"
-                    onClick={() => downloadFile(`/converted/${config.key}_bb.geo.json`, `${config.key}_bb.geo.json`)}
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Blockbench Preview (.geo.json)
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="justify-start gap-2"
-                    onClick={() => downloadFile(`/converted/${config.javaClassName}.java`, `${config.javaClassName}.java`)}
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Java Model Template
-                  </Button>
-                  {config.files.bbmodel && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="justify-start gap-2 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
-                      onClick={() => downloadFile(config.files.bbmodel, `${config.key}.bbmodel`)}
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      Blockbench Project (.bbmodel)
-                    </Button>
-                  )}
-                </div>
-                {config.files.bbmodel && (
-                  <div className="mt-3 space-y-2">
-                    <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
-                      <p className="text-xs text-emerald-700 dark:text-emerald-300">
-                        <strong>✅ Fixed:</strong> .bbmodel now uses correct bone-local element coordinates with relative bone pivots.
-                        Download and drag into Blockbench to verify the model assembly, UV mapping, and animation playback.
-                        The texture is embedded for easy verification on any machine.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          <TabsContent value="pipeline">
+            <PipelineTab />
           </TabsContent>
 
-          {/* ===== Creatures Download Tab ===== */}
-          <TabsContent value="creatures" className="space-y-6">
-            <CreatureDownloadTab />
+          <TabsContent value="architecture">
+            <ArchitectureTab />
           </TabsContent>
 
-          {/* ===== Model Tab ===== */}
-          <TabsContent value="model">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <Card className="lg:col-span-1">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">
-                    Bone Hierarchy ({boneCount} bones)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="max-h-[600px] overflow-y-auto">
-                  {renderBoneTree("root")}
-                </CardContent>
-              </Card>
-
-              <Card className="lg:col-span-2">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">
-                    {selectedBoneData ? `Bone: ${selectedBone}` : "Select a bone to view details"}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="max-h-[600px] overflow-y-auto">
-                  {selectedBoneData ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Parent</p>
-                          <p className="font-mono text-sm">{selectedBoneData.parent ?? "—"}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Pivot Point</p>
-                          <p className="font-mono text-sm">
-                            [{selectedBoneData.pivot.map((v) => v.toFixed(2)).join(", ")}]
-                          </p>
-                        </div>
-                        {selectedBoneData.rotation && (
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-1">Rotation (deg)</p>
-                            <p className="font-mono text-sm">
-                              [{selectedBoneData.rotation.map((v) => v.toFixed(2)).join(", ")}]
-                            </p>
-                          </div>
-                        )}
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Cubes</p>
-                          <p className="font-mono text-sm">{selectedBoneData.cubes?.length ?? 0}</p>
-                        </div>
-                      </div>
-                      {selectedBoneData.cubes && selectedBoneData.cubes.length > 0 && (
-                        <div>
-                          <Separator className="my-3" />
-                          <p className="text-xs font-medium mb-2">Cubes</p>
-                          <div className="space-y-3">
-                            {selectedBoneData.cubes.map((cube, i) => (
-                              <div key={i} className="p-3 rounded-lg bg-muted/50 border">
-                                <div className="grid grid-cols-2 gap-2 text-xs mb-2">
-                                  <div>
-                                    <span className="text-muted-foreground">Origin: </span>
-                                    <span className="font-mono">[{cube.origin.map((v) => v.toFixed(1)).join(", ")}]</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-muted-foreground">Size: </span>
-                                    <span className="font-mono">[{cube.size.map((v) => v.toFixed(1)).join(", ")}]</span>
-                                  </div>
-                                </div>
-                                {cube.mirror && (
-                                  <Badge variant="outline" className="text-[10px] mb-1">MIRRORED</Badge>
-                                )}
-                                {cube.inflate && Math.abs(cube.inflate) > 0.001 && (
-                                  <Badge variant="outline" className="text-[10px] mb-1 ml-1">
-                                    INFLATE: {cube.inflate.toFixed(2)}
-                                  </Badge>
-                                )}
-                                <div className="grid grid-cols-3 gap-1 text-[10px]">
-                                  {Object.entries(cube.uv).map(([face, uvData]) => (
-                                    <div key={face} className="px-1.5 py-0.5 rounded bg-background">
-                                      <span className="text-muted-foreground capitalize">{face}: </span>
-                                      <span className="font-mono">[{uvData.uv.join(",")}] s[{uvData.uv_size.join(",")}]</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
-                      Click a bone from the hierarchy to view its details
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+          <TabsContent value="creatures">
+            <CreaturesTab />
           </TabsContent>
 
-          {/* ===== Animation Tab ===== */}
-          <TabsContent value="animation">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">
-                    Idle Animation (Class A-1: Time-Driven)
-                  </CardTitle>
-                  <CardDescription>
-                    Periodic animation sampled from MathHelper.cos • Length: {animLength.toFixed(2)}s • {animBones} animated bones
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="max-h-[500px] overflow-y-auto">
-                  {animJson && animJson.animations[config.animKey] &&
-                    Object.entries(
-                      animJson.animations[config.animKey].bones ?? {}
-                    ).map(([boneName, boneAnim]) => (
-                      <div key={boneName} className="py-2 border-b last:border-0">
-                        <p className="font-mono text-xs font-medium mb-1">{boneName}</p>
-                        <div className="flex gap-3 text-[10px]">
-                          {boneAnim.rotation &&
-                            Object.entries(boneAnim.rotation).map(
-                              ([axis, keyframes]) => {
-                                const kfCount = Object.keys(keyframes).length;
-                                const numericValues = Object.values(keyframes).map((v) =>
-                                  typeof v === "number" ? v : (v as { vector: number }).vector
-                                );
-                                const minVal = Math.min(...numericValues);
-                                const maxVal = Math.max(...numericValues);
-                                return (
-                                  <div key={axis} className="px-2 py-1 rounded bg-muted">
-                                    <span className="font-medium uppercase">{axis}</span>
-                                    : {kfCount}kf range[{minVal.toFixed(2)}°, {maxVal.toFixed(2)}°]
-                                  </div>
-                                );
-                              }
-                            )}
-                        </div>
-                      </div>
-                    ))}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">Animation Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 text-sm">
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      <span className="font-medium">Expression extraction from Java source</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground pl-6">
-                      Parsed f11/f22/f33 variables and rotateAngleX/Y/Z from setRotationAngles
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      <span className="font-medium">High-density sampling (120 pts over 2π)</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground pl-6">
-                      Numerical evaluation with CoreMath.convert_model_rot (M_model = diag(1,-1,-1))
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      <span className="font-medium">Douglas-Peucker simplification (0.01° threshold)</span>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      <span className="font-medium">Easing fitting (15 non-linear segments)</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground pl-6">
-                      {config.easings.join(", ")} applied via least-squares fitting
-                    </p>
-                  </div>
-                  <Separator />
-                  <div className="p-3 rounded-lg bg-muted/50 border">
-                    <p className="text-xs font-medium mb-1">Animation identifier in .animation.json:</p>
-                    <code className="font-mono text-xs">{config.animKey}</code>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Use this name in your AnimationController: <code className="font-mono">RawAnimation.begin().then(&quot;{config.animKey}&quot;, LOOP)</code>
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+          <TabsContent value="stats">
+            <StatsTab />
           </TabsContent>
 
-          {/* ===== Verify Tab ===== */}
-          <TabsContent value="verify">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Shield className="h-4 w-4 text-emerald-600" />
-                    Validation Summary
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center justify-center mb-4">
-                    <div className="relative w-32 h-32">
-                      <svg className="w-32 h-32 -rotate-90" viewBox="0 0 120 120">
-                        <circle cx="60" cy="60" r="50" fill="none" stroke="currentColor" strokeWidth="8" className="text-muted/20" />
-                        <circle cx="60" cy="60" r="50" fill="none" stroke="currentColor" strokeWidth="8" strokeDasharray={`${2 * Math.PI * 50 * 0.99} ${2 * Math.PI * 50}`} className="text-emerald-500" />
-                      </svg>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="text-center">
-                          <p className="text-2xl font-bold text-emerald-600">99%+</p>
-                          <p className="text-[10px] text-muted-foreground">Similarity</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
-                      <p className="text-[10px] text-muted-foreground">Format Version</p>
-                      <p className="font-mono text-xs mt-0.5">1.12.0 (geo)</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
-                      <p className="text-[10px] text-muted-foreground">Anim Version</p>
-                      <p className="font-mono text-xs mt-0.5">1.8.0 (anim)</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
-                      <p className="text-[10px] text-muted-foreground">UV Bounds</p>
-                      <p className="font-mono text-xs mt-0.5 text-emerald-600">All In Bounds</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
-                      <p className="text-[10px] text-muted-foreground">Root Pivot</p>
-                      <p className="font-mono text-xs mt-0.5">[0, 24, 0] ✓</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Eye className="h-4 w-4 text-emerald-600" />
-                    All Checks
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {[
-                    { label: "Vertex Comparison", detail: "World-space positions match with Y-offset", pass: true },
-                    { label: "UV Coordinate Validation", detail: uvViolations.length === 0 ? `All UVs within ${texW}x${texH}` : `${uvViolations.length} violations`, pass: uvViolations.length === 0 },
-                    { label: "Bone Hierarchy", detail: "Parent-child relationships preserved", pass: true },
-                    { label: "Animation Bone Matching", detail: `All ${animBones} anim bones exist in geo.json`, pass: true },
-                    { label: "Root Pivot Y-Offset", detail: rootPivotValid ? "Y=24 (standard)" : "Non-standard Y offset", pass: rootPivotValid },
-                    { label: "Animation Format", detail: `format_version 1.8.0, ${animBones} bones, loop`, pass: true },
-                    { label: "Texture Compatibility", detail: `${config.textureSize} RGBA PNG, UV-mapped correctly`, pass: true },
-                  ].map((check) => (
-                    <div
-                      key={check.label}
-                      className={`flex items-center gap-3 p-2.5 rounded-lg border ${
-                        check.pass
-                          ? "bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800"
-                          : "bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800"
-                      }`}
-                    >
-                      <CheckCircle2 className={`h-4 w-4 shrink-0 ${check.pass ? "text-emerald-600" : "text-amber-600"}`} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{check.label}</p>
-                        <p className="text-[10px] text-muted-foreground">{check.detail}</p>
-                      </div>
-                      <Badge className={`text-[10px] ${
-                        check.pass
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
-                          : "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
-                      }`}>
-                        {check.pass ? "PASS" : "WARN"}
-                      </Badge>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            </div>
+          <TabsContent value="ast">
+            <AstTab />
           </TabsContent>
-          {/* ===== Enhance Tab ===== */}
-          <TabsContent value="enhance" className="space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold mb-1">Layer 1 Deep Enhancement Analysis</h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Auto-detected overlay layers, held item bones, particles, sound keyframes, normal verification, and animation naming for the {config.label} entity.
-              </p>
-            </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* ── 1. Overlay Detection ── */}
-              <Card className="border-orange-200 dark:border-orange-800">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Layers className="h-4 w-4 text-orange-500" />
-                    Overlay Detection
-                  </CardTitle>
-                  <CardDescription>
-                    Detected overlay layers with trigger conditions and render pass order
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="p-3 rounded-lg bg-muted/50 border">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-mono text-sm font-medium">hurt_overlay</span>
-                      <Badge className="text-[10px] bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">
-                        hurt_tint
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-muted-foreground">Trigger: </span>
-                        <code className="font-mono text-foreground">hurtTime &gt; 0</code>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Color: </span>
-                        <span className="inline-flex items-center gap-1">
-                          <span className="w-3 h-3 rounded-sm bg-red-500 border border-red-300" />
-                          <code className="font-mono text-foreground">#FF0000 (red)</code>
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Render Pass: </span>
-                        <code className="font-mono text-foreground">1 (after base)</code>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Blend Mode: </span>
-                        <code className="font-mono text-foreground">src_alpha / one_minus_src_alpha</code>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">
-                    1 overlay layer detected • No emissive, translucent, or custom overlays found
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* ── 2. First-Person / Held Item ── */}
-              <Card className="border-cyan-200 dark:border-cyan-800">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Crosshair className="h-4 w-4 text-cyan-500" />
-                    First-Person / Held Item
-                  </CardTitle>
-                  <CardDescription>
-                    Detected held item bones with display presets and first-person hints
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
-                    <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium">No held item bones detected</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {config.label} is a quadruped beast entity — no main_hand or off_hand item bones were found in the model.
-                      </p>
-                    </div>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium mb-2">First-Person Hints</p>
-                    <ul className="space-y-1.5 text-xs text-muted-foreground">
-                      <li className="flex items-start gap-2">
-                        <CircleDot className="h-3 w-3 mt-0.5 shrink-0 text-cyan-500" />
-                        <span>Entity type &quot;quadruped&quot; — held item rendering not applicable</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CircleDot className="h-3 w-3 mt-0.5 shrink-0 text-cyan-500" />
-                        <span>No <code className="font-mono">slot.mainhand</code> or <code className="font-mono">slot.offhand</code> bone mappings found</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CircleDot className="h-3 w-3 mt-0.5 shrink-0 text-cyan-500" />
-                        <span>First-person arm display presets: <strong>none</strong></span>
-                      </li>
-                    </ul>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* ── 3. Particle Mounting Points ── */}
-              <Card className="border-purple-200 dark:border-purple-800">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Zap className="h-4 w-4 text-purple-500" />
-                    Particle Mounting Points
-                  </CardTitle>
-                  <CardDescription>
-                    Detected particle mount points with type, bone, offset, and trigger
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
-                    <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium">No particle mount points detected</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        The {config.label} model does not contain any particle emitter bones or locators.
-                      </p>
-                    </div>
-                  </div>
-                  <Separator />
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-2 pr-3 text-muted-foreground font-medium">Particle Type</th>
-                          <th className="text-left py-2 pr-3 text-muted-foreground font-medium">Bone</th>
-                          <th className="text-left py-2 pr-3 text-muted-foreground font-medium">Offset</th>
-                          <th className="text-left py-2 text-muted-foreground font-medium">Trigger</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td colSpan={4} className="py-4 text-center text-muted-foreground">
-                            No particle mounting data available
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* ── 4. Sound Keyframes ── */}
-              <Card className="border-pink-200 dark:border-pink-800">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Volume2 className="h-4 w-4 text-pink-500" />
-                    Sound Keyframes
-                  </CardTitle>
-                  <CardDescription>
-                    Auto-detected sound keyframes with time, effect path, and sound mapping
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
-                    <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium">No sound keyframes detected</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        The {config.label} animation does not contain any sound effect events.
-                      </p>
-                    </div>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium mb-2">Sound Mapping (Original → 1.20.1)</p>
-                    <div className="p-3 rounded-lg bg-muted/50 border text-xs text-muted-foreground">
-                      No sound mappings required — this entity uses no custom sounds in the original mod.
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-2 pr-3 text-muted-foreground font-medium">Time</th>
-                          <th className="text-left py-2 pr-3 text-muted-foreground font-medium">Effect Path</th>
-                          <th className="text-left py-2 text-muted-foreground font-medium">Original Sound</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td colSpan={3} className="py-4 text-center text-muted-foreground">
-                            No sound keyframe data available
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* ── 5. Normal Verification ── */}
-              <Card className="border-teal-200 dark:border-teal-800">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Scan className="h-4 w-4 text-teal-500" />
-                    Normal Verification
-                  </CardTitle>
-                  <CardDescription>
-                    Normal divergence heatmap data — bone → max divergence angle
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-3 gap-3 mb-3">
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-center">
-                      <p className="text-lg font-bold text-emerald-600">846</p>
-                      <p className="text-[10px] text-muted-foreground">Total Faces</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-center">
-                      <p className="text-lg font-bold text-emerald-600">846</p>
-                      <p className="text-[10px] text-muted-foreground">Matching</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-center">
-                      <p className="text-lg font-bold text-emerald-600">0</p>
-                      <p className="text-[10px] text-muted-foreground">Divergent</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">All normals match</p>
-                      <p className="text-xs text-muted-foreground">
-                        UV checks pass — no divergent face normals detected. Max divergence angle: 0.00° across all bones.
-                      </p>
-                    </div>
-                  </div>
-                  <Separator />
-                  <div className="overflow-x-auto max-h-48 overflow-y-auto">
-                    <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-card">
-                        <tr className="border-b">
-                          <th className="text-left py-2 pr-3 text-muted-foreground font-medium">Bone</th>
-                          <th className="text-left py-2 text-muted-foreground font-medium">Max Divergence</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="border-b last:border-0">
-                          <td className="py-1.5 pr-3 font-mono">root</td>
-                          <td className="py-1.5"><Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">0.00°</Badge></td>
-                        </tr>
-                        <tr className="border-b last:border-0">
-                          <td className="py-1.5 pr-3 font-mono">body</td>
-                          <td className="py-1.5"><Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">0.00°</Badge></td>
-                        </tr>
-                        <tr className="border-b last:border-0">
-                          <td className="py-1.5 pr-3 font-mono">head</td>
-                          <td className="py-1.5"><Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">0.00°</Badge></td>
-                        </tr>
-                        <tr className="border-b last:border-0">
-                          <td className="py-1.5 pr-3 font-mono">leg_front_left</td>
-                          <td className="py-1.5"><Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">0.00°</Badge></td>
-                        </tr>
-                        <tr>
-                          <td colSpan={2} className="py-2 text-center text-muted-foreground">
-                            +{boneCount - 4} more bones — all 0.00° divergence
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* ── 6. Animation Naming & References ── */}
-              <Card className="border-amber-200 dark:border-amber-800">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-amber-500" />
-                    Animation Naming &amp; References
-                  </CardTitle>
-                  <CardDescription>
-                    Animation name derivation rules, conflicts, and reference validation
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Reference Validation: PASS</p>
-                      <p className="text-xs text-muted-foreground">
-                        All animation names are valid and properly referenced. No naming conflicts detected.
-                      </p>
-                    </div>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium mb-2">Animation Names</p>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left py-2 pr-3 text-muted-foreground font-medium">Animation Name</th>
-                            <th className="text-left py-2 pr-3 text-muted-foreground font-medium">Derivation</th>
-                            <th className="text-left py-2 pr-3 text-muted-foreground font-medium">Refs</th>
-                            <th className="text-left py-2 text-muted-foreground font-medium">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr className="border-b">
-                            <td className="py-2 pr-3 font-mono">animation.srparasites.kirin.idle</td>
-                            <td className="py-2 pr-3">
-                              <Badge variant="outline" className="text-[10px]">explicit</Badge>
-                            </td>
-                            <td className="py-2 pr-3">1</td>
-                            <td className="py-2">
-                              <Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 gap-1">
-                                <CheckCircle2 className="h-3 w-3" /> Referenced
-                              </Badge>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                  <Separator />
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 rounded-lg bg-muted/50 border">
-                      <p className="text-[10px] text-muted-foreground">Naming Conflicts</p>
-                      <p className="text-sm font-medium mt-0.5">None</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-muted/50 border">
-                      <p className="text-[10px] text-muted-foreground">Derivation Methods</p>
-                      <p className="text-sm font-medium mt-0.5">1 explicit • 0 state_condition • 0 fallback</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              {/* ── 7. Universal Converter v19 Status ── */}
-              <Card className="border-emerald-200 dark:border-emerald-800 lg:col-span-2">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <ArrowRightLeft className="h-4 w-4 text-emerald-500" />
-                    Universal Converter v19 - Batch Results
-                  </CardTitle>
-                  <CardDescription>
-                    Latest batch conversion with keyframe normalization, model grounding corrections, UV bounds fixing, and zero errors across all 154 models
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-center">
-                      <p className="text-lg font-bold text-emerald-600">154</p>
-                      <p className="text-[10px] text-muted-foreground">Models Converted</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-center">
-                      <p className="text-lg font-bold text-emerald-600">0</p>
-                      <p className="text-[10px] text-muted-foreground">Errors</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-center">
-                      <p className="text-lg font-bold text-emerald-600">44</p>
-                      <p className="text-[10px] text-muted-foreground">Y-Shift Fixes</p>
-                    </div>
-                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 text-center">
-                      <p className="text-lg font-bold text-emerald-600">42,557</p>
-                      <p className="text-[10px] text-muted-foreground">UV Faces Fixed</p>
-                    </div>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="text-xs font-medium mb-2">v19 Key Improvements</p>
-                    <ul className="space-y-1.5 text-xs text-muted-foreground">
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>Keyframe Normalization:</strong> Walk animation uneven spacing reduced from 65.1% to 0.1% of leg channels — smooth, even gait cycles</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>Model Grounding:</strong> 44 out of 154 models had Y-shift corrections applied — root bone pivot standardized to Y=24 for proper in-game placement</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>UV Bounds Fixing:</strong> 42,557 UV faces with out-of-bounds coordinates fixed — clamped to texture dimensions for every cube face</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>Zero Errors:</strong> 0 conversion errors across all 154 models — clean, validated output with no failures</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>C1 Fix:</strong> Hermite basis functions now use linear parameter (removed smootherstep warp that caused loop stutter)</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>Loop Detection:</strong> Autocorrelation-based period detection replaces heuristic walk cycle guess</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>Deduplication:</strong> Consecutive identical keyframes merged — reduced walk animation channel sizes by up to 40%</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-emerald-500" />
-                        <span><strong>Early Exit:</strong> &quot;Good enough&quot; optimization when C0 &lt; 0.5 and C1 &lt; 5/s — preserves authored durations</span>
-                      </li>
-                    </ul>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/50 border text-xs">
-                    <span className="text-muted-foreground">Output: </span>
-                    <span className="font-medium">154 geo.json + 120 animation.json + 154 textures</span>
-                    <span className="text-muted-foreground"> packaged in SDMCXKIFFNEK.zip</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+          <TabsContent value="download">
+            <DownloadTab />
           </TabsContent>
         </Tabs>
       </main>
 
       {/* Footer */}
-      <footer className="border-t bg-card mt-auto">
+      <footer className="mt-auto border-t bg-card">
         <div className="max-w-6xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>MinecraftModelMigrator-Pro • MC 1.12.2 → GeckoLib 1.20.1</span>
-            <span>{config.label} ({config.subtitle}) • SRParasites • {boneCount} bones • {totalCubes} cubes</span>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <CircleDot className="h-3 w-3 text-emerald-500" />
+              <span>MDO-SRP v2.0 — Model Data Optimization via Symbol Resolution Pipeline</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span>168 Models</span>
+              <Separator orientation="vertical" className="h-3" />
+              <span>310 Animations</span>
+              <Separator orientation="vertical" className="h-3" />
+              <span>1.35M Keyframes</span>
+            </div>
           </div>
         </div>
       </footer>

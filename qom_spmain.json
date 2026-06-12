@@ -1,0 +1,18 @@
+{
+  "code": 200,
+  "data": {
+    "description": "",
+    "html": "<html><head><meta name=\"color-scheme\" content=\"light dark\"></head><body><pre style=\"word-wrap: break-word; white-space: pre-wrap;\">/*\n * Decompiled with CFR 0.152.\n * \n * Could not load the following classes:\n *  net.minecraft.util.ResourceLocation\n *  net.minecraftforge.fluids.FluidRegistry\n *  net.minecraftforge.fml.common.Mod\n *  net.minecraftforge.fml.common.Mod$EventHandler\n *  net.minecraftforge.fml.common.Mod$Instance\n *  net.minecraftforge.fml.common.SidedProxy\n *  net.minecraftforge.fml.common.event.FMLInitializationEvent\n *  net.minecraftforge.fml.common.event.FMLPostInitializationEvent\n *  net.minecraftforge.fml.common.event.FMLPreInitializationEvent\n *  net.minecraftforge.fml.common.event.FMLServerStartingEvent\n *  net.minecraftforge.fml.common.network.simpleimpl.SimpleNetworkWrapper\n *  org.apache.logging.log4j.Logger\n */\npackage com.subspaceparasite;\n\nimport com.subspaceparasite.proxy.CommonProxy;\nimport com.subspaceparasite.util.SPCreativeTabs;\nimport net.minecraft.util.ResourceLocation;\nimport net.minecraftforge.fluids.FluidRegistry;\nimport net.minecraftforge.fml.common.Mod;\nimport net.minecraftforge.fml.common.SidedProxy;\nimport net.minecraftforge.fml.common.event.FMLInitializationEvent;\nimport net.minecraftforge.fml.common.event.FMLPostInitializationEvent;\nimport net.minecraftforge.fml.common.event.FMLPreInitializationEvent;\nimport net.minecraftforge.fml.common.event.FMLServerStartingEvent;\nimport net.minecraftforge.fml.common.network.simpleimpl.SimpleNetworkWrapper;\nimport org.apache.logging.log4j.Logger;\n\n@Mod(modid=\"subspaceparasite\", name=\"Scape and Run Parasites\", version=\"1.10.6\", dependencies=\"before:jeid@[2.2.5,)\")\npublic class SPMain {\n    @Mod.Instance\n    public static SPMain instance;\n    @SidedProxy(clientSide=\"com.subspaceparasite.proxy.ClientProxy\", serverSide=\"com.subspaceparasite.proxy.CommonProxy\")\n    public static CommonProxy proxy;\n    public static final SPCreativeTabs SP_CREATIVETAB;\n    public static Logger logger;\n    public static SimpleNetworkWrapper network;\n\n    @Mod.EventHandler\n    public void preInit(FMLPreInitializationEvent event) {\n        logger = event.getModLog();\n        proxy.preInit(event);\n    }\n\n    @Mod.EventHandler\n    public void Init(FMLInitializationEvent event) {\n        proxy.init(event);\n    }\n\n    @Mod.EventHandler\n    public void Postinit(FMLPostInitializationEvent event) {\n        proxy.postInit(event);\n    }\n\n    @Mod.EventHandler\n    public void Serverinit(FMLServerStartingEvent event) {\n        proxy.serverInit(event);\n    }\n\n    public static ResourceLocation rl(String path) {\n        return new ResourceLocation(\"subspaceparasite\", path);\n    }\n\n    static {\n        SP_CREATIVETAB = new SPCreativeTabs(\"SPParasites\");\n        FluidRegistry.enableUniversalBucket();\n    }\n}\n\n</pre></body></html>",
+    "title": "",
+    "url": "https://raw.githubusercontent.com/Codestar-rgb/Qom-Inseac/main/src/main/java/com/subspaceparasite/SPMain.java",
+    "usage": {
+      "tokens": 616
+    }
+  },
+  "meta": {
+    "usage": {
+      "tokens": 616
+    }
+  },
+  "status": 20000
+}
