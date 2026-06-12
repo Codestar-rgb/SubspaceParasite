@@ -128,21 +128,25 @@ def _apply_axis_transforms(
       - Negate X of all bone pivots: (x, y, z) → (-x, y, z)
       - Negate X and Y of all bone rotations: (rx, ry, rz) → (-rx, -ry, rz)
       - Negate both from_x and to_x corners of ALL cube positions
-      - For bones with pure single-axis ±180° rotations, bake the rotation
-        into cube positions and set the bone rotation to identity:
-        * ±180° X: mirror Y and Z around pivot, then negate X
-        * ±180° Y: mirror Z around pivot only (X handled by axis transform),
-          then negate X
-        * ±180° Z: mirror X and Y around pivot, then negate X
+      - Keep ALL rotations (including ±180°) — do NOT bake them into geometry.
+        Blockbench handles rotation during rendering, so baking is unnecessary
+        and causes UV face orientation issues (east/west swap, up/down flip).
+
+    Previously, pure ±180° single-axis rotations were "baked" into cube positions
+    and the bone rotation was zeroed. This caused three critical bugs:
+      1. Root bone 180° Y rotation was zeroed → model faces wrong direction
+      2. Child bone 180° rotations were baked but UV face swaps were missing
+         → textures appear inverted ("本末倒置")
+      3. Baked geometry + missing UV swaps → parts appear disconnected ("悬空")
+
+    The fix: keep all rotations as-is after the axis transform. Blockbench
+    applies rotations during rendering, correctly orienting all faces.
 
     Args:
         bones: List of bone dicts from geo.json (modified in-place).
         abs_pivots: Dict mapping bone_name -> [x, y, z] absolute pivots
                     (modified in-place).
     """
-    # Save original pivots before modification
-    old_pivots = {name: list(p) for name, p in abs_pivots.items()}
-
     # Transform absolute pivots: negate X
     for bone_name in abs_pivots:
         p = abs_pivots[bone_name]
@@ -150,45 +154,20 @@ def _apply_axis_transforms(
 
     # Transform bone data
     for bone in bones:
-        bone_name = bone.get('name', '')
-        old_pivot = old_pivots.get(bone_name, [0.0, 0.0, 0.0])
-
-        # Detect pure single-axis ±180° rotations for baking
-        rot = bone.get('rotation')
-        rot_180x = False  # Pure ±180° X: bake Y and Z mirror
-        rot_180y = False  # Pure ±180° Y: bake Z mirror only
-        rot_180z = False  # Pure ±180° Z: bake X and Y mirror
-        rx = ry = rz = 0.0
-        if rot is not None:
-            try:
-                rx = float(rot[0]) if len(rot) > 0 else 0.0
-                ry = float(rot[1]) if len(rot) > 1 else 0.0
-                rz = float(rot[2]) if len(rot) > 2 else 0.0
-                if abs(abs(rx) - 180.0) < 0.1 and abs(ry) < 0.1 and abs(rz) < 0.1:
-                    rot_180x = True
-                if abs(rx) < 0.1 and abs(abs(ry) - 180.0) < 0.1 and abs(rz) < 0.1:
-                    rot_180y = True
-                if abs(rx) < 0.1 and abs(ry) < 0.1 and abs(abs(rz) - 180.0) < 0.1:
-                    rot_180z = True
-            except (IndexError, TypeError, ValueError):
-                pass
-
         # Transform rotation: (rx, ry, rz) → (-rx, -ry, rz)
+        # Applied uniformly to ALL bones, including ±180° rotations.
+        rot = bone.get('rotation')
         if rot is not None:
             try:
-                if rot_180x or rot_180y or rot_180z:
-                    # Baking the rotation into geometry, set to identity
-                    bone['rotation'] = [0.0, 0.0, 0.0]
-                else:
-                    bone['rotation'] = [
-                        -float(rot[0]) if len(rot) > 0 else 0.0,
-                        -float(rot[1]) if len(rot) > 1 else 0.0,
-                        float(rot[2]) if len(rot) > 2 else 0.0,
-                    ]
+                bone['rotation'] = [
+                    -float(rot[0]) if len(rot) > 0 else 0.0,
+                    -float(rot[1]) if len(rot) > 1 else 0.0,
+                    float(rot[2]) if len(rot) > 2 else 0.0,
+                ]
             except (IndexError, TypeError, ValueError):
                 pass
 
-        # Transform cube origins
+        # Transform cube origins: negate X only
         for cube in bone.get('cubes', []):
             origin = cube.get('origin')
             size = cube.get('size')
@@ -200,34 +179,6 @@ def _apply_axis_transforms(
                     # Compute absolute from/to corners
                     from_x, from_y, from_z = ox, oy, oz
                     to_x, to_y, to_z = ox + sx, oy + sy, oz + sz
-
-                    if rot_180z:
-                        # Bake ±180° Z rotation: mirror X and Y around pivot
-                        # 180° Z: (x,y,z) → (-x, -y, z) relative to pivot
-                        # absolute: new = 2*pivot - old
-                        from_x = 2.0 * old_pivot[0] - from_x
-                        from_y = 2.0 * old_pivot[1] - from_y
-                        to_x = 2.0 * old_pivot[0] - to_x
-                        to_y = 2.0 * old_pivot[1] - to_y
-
-                    elif rot_180y:
-                        # Bake ±180° Y rotation: mirror Z only (NOT X)
-                        # The X component of the rotation is handled by the
-                        # axis transform (X negation), so we only need to
-                        # mirror Z around the pivot.
-                        # 180° Y: (x,y,z) → (-x, y, -z) relative to pivot
-                        # But X is handled by axis transform, so only mirror Z.
-                        from_z = 2.0 * old_pivot[2] - from_z
-                        to_z = 2.0 * old_pivot[2] - to_z
-
-                    elif rot_180x:
-                        # Bake ±180° X rotation: mirror Y and Z around pivot
-                        # 180° X: (x,y,z) → (x, -y, -z) relative to pivot
-                        # absolute: new = 2*pivot - old
-                        from_y = 2.0 * old_pivot[1] - from_y
-                        from_z = 2.0 * old_pivot[2] - from_z
-                        to_y = 2.0 * old_pivot[1] - to_y
-                        to_z = 2.0 * old_pivot[2] - to_z
 
                     # Negate X of both corners (applied to ALL bones)
                     from_x, to_x = -from_x, -to_x

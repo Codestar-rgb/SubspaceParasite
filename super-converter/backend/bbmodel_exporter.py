@@ -412,11 +412,25 @@ class BBModelExporter:
         """Convert face UV data from geo.json to .bbmodel format.
 
         geo.json:  { "north": { "uv": [u, v], "uv_size": [w, h] }, ... }
-        bbmodel:   { "north": { "uv": [u, v, u+w, v+h], "texture": 0 }, ... }
+        bbmodel:   { "north": { "uv": [u1, v1, u2, v2], "texture": 0 }, ... }
 
-        No UV face swaps are applied — the source geo.json data is already
-        in the correct coordinate system after the axis transforms applied
-        in the parser.
+        CRITICAL: UV Coordinate Normalization
+        ======================================
+        The source geo.json often has NEGATIVE uv_size values (especially on
+        up/down faces), which means the texture is flipped. For example:
+          uv=[29, 10], uv_size=[-19, -10]
+
+        Naively computing [u, v, u+w, v+h] gives [29, 10, 10, 0] which has
+        u1 > u2 and v1 > v2. The .bbmodel format requires UV coordinates as
+        a proper rectangle [u1, v1, u2, v2] where u1 ≤ u2 and v1 ≤ v2.
+
+        The fix: normalize UV coordinates by taking min/max of both corners.
+        This produces the correct UV rectangle regardless of uv_size sign:
+          [29, 10, -19, -10] → normalized: [10, 0, 29, 10]
+
+        No UV face swaps (N↔S, E↔W) are applied. With the axis transform
+        fix (keeping ±180° rotations instead of baking them), Blockbench
+        handles face orientation correctly during rendering.
 
         For faces without UV data: set texture to -1, uv to [0,0,0,0].
 
@@ -427,7 +441,7 @@ class BBModelExporter:
         Returns:
             Dict mapping face_name -> {uv: [u1,v1,u2,v2], texture: int}.
         """
-        # Convert format from geo.json to .bbmodel (no face swaps)
+        # Convert format from geo.json to .bbmodel with UV normalization
         faces: Dict[str, dict] = {}
 
         for face_name in FACE_NAMES:
@@ -439,8 +453,13 @@ class BBModelExporter:
                 w = float(face_uv.get("uv_size", [0.0, 0.0])[0])
                 h = float(face_uv.get("uv_size", [0.0, 0.0])[1])
 
+                # Normalize UV coordinates: ensure u1 ≤ u2 and v1 ≤ v2
+                # This handles negative uv_size values (texture flipping)
+                u1, u2 = (u, u + w) if w >= 0 else (u + w, u)
+                v1, v2 = (v, v + h) if h >= 0 else (v + h, v)
+
                 faces[face_name] = {
-                    "uv": [u, v, u + w, v + h],
+                    "uv": [u1, v1, u2, v2],
                     "texture": 0,
                 }
             else:

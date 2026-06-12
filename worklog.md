@@ -857,3 +857,24 @@ Stage Summary:
 - Both issues fixed at the parser level
 - All 168 models now render correctly with visual bottom at Y=0
 - Repo pushed: https://github.com/Codestar-rgb/SubspaceParasite
+---
+Task ID: 1
+Agent: Main Agent
+Task: 修复MDO-SRP转换器的模型问题（本末倒置、悬空）
+
+Work Log:
+- 对比参考文件(kirin.bbmodel, heblu-SubSRP.bbmodel)与转换器输出，定位3个核心bug
+- Bug1: UP/DOWN面UV坐标对反转 — 负uv_size导致[u2,v2,u1,v1]而非[u1,v1,u2,v2]
+- Bug2: 根骨骼180°Y旋转被烘焙归零 — root rotation从[0,-180,0]变为[0,0,0]
+- Bug3: 子骨骼±180°旋转烘焙缺少UV面交换 — skin元素东西面UV互换
+- 修复geckolib_parser.py: 移除±180°旋转烘焙逻辑，统一应用轴变换(-rx,-ry,rz)
+- 修复bbmodel_exporter.py: 添加UV坐标归一化，确保u1≤u2, v1≤v2
+- 重新批量转换168个模型，0失败
+- 验证: kirin模型282个UV面全部匹配，141个元素位置全部匹配
+- 推送到GitHub: commit 0f26b75
+
+Stage Summary:
+- 3个核心bug全部修复
+- 168模型批量转换0失败
+- GitHub推送成功: https://github.com/Codestar-rgb/SubspaceParasite
+- 关键修改: geckolib_parser.py(移除烘焙), bbmodel_exporter.py(UV归一化)
