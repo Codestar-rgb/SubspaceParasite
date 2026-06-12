@@ -37,8 +37,13 @@ AXES: Tuple[str, ...] = ("x", "y", "z")
 CHANNELS: Tuple[str, ...] = ("rotation", "position", "scale")
 
 # Default interpolation mode per channel
+# GeckoLib Bedrock format 1.8.0 uses LINEAR interpolation by default.
+# CatmullRom is only used when the source data explicitly specifies
+# non-linear easing (e.g., "easeOutSine"). Using catmullrom as default
+# for rotation causes severe overshoot artifacts in walk animations
+# (short cycles with rapid direction changes).
 DEFAULT_INTERPOLATION: Dict[str, str] = {
-    "rotation": "catmullrom",
+    "rotation": "linear",
     "position": "linear",
     "scale": "linear",
 }
