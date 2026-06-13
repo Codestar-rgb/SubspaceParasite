@@ -63,12 +63,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Target sampling interval for baked linear keyframes (seconds).
-# One keyframe every 0.05s = 20fps, sufficient for smooth animation.
-BAKE_SAMPLE_INTERVAL: float = 0.05
+# One keyframe every 0.02s = 50fps, provides smooth animation even for
+# fast walk cycles (0.6667s = ~33 keyframes per cycle).
+# Previous 0.05s (20fps) was too coarse for short animations.
+BAKE_SAMPLE_INTERVAL: float = 0.02
 
 # Minimum segment duration to trigger baking.
 # Segments shorter than this are already dense enough.
-MIN_SEGMENT_DURATION_FOR_BAKE: float = 0.06
+MIN_SEGMENT_DURATION_FOR_BAKE: float = 0.03
 
 
 # ---------------------------------------------------------------------------
@@ -373,8 +375,16 @@ def bake_all_animations(
     baked_count = 0
 
     for anim in animations:
-        # Only bake loop animations (they have the boundary issue)
-        if anim.loop == "loop":
+        # Bake ALL animations that have CatmullRom keyframes.
+        # Previously only loop animations were baked, but non-loop
+        # animations also benefit from baking to ensure consistent
+        # interpolation behavior in Blockbench.
+        has_catmullrom = any(
+            kf.interpolation == "catmullrom"
+            for bone in anim.bones.values()
+            for kf in bone.keyframes
+        )
+        if has_catmullrom or anim.loop == "loop":
             baked = bake_animation(anim)
             baked_count += 1
             result.append(baked)
