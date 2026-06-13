@@ -1,50 +1,61 @@
 #!/usr/bin/env python3
 """
-Super Architecture — Walk Animation Enhancer
-==============================================
+Super Architecture — Walk Animation Enhancer  (v6.0 — Axis-Aware Edition)
+==========================================================================
 
-Enhance subtle walk animations by adding synthetic walking leg rotation.
+Enhance subtle walk animations by adding synthetic walking leg rotation
+that accurately mimics the original SRP mod's programmatic animation.
 
-PROBLEM:
-  In the SRP (Scape and Run Parasites) mod, many creatures' walk animations
-  have very small rotation ranges (<5°). This is because the original mod uses
-  GeckoLib animations as OVERLAY effects — the main walking motion comes from
-  the Java entity code that programmatically rotates leg bones based on the
-  entity's movement speed. The GeckoLib animation only adds subtle body sway
-  and slight leg adjustments on top.
+PROBLEM (v6.0 refined understanding):
+  The original SRP mod uses vanilla Minecraft ModelBase with PROGRAMMATIC
+  animation driven by MathHelper.cos(limbSwing * speed) * degree. This is
+  NOT keyframe animation — it's a continuous mathematical function driven
+  by the entity's actual movement speed.
 
-  When these animations are converted to Blockbench .bbmodel format, the
-  programmatic rotation is lost, leaving only the subtle overlay — which looks
-  like "slight foot lifts" or "barely visible movement".
+  The Java code uses two main methods in ModelSRP:
+    swingX(part, speed, degree, invert, limbSwing, limbSwingAmount):
+      part.rotateX = invert * limbSwingAmount * degree * cos(limbSwing * speed) * limbSwingAmount
 
-  Analysis of 71 walk animations found:
-    - 44 have max rotation < 5° (overlay-only, need enhancement)
-    - 8 have max rotation 5-15° (partial, might need enhancement)
-    - 19 have max rotation >= 15° (self-contained, no enhancement needed)
+    swingX(part, speed, degree, invert, offset, weight, limbSwing, limbSwingAmount):
+      part.rotateX = invert * limbSwingAmount * degree * cos(limbSwing * speed + offset)
+                     + weight * limbSwingAmount
 
-SOLUTION:
-  For walk animations with small rotation ranges, generate a synthetic walking
-  cycle for each leg bone and ADD it to the existing animation values. The
-  synthetic walk cycle:
+    swingY(part, speed, degree, invert, limbSwing, limbSwingAmount):
+      part.rotateY = invert * limbSwingAmount * degree * cos(limbSwing * speed) * limbSwingAmount
 
-  1. Uses a standard sinusoidal pattern for leg rotation around X axis
-  2. Alternates front-left/back-right legs (in phase) vs front-right/back-left
-  3. Has an amplitude that complements the existing animation (if existing
-     animation has ~2° range, add ~25° synthetic to achieve ~27° total)
-  4. Preserves the original animation's subtle body sway and position effects
-  5. Ensures perfect loop continuity (first frame = last frame)
+    moveY(part, speed, invert, f, f1, distance):
+      part.posY = invert * cos(f * speed) * f1 * distance
 
-ALGORITHM:
-  1. Identify walk animations (by name containing "walk")
-  2. Calculate max rotation range across all bones
-  3. If range < THRESHOLD, mark for enhancement
-  4. For each leg bone, determine:
-     - Which "phase group" it belongs to (left vs right)
-     - The existing rotation center and range
-     - The synthetic amplitude needed
-  5. Generate synthetic keyframes at regular intervals
-  6. Add synthetic values to existing animation values
-  7. Ensure loop continuity (first frame value = last frame value)
+  The bone naming convention in SRP models:
+    jointFLLX → Front Left Leg, X-suffix = rotates around Y-axis (swingY, main forward/back swing)
+    jointFLLY → Front Left Leg, Y-suffix = rotates around X-axis (swingX, secondary flex/sway)
+    jointFLL1/2/3 → Front Left Leg sub-segments (swingX)
+    (Same pattern for FRL, MLL, MRL, BLL, BRL, FLA, FRA)
+
+  The GeckoLib .animation.json source captures only a small overlay portion
+  of the walk animation. The main programmatic rotation (14-23° amplitude)
+  is completely lost in conversion.
+
+  PREVIOUS WALK ENHANCER BUGS:
+  1. Leg bone patterns only matched numbered sub-segments (jointFLL1, etc.)
+     but NOT the main rotation joints (jointFLLX, jointFLLY)
+  2. Enhancement threshold used ALL bone rotation ranges (including hair/tentacle
+     from idle_walk_merger), so hair sway (18-22°) caused the enhancer to
+     think the walk already had sufficient rotation and skip enhancement
+  3. Synthetic walk only added X-axis rotation, but the original uses both
+     X-axis (swingX) and Y-axis (swingY) depending on the bone
+
+SOLUTION (v6.0):
+  1. Classify leg bones with axis awareness: each bone knows which axis
+     it primarily rotates around (X-suffix → Y rotation, Y-suffix → X rotation)
+  2. Compute enhancement threshold based ONLY on leg bone rotation ranges
+  3. Generate axis-correct synthetic walk:
+     - X-suffix bones: add Y-axis cos() rotation (main leg swing)
+     - Y-suffix bones: add X-axis cos() rotation (leg flex/sway)
+     - Numbered sub-segments: add X-axis cos() rotation
+  4. Phase alternation: Front-Left/Back-Right in phase A,
+     Front-Right/Back-Left in phase B (standard quadruped gait)
+  5. Middle legs get OPPOSITE phase to front legs (insect-like gait)
 """
 
 from __future__ import annotations
@@ -52,6 +63,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from core.types import (
@@ -70,185 +82,282 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Maximum rotation range (degrees) below which a walk animation is considered
-# "overlay-only" and needs enhancement.
+# Maximum rotation range (degrees) below which LEG BONES in a walk animation
+# are considered "overlay-only" and need enhancement.
+# Only leg bone rotation is considered — hair/tentacle/body sway from idle
+# merger is excluded from this calculation.
 ENHANCE_THRESHOLD: float = 10.0
 
 # Target total rotation amplitude for enhanced leg bones (degrees).
-# A typical Minecraft walk cycle has ±25° to ±35° range.
-TARGET_LEG_AMPLITUDE: float = 25.0
+# Original SRP models use 14-23° for main leg joints (swingY) and
+# 5-12° for secondary joints (swingX with offset/weight variants).
+TARGET_PRIMARY_AMPLITUDE: float = 20.0   # For main swing (Y-axis on X-suffix bones)
+TARGET_SECONDARY_AMPLITUDE: float = 10.0  # For flex/sway (X-axis on Y-suffix bones)
 
 # Number of keyframes per walk cycle for the synthetic rotation.
-# More keyframes = smoother curve but larger file size.
 SYNTHETIC_KF_PER_CYCLE: int = 16
 
-# Minimum amplitude to add (degrees). If the calculated synthetic amplitude
-# is less than this, don't bother adding it.
-MIN_SYNTHETIC_AMPLITUDE: float = 5.0
+# Minimum amplitude to add (degrees).
+MIN_SYNTHETIC_AMPLITUDE: float = 3.0
 
-# Leg bone name patterns (lowercase).
-# Format: (pattern, phase_group)
-#   phase_group: "A" = front-left/back-right (in phase)
-#                "B" = front-right/back-left (in phase, opposite to A)
-LEG_PATTERNS: List[Tuple[str, str]] = [
-    # Front legs
-    (r'jointfll\d*', 'A'),    # Front Left Leg
-    (r'jointfrl\d*', 'B'),    # Front Right Leg
-    (r'jointlfront\d*', 'A'), # Left Front
-    (r'jointrfront\d*', 'B'), # Right Front
-    (r'lfjoint\d*', 'A'),     # Left Front joint
-    (r'rfjoint\d*', 'B'),     # Right Front joint
-    (r'jointfl\d*', 'A'),     # Front Left
-    (r'jointfr\d*', 'B'),     # Front Right
-    
-    # Back legs
-    (r'jointbll\d*', 'B'),    # Back Left Leg (opposite phase to front-left)
-    (r'jointbrl\d*', 'A'),    # Back Right Leg (same phase as front-left)
-    (r'jointlback\d*', 'B'),  # Left Back
-    (r'jointrback\d*', 'A'),  # Right Back
-    (r'lbjoint\d*', 'B'),     # Left Back joint
-    (r'rbjoint\d*', 'A'),     # Right Back joint
-    (r'jointbl\d*', 'B'),     # Back Left
-    (r'jointbr\d*', 'A'),     # Back Right
-    
-    # Middle legs (for multi-leg creatures)
-    (r'jointmll\d*', 'A'),    # Middle Left Leg
-    (r'jointmrl\d*', 'B'),    # Middle Right Leg
-    (r'jointml\d*', 'A'),     # Middle Left
-    (r'jointmr\d*', 'B'),     # Middle Right
-    
-    # Generic left/right leg pairs
-    (r'jointll\d*', 'A'),     # Left Leg
-    (r'jointrl\d*', 'B'),     # Right Leg
-    (r'jointl[a-z]\d*', 'A'), # Left Arm/Leg variant
-    (r'jointr[a-z]\d*', 'B'), # Right Arm/Leg variant
-    
-    # Special: tacle (tentacle) joints
-    (r'taclejointl\d*', 'A'),
-    (r'taclejointr\d*', 'B'),
-    
-    # Rfrontleg/Lfrontleg style (bano-like naming)
-    (r'rfrontleg\d*', 'B'),
-    (r'lfrontleg\d*', 'A'),
-    (r'rbackleg\d*', 'A'),
-    (r'lbackleg\d*', 'B'),
+# Walk cycle speed parameter (mimics limbSwing * speed from original).
+# This controls how many full cycles fit in the animation length.
+# Original uses speed=0.3 for most legs (0.2*1.5 where GS=1.5).
+WALK_CYCLE_SPEED: float = 0.3
+
+
+# ---------------------------------------------------------------------------
+# Leg bone classification
+# ---------------------------------------------------------------------------
+
+# Leg bone classification: (regex_pattern, phase_group, primary_axis)
+#   phase_group: "A" or "B" (alternating leg phase)
+#   primary_axis: "y" for X-suffix bones (swingY = Y rotation),
+#                 "x" for Y-suffix/numbered bones (swingX = X rotation)
+#
+# Naming convention from original SRP Java code:
+#   jointFLLX = Front Left Leg X-joint → swingY → rotates around Y axis
+#   jointFLLY = Front Left Leg Y-joint → swingX → rotates around X axis
+#   jointFLL1/2/3 = Front Left Leg sub-segments → swingX → rotates around X axis
+
+LEG_BONE_PATTERNS: List[Tuple[str, str, str]] = [
+    # === Front legs - X-suffix (main swing, Y-axis rotation) ===
+    (r'^jointfllx(_\d+)?$', 'A', 'y'),      # Front Left Leg X-joint
+    (r'^jointfrlx(_\d+)?$', 'B', 'y'),      # Front Right Leg X-joint
+    (r'^jointflax(_\d+)?$', 'A', 'y'),      # Front Left Arm X-joint
+    (r'^jointfrax(_\d+)?$', 'B', 'y'),      # Front Right Arm X-joint
+
+    # === Front legs - Y-suffix (flex/sway, X-axis rotation) ===
+    (r'^jointflly(_\d+)?$', 'A', 'x'),      # Front Left Leg Y-joint
+    (r'^jointfrly(_\d+)?$', 'B', 'x'),      # Front Right Leg Y-joint
+    (r'^jointflay(_\d+)?$', 'A', 'x'),      # Front Left Arm Y-joint
+    (r'^jointfray(_\d+)?$', 'B', 'x'),      # Front Right Arm Y-joint
+
+    # === Front legs - numbered sub-segments (swingX, X-axis rotation) ===
+    (r'^jointfll\d+$', 'A', 'x'),           # Front Left Leg sub-segments
+    (r'^jointfrl\d+$', 'B', 'x'),           # Front Right Leg sub-segments
+    (r'^jointfla\d+$', 'A', 'x'),           # Front Left Arm sub-segments
+    (r'^jointfra\d+$', 'B', 'x'),           # Front Right Arm sub-segments
+    (r'^jointfl\d+$', 'A', 'x'),            # Front Left variant
+    (r'^jointfr\d+$', 'B', 'x'),            # Front Right variant
+
+    # === Middle legs - X-suffix (main swing, Y-axis rotation) ===
+    (r'^jointmllx(_\d+)?$', 'B', 'y'),     # Mid Left Leg X-joint (opposite phase to front)
+    (r'^jointmrlx(_\d+)?$', 'A', 'y'),     # Mid Right Leg X-joint (same phase as front-left)
+
+    # === Middle legs - Y-suffix (flex/sway, X-axis rotation) ===
+    (r'^jointmlly(_\d+)?$', 'B', 'x'),     # Mid Left Leg Y-joint
+    (r'^jointmrly(_\d+)?$', 'A', 'x'),     # Mid Right Leg Y-joint
+
+    # === Middle legs - numbered sub-segments ===
+    (r'^jointmll\d+$', 'B', 'x'),          # Mid Left Leg sub-segments
+    (r'^jointmrl\d+$', 'A', 'x'),          # Mid Right Leg sub-segments
+    (r'^jointml\d+$', 'B', 'x'),           # Mid Left variant
+    (r'^jointmr\d+$', 'A', 'x'),           # Mid Right variant
+
+    # === Back legs - X-suffix (main swing, Y-axis rotation) ===
+    (r'^jointbllx(_\d+)?$', 'B', 'y'),     # Back Left Leg X-joint (opposite to front-left)
+    (r'^jointbrlx(_\d+)?$', 'A', 'y'),     # Back Right Leg X-joint (same as front-left)
+
+    # === Back legs - Y-suffix (flex/sway, X-axis rotation) ===
+    (r'^jointblly(_\d+)?$', 'B', 'x'),     # Back Left Leg Y-joint
+    (r'^jointbrly(_\d+)?$', 'A', 'x'),     # Back Right Leg Y-joint
+
+    # === Back legs - numbered sub-segments ===
+    (r'^jointbll\d+$', 'B', 'x'),          # Back Left Leg sub-segments
+    (r'^jointbrl\d+$', 'A', 'x'),          # Back Right Leg sub-segments
+    (r'^jointbl\d+$', 'B', 'x'),           # Back Left variant
+    (r'^jointbr\d+$', 'A', 'x'),           # Back Right variant
+
+    # === Generic left/right leg joints ===
+    (r'^jointll\d*$', 'A', 'x'),           # Left Leg
+    (r'^jointrl\d*$', 'B', 'x'),           # Right Leg
+    (r'^jointl[a-z]\d*$', 'A', 'x'),       # Left Arm/Leg variant
+    (r'^jointr[a-z]\d*$', 'B', 'x'),       # Right Arm/Leg variant
+
+    # === Other naming conventions ===
+    (r'^lfrontleg_joint$', 'A', 'y'),      # Left Front Leg joint
+    (r'^rfrontleg_joint$', 'B', 'y'),      # Right Front Leg joint
+    (r'^lbackleg_joint$', 'B', 'y'),       # Left Back Leg joint
+    (r'^rbackleg_joint$', 'A', 'y'),       # Right Back Leg joint
+    (r'^lfjoint_\d*$', 'A', 'x'),          # Left Front joint
+    (r'^rfjoint_\d*$', 'B', 'x'),          # Right Front joint
+    (r'^lbjoint_\d*$', 'B', 'x'),          # Left Back joint
+    (r'^rbjoint_\d*$', 'A', 'x'),          # Right Back joint
+    (r'^lfrontleg\d*$', 'A', 'x'),         # Left Front Leg
+    (r'^rfrontleg\d*$', 'B', 'x'),         # Right Front Leg
+    (r'^lbackleg\d*$', 'B', 'x'),          # Left Back Leg
+    (r'^rbackleg\d*$', 'A', 'x'),          # Right Back Leg
+
+    # === Special: frontleg (single bone, no left/right) ===
+    (r'^frontleg$', 'A', 'x'),
+
+    # === Standard left/right legs ===
+    (r'^leftleg$', 'A', 'x'),
+    (r'^rightleg$', 'B', 'x'),
+
+    # === Tentacle joints (treat as legs for walking) ===
+    (r'^taclejointfl\d*$', 'A', 'x'),
+    (r'^taclejointfr\d*$', 'B', 'x'),
+    (r'^taclejointl\d*$', 'A', 'x'),
+    (r'^taclejointr\d*$', 'B', 'x'),
 ]
 
 
-def _classify_leg_bone(bone_name: str) -> Optional[str]:
-    """Classify a bone as a leg bone and determine its phase group.
-    
+@dataclass
+class LegBoneInfo:
+    """Classification info for a leg bone."""
+    bone_name: str
+    phase_group: str    # "A" or "B"
+    primary_axis: str   # "x" or "y" — which rotation axis this bone primarily uses
+
+    @property
+    def is_primary_joint(self) -> bool:
+        """True if this is a primary rotation joint (X-suffix = swingY)."""
+        return self.primary_axis == 'y'
+
+
+def _classify_leg_bone(bone_name: str) -> Optional[LegBoneInfo]:
+    """Classify a bone as a leg bone with axis information.
+
     Args:
         bone_name: Bone name (case-insensitive matching).
-        
+
     Returns:
-        Phase group "A" or "B", or None if not a leg bone.
+        LegBoneInfo with phase group and primary axis, or None if not a leg bone.
     """
     lower = bone_name.lower()
-    
-    for pattern, phase in LEG_PATTERNS:
+
+    for pattern, phase, axis in LEG_BONE_PATTERNS:
         if re.match(pattern, lower):
-            return phase
-    
-    # Additional heuristic: if the bone name contains "leg" or specific patterns
+            return LegBoneInfo(
+                bone_name=bone_name,
+                phase_group=phase,
+                primary_axis=axis,
+            )
+
+    # Additional heuristic: if the bone name contains "leg"
     if 'leg' in lower:
         if 'left' in lower or 'lfront' in lower or 'lback' in lower:
-            return 'A'
+            return LegBoneInfo(bone_name, 'A', 'x')
         elif 'right' in lower or 'rfront' in lower or 'rback' in lower:
-            return 'B'
-        # Generic left/right detection
+            return LegBoneInfo(bone_name, 'B', 'x')
         elif lower.startswith('l') or 'lleg' in lower:
-            return 'A'
+            return LegBoneInfo(bone_name, 'A', 'x')
         elif lower.startswith('r') or 'rleg' in lower:
-            return 'B'
-    
+            return LegBoneInfo(bone_name, 'B', 'x')
+
     return None
 
 
-def _compute_walk_rotation_range(anim: AnimationIR) -> float:
-    """Compute the maximum rotation range across all bones in a walk animation.
-    
+# ---------------------------------------------------------------------------
+# Walk animation analysis
+# ---------------------------------------------------------------------------
+
+def _compute_leg_rotation_range(anim: AnimationIR) -> float:
+    """Compute the maximum rotation range across LEG BONES ONLY in a walk animation.
+
+    This excludes hair/tentacle/body bones that may have large rotation from
+    the idle_walk_merger. Only leg bones are considered to accurately assess
+    whether the walk animation needs enhancement.
+
     Args:
         anim: The walk AnimationIR.
-        
+
     Returns:
-        Maximum rotation range in degrees.
+        Maximum rotation range in degrees (leg bones only).
     """
     max_range = 0.0
-    
+
     for bone_name, bone_anim in anim.bones.items():
+        # Only consider leg bones
+        leg_info = _classify_leg_bone(bone_name)
+        if leg_info is None:
+            continue
+
         rot_kfs = [kf for kf in bone_anim.keyframes if kf.channel == "rotation"]
         if not rot_kfs:
             continue
-        
+
         for axis in AXES:
             vals = [getattr(kf, axis).value for kf in rot_kfs if getattr(kf, axis).explicit]
             if vals:
                 rng = max(vals) - min(vals)
                 max_range = max(max_range, rng)
-    
+
     return max_range
 
 
-def _get_existing_rotation_center(bone_anim: BoneAnimationIR) -> Tuple[float, float]:
-    """Get the center value and range of existing X rotation for a bone.
-    
+def _get_existing_rotation_for_axis(
+    bone_anim: BoneAnimationIR, axis: str
+) -> Tuple[float, float]:
+    """Get the center value and range of existing rotation on a specific axis.
+
     Args:
         bone_anim: The bone's animation data.
-        
+        axis: Which axis to check ("x", "y", or "z").
+
     Returns:
-        (center, range) tuple for X rotation. (0, 0) if no rotation data.
+        (center, range) tuple. (0, 0) if no rotation data.
     """
     rot_kfs = [kf for kf in bone_anim.keyframes if kf.channel == "rotation"]
     if not rot_kfs:
         return (0.0, 0.0)
-    
-    x_vals = [kf.x.value for kf in rot_kfs if kf.x.explicit]
-    if not x_vals:
+
+    vals = [getattr(kf, axis).value for kf in rot_kfs if getattr(kf, axis).explicit]
+    if not vals:
         return (0.0, 0.0)
-    
-    min_val = min(x_vals)
-    max_val = max(x_vals)
+
+    min_val = min(vals)
+    max_val = max(vals)
     center = (min_val + max_val) / 2.0
     range_val = max_val - min_val
-    
+
     return (center, range_val)
 
+
+# ---------------------------------------------------------------------------
+# Synthetic walk generation
+# ---------------------------------------------------------------------------
 
 def _generate_synthetic_walk_keyframes(
     anim_length: float,
     phase_group: str,
     amplitude: float,
     existing_center: float,
+    primary_axis: str,
     num_kf: int = SYNTHETIC_KF_PER_CYCLE,
-) -> List[Tuple[float, float]]:
-    """Generate synthetic walk rotation keyframes.
-    
+) -> List[Tuple[float, Dict[str, float]]]:
+    """Generate synthetic walk rotation keyframes with axis awareness.
+
     Produces a sinusoidal walk cycle where:
-    - Phase group A: sin(2π * t / period)
-    - Phase group B: sin(2π * t / period + π) = -sin(2π * t / period)
-    
+    - Phase group A: sin(2pi * t / period)
+    - Phase group B: sin(2pi * t / period + pi) = -sin(2pi * t / period)
+
+    The rotation is applied on the bone's PRIMARY AXIS:
+    - X-suffix bones (primary_axis='y'): Y-axis rotation (main leg swing)
+    - Y-suffix/numbered bones (primary_axis='x'): X-axis rotation (leg flex)
+
     The synthetic values are CENTERED around the existing rotation center,
     so they ADD to the existing animation without displacing it.
-    
+
     Args:
         anim_length: Animation length in seconds.
         phase_group: "A" or "B" (determines phase offset).
-        amplitude: Peak amplitude in degrees (±amplitude from center).
+        amplitude: Peak amplitude in degrees.
         existing_center: The center of the existing animation values.
+        primary_axis: Which rotation axis this bone primarily uses.
         num_kf: Number of keyframes to generate.
-        
+
     Returns:
-        List of (time, value) tuples.
+        List of (time, {axis: value}) tuples.
     """
     if amplitude < MIN_SYNTHETIC_AMPLITUDE:
         return []
-    
+
     result = []
     phase_offset = 0.0 if phase_group == 'A' else math.pi
-    
-    # Generate keyframes from t=0 to t=anim_length
-    # Use the animation length as one full walk cycle
+
     for i in range(num_kf + 1):
         t = i * anim_length / num_kf
         # Sinusoidal walk cycle
@@ -256,151 +365,37 @@ def _generate_synthetic_walk_keyframes(
         synthetic_value = amplitude * math.sin(angle)
         # Add to existing center
         total_value = existing_center + synthetic_value
-        result.append((t, total_value))
-    
-    # Ensure loop continuity: first and last values must match
-    # The sin function naturally ensures sin(0) = sin(2π) = 0,
-    # so the synthetic component is 0 at both endpoints.
-    # This means first = last = existing_center, which is correct for looping.
-    
+
+        # Build axis values — only set the primary axis
+        axis_vals = {"x": 0.0, "y": 0.0, "z": 0.0}
+        axis_vals[primary_axis] = total_value
+
+        result.append((t, axis_vals))
+
     return result
-
-
-def enhance_walk_animation(
-    anim: AnimationIR,
-    model_name: str = "",
-) -> AnimationIR:
-    """Enhance a walk animation by adding synthetic leg rotation.
-    
-    Only enhances animations that:
-      - Have "walk" in their name
-      - Have max rotation range < ENHANCE_THRESHOLD
-      - Have identifiable leg bones
-    
-    For animations that already have large rotation ranges (self-contained
-    walks), this function returns the input unchanged.
-    
-    Args:
-        anim: The walk AnimationIR to enhance.
-        model_name: Model name for logging.
-        
-    Returns:
-        Enhanced AnimationIR (or original if no enhancement needed).
-    """
-    # Only enhance walk animations
-    if 'walk' not in anim.name.lower():
-        return anim
-    
-    # Check rotation range
-    max_range = _compute_walk_rotation_range(anim)
-    
-    if max_range >= ENHANCE_THRESHOLD:
-        logger.debug(
-            "[%s] Walk '%s' has sufficient range %.1f° — no enhancement needed",
-            model_name, anim.name, max_range,
-        )
-        return anim
-    
-    # Identify leg bones and their phase groups
-    leg_bones: Dict[str, str] = {}  # bone_name -> phase_group
-    for bone_name in anim.bones:
-        phase = _classify_leg_bone(bone_name)
-        if phase is not None:
-            leg_bones[bone_name] = phase
-    
-    if not leg_bones:
-        logger.debug(
-            "[%s] Walk '%s' has small range %.1f° but no identifiable leg bones — skipping",
-            model_name, anim.name, max_range,
-        )
-        return anim
-    
-    # Compute synthetic amplitude for each leg bone
-    # The synthetic amplitude should bring the total rotation to TARGET_LEG_AMPLITUDE
-    enhanced_bones: Dict[str, BoneAnimationIR] = {}
-    enhanced_count = 0
-    
-    for bone_name, bone_anim in anim.bones.items():
-        if bone_name in leg_bones:
-            phase_group = leg_bones[bone_name]
-            existing_center, existing_range = _get_existing_rotation_center(bone_anim)
-            
-            # Calculate how much synthetic rotation to add
-            # Target: existing_center ± (TARGET_LEG_AMPLITUDE / 2)
-            # But we want the existing animation to be PRESERVED as an overlay
-            # So the synthetic amplitude should make the TOTAL range ≈ TARGET_LEG_AMPLITUDE
-            synthetic_amplitude = max(0, TARGET_LEG_AMPLITUDE - existing_range) / 2.0
-            
-            if synthetic_amplitude < MIN_SYNTHETIC_AMPLITUDE:
-                # Already enough range, just keep existing
-                enhanced_bones[bone_name] = bone_anim
-                continue
-            
-            # Generate synthetic keyframes
-            synthetic_kfs = _generate_synthetic_walk_keyframes(
-                anim_length=anim.length,
-                phase_group=phase_group,
-                amplitude=synthetic_amplitude,
-                existing_center=existing_center,
-            )
-            
-            if not synthetic_kfs:
-                enhanced_bones[bone_name] = bone_anim
-                continue
-            
-            # Merge synthetic keyframes with existing animation
-            # Strategy: For each synthetic keyframe time point, ADD the synthetic
-            # value to the existing interpolated value.
-            new_keyframes = _merge_synthetic_with_existing(
-                bone_anim, synthetic_kfs, anim.length
-            )
-            
-            enhanced_bones[bone_name] = BoneAnimationIR(
-                bone_name=bone_name,
-                keyframes=new_keyframes,
-            )
-            enhanced_count += 1
-        else:
-            # Non-leg bone — keep unchanged
-            enhanced_bones[bone_name] = bone_anim
-    
-    if enhanced_count > 0:
-        logger.info(
-            "[%s] WalkEnhancer: enhanced '%s' (range=%.1f°, %d leg bones enhanced)",
-            model_name, anim.name, max_range, enhanced_count,
-        )
-    
-    return AnimationIR(
-        name=anim.name,
-        loop=anim.loop,
-        length=anim.length,
-        bones=enhanced_bones,
-        period=anim.period,
-    )
 
 
 def _merge_synthetic_with_existing(
     bone_anim: BoneAnimationIR,
-    synthetic_kfs: List[Tuple[float, float]],
+    synthetic_kfs: List[Tuple[float, Dict[str, float]]],
+    primary_axis: str,
     anim_length: float,
 ) -> List[KeyframeData]:
     """Merge synthetic walk keyframes with existing animation data.
-    
+
     For each synthetic keyframe time point:
-    1. Look up the existing rotation value at that time (interpolated from
-       existing keyframes, or the nearest keyframe)
+    1. Look up the existing rotation value at that time (interpolated)
     2. Calculate the synthetic offset (synthetic_value - existing_center)
-    3. Add the synthetic offset to the existing value
-    4. Create a new KeyframeData with the combined value
-    
-    This preserves the existing animation's subtle overlay while adding
-    the synthetic walk cycle.
-    
+    3. Add the synthetic offset to the existing value on the primary axis
+    4. Keep existing values on non-primary axes (interpolated from existing)
+    5. Preserve existing position and scale keyframes
+
     Args:
         bone_anim: The bone's existing animation data.
-        synthetic_kfs: List of (time, total_synthetic_value) tuples.
+        synthetic_kfs: List of (time, {axis: value}) tuples.
+        primary_axis: Which axis is the primary rotation axis.
         anim_length: Animation length for boundary handling.
-        
+
     Returns:
         New list of KeyframeData with merged values.
     """
@@ -411,95 +406,204 @@ def _merge_synthetic_with_existing(
     )
     existing_pos = [kf for kf in bone_anim.keyframes if kf.channel == "position"]
     existing_scale = [kf for kf in bone_anim.keyframes if kf.channel == "scale"]
-    
-    # Get the existing center for X rotation (used to compute synthetic offset)
-    x_vals = [kf.x.value for kf in existing_rot if kf.x.explicit]
-    existing_center = (min(x_vals) + max(x_vals)) / 2.0 if x_vals else 0.0
-    
-    # Build time->value lookup for existing X rotation (for interpolation)
-    existing_times = [kf.time for kf in existing_rot]
-    existing_x_vals = [kf.x.value for kf in existing_rot]
-    
-    def get_existing_x(t: float) -> float:
-        """Get the existing X rotation value at time t (linear interpolation)."""
-        if not existing_times:
+
+    # Get existing center for the primary axis
+    existing_center, _ = _get_existing_rotation_for_axis(bone_anim, primary_axis)
+
+    # Build time->value lookups for all rotation axes (for interpolation)
+    def _get_interp_value(t: float, axis: str) -> float:
+        """Get interpolated rotation value at time t for a given axis."""
+        if not existing_rot:
             return 0.0
-        if t <= existing_times[0]:
-            return existing_x_vals[0]
-        if t >= existing_times[-1]:
-            return existing_x_vals[-1]
-        
-        # Binary search for the interval
-        lo, hi = 0, len(existing_times) - 1
-        while lo < hi - 1:
-            mid = (lo + hi) // 2
-            if existing_times[mid] <= t:
-                lo = mid
-            else:
-                hi = mid
-        
+
+        # Get explicit values for this axis
+        times_vals = [(kf.time, getattr(kf, axis).value) for kf in existing_rot
+                      if getattr(kf, axis).explicit]
+
+        if not times_vals:
+            # Use all values (including non-explicit/carry-forward)
+            times_vals = [(kf.time, getattr(kf, axis).value) for kf in existing_rot]
+
+        if not times_vals:
+            return 0.0
+
+        times_vals.sort(key=lambda x: x[0])
+
+        if t <= times_vals[0][0]:
+            return times_vals[0][1]
+        if t >= times_vals[-1][0]:
+            return times_vals[-1][1]
+
         # Linear interpolation
-        dt = existing_times[hi] - existing_times[lo]
-        if dt < 1e-12:
-            return existing_x_vals[lo]
-        
-        s = (t - existing_times[lo]) / dt
-        return existing_x_vals[lo] + s * (existing_x_vals[hi] - existing_x_vals[lo])
-    
+        for i in range(len(times_vals) - 1):
+            t0, v0 = times_vals[i]
+            t1, v1 = times_vals[i + 1]
+            if t0 <= t <= t1:
+                dt = t1 - t0
+                if dt < 1e-12:
+                    return v0
+                s = (t - t0) / dt
+                return v0 + s * (v1 - v0)
+
+        return times_vals[-1][1]
+
     # Create merged rotation keyframes
-    # Use the synthetic keyframe times as the new keyframe times
     merged_rot: List[KeyframeData] = []
-    
-    for t, synthetic_total in synthetic_kfs:
-        # Get existing value at this time
-        existing_val = get_existing_x(t)
-        
-        # Compute synthetic offset (the part to ADD to existing)
-        # synthetic_total = existing_center + amplitude * sin(...)
-        # So synthetic_offset = synthetic_total - existing_center
-        synthetic_offset = synthetic_total - existing_center
-        
-        # Combined value = existing + synthetic_offset
-        combined_x = existing_val + synthetic_offset
-        
-        # Get Y and Z values from existing (interpolated)
-        existing_y = 0.0
-        existing_z = 0.0
-        
-        # Find nearest existing keyframe for Y/Z
-        if existing_rot:
-            # Find closest time
-            nearest_idx = 0
-            min_dt = float('inf')
-            for i, kf in enumerate(existing_rot):
-                dt = abs(kf.time - t)
-                if dt < min_dt:
-                    min_dt = dt
-                    nearest_idx = i
-            
-            existing_y = existing_rot[nearest_idx].y.value
-            existing_z = existing_rot[nearest_idx].z.value
-        
+
+    for t, synth_axis_vals in synthetic_kfs:
+        # Compute synthetic offset for the primary axis
+        synth_primary = synth_axis_vals[primary_axis]
+        synthetic_offset = synth_primary - existing_center
+
+        # Get existing values at this time for all axes
+        existing_x = _get_interp_value(t, "x")
+        existing_y = _get_interp_value(t, "y")
+        existing_z = _get_interp_value(t, "z")
+
+        # Add synthetic offset to the primary axis
+        final_vals = {"x": existing_x, "y": existing_y, "z": existing_z}
+        final_vals[primary_axis] = final_vals[primary_axis] + synthetic_offset
+
         kf = KeyframeData(
             time=t,
             channel="rotation",
-            x=AxisValue.explicit_val(combined_x),
-            y=AxisValue.explicit_val(existing_y),
-            z=AxisValue.explicit_val(existing_z),
+            x=AxisValue.explicit_val(final_vals["x"]),
+            y=AxisValue.explicit_val(final_vals["y"]),
+            z=AxisValue.explicit_val(final_vals["z"]),
             easing="linear",
-            interpolation="catmullrom",  # Will be baked later
+            interpolation="linear",  # Already baked — use linear
         )
         merged_rot.append(kf)
-    
-    # Also include the original rotation keyframes (for non-X axes that might have data)
-    # But only keep rotation keyframes that add unique data points
-    # Since synthetic keyframes already cover all time points, we can just use those
-    
+
     # Combine: new rotation + existing position + existing scale
     result = merged_rot + existing_pos + existing_scale
     result.sort(key=lambda kf: (kf.time, kf.channel))
-    
+
     return result
+
+
+# ---------------------------------------------------------------------------
+# Main enhancement function
+# ---------------------------------------------------------------------------
+
+def enhance_walk_animation(
+    anim: AnimationIR,
+    model_name: str = "",
+) -> AnimationIR:
+    """Enhance a walk animation by adding synthetic leg rotation.
+
+    Only enhances animations that:
+      - Have "walk" in their name
+      - Have max LEG rotation range < ENHANCE_THRESHOLD
+      - Have identifiable leg bones
+
+    For animations that already have large rotation ranges (self-contained
+    walks), this function returns the input unchanged.
+
+    Args:
+        anim: The walk AnimationIR to enhance.
+        model_name: Model name for logging.
+
+    Returns:
+        Enhanced AnimationIR (or original if no enhancement needed).
+    """
+    # Only enhance walk animations
+    if 'walk' not in anim.name.lower():
+        return anim
+
+    # Check LEG rotation range (not all-bone range!)
+    leg_max_range = _compute_leg_rotation_range(anim)
+
+    if leg_max_range >= ENHANCE_THRESHOLD:
+        logger.debug(
+            "[%s] Walk '%s' has sufficient leg range %.1f° — no enhancement needed",
+            model_name, anim.name, leg_max_range,
+        )
+        return anim
+
+    # Identify leg bones and their classification
+    leg_bones: Dict[str, LegBoneInfo] = {}
+    for bone_name in anim.bones:
+        leg_info = _classify_leg_bone(bone_name)
+        if leg_info is not None:
+            leg_bones[bone_name] = leg_info
+
+    if not leg_bones:
+        logger.debug(
+            "[%s] Walk '%s' has small range %.1f° but no identifiable leg bones — skipping",
+            model_name, anim.name, leg_max_range,
+        )
+        return anim
+
+    # Compute synthetic amplitude for each leg bone
+    enhanced_bones: Dict[str, BoneAnimationIR] = {}
+    enhanced_count = 0
+
+    for bone_name, bone_anim in anim.bones.items():
+        if bone_name in leg_bones:
+            leg_info = leg_bones[bone_name]
+            primary_axis = leg_info.primary_axis
+
+            # Get existing rotation info for the primary axis
+            existing_center, existing_range = _get_existing_rotation_for_axis(
+                bone_anim, primary_axis
+            )
+
+            # Calculate synthetic amplitude
+            # Primary joints (X-suffix, swingY) get larger amplitude
+            # Secondary joints (Y-suffix/numbered, swingX) get smaller amplitude
+            if leg_info.is_primary_joint:
+                target_amplitude = TARGET_PRIMARY_AMPLITUDE
+            else:
+                target_amplitude = TARGET_SECONDARY_AMPLITUDE
+
+            synthetic_amplitude = max(0, target_amplitude - existing_range) / 2.0
+
+            if synthetic_amplitude < MIN_SYNTHETIC_AMPLITUDE:
+                # Already enough range, just keep existing
+                enhanced_bones[bone_name] = bone_anim
+                continue
+
+            # Generate axis-aware synthetic keyframes
+            synthetic_kfs = _generate_synthetic_walk_keyframes(
+                anim_length=anim.length,
+                phase_group=leg_info.phase_group,
+                amplitude=synthetic_amplitude,
+                existing_center=existing_center,
+                primary_axis=primary_axis,
+            )
+
+            if not synthetic_kfs:
+                enhanced_bones[bone_name] = bone_anim
+                continue
+
+            # Merge synthetic keyframes with existing animation
+            new_keyframes = _merge_synthetic_with_existing(
+                bone_anim, synthetic_kfs, primary_axis, anim.length
+            )
+
+            enhanced_bones[bone_name] = BoneAnimationIR(
+                bone_name=bone_name,
+                keyframes=new_keyframes,
+            )
+            enhanced_count += 1
+        else:
+            # Non-leg bone — keep unchanged
+            enhanced_bones[bone_name] = bone_anim
+
+    if enhanced_count > 0:
+        logger.info(
+            "[%s] WalkEnhancer v6: enhanced '%s' (leg_range=%.1f°, %d leg bones enhanced)",
+            model_name, anim.name, leg_max_range, enhanced_count,
+        )
+
+    return AnimationIR(
+        name=anim.name,
+        loop=anim.loop,
+        length=anim.length,
+        bones=enhanced_bones,
+        period=anim.period,
+    )
 
 
 def enhance_walk_animations(
@@ -507,27 +611,27 @@ def enhance_walk_animations(
     model_name: str = "",
 ) -> List[AnimationIR]:
     """Enhance all walk animations that need it.
-    
+
     Args:
         animations: List of AnimationIR instances.
         model_name: Model name for logging.
-        
+
     Returns:
         New list of AnimationIR with enhanced walk animations.
     """
     result = []
     enhanced_count = 0
-    
+
     for anim in animations:
         enhanced = enhance_walk_animation(anim, model_name)
         if enhanced is not anim:
             enhanced_count += 1
         result.append(enhanced)
-    
+
     if enhanced_count > 0:
         logger.info(
-            "[%s] WalkEnhancer: enhanced %d/%d walk animations",
+            "[%s] WalkEnhancer v6: enhanced %d/%d walk animations",
             model_name, enhanced_count, len(animations),
         )
-    
+
     return result
