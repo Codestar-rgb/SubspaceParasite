@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Super Architecture — CatmullRom Baking
-========================================
+Super Architecture — CatmullRom Baking  (v5.0 — Smooth Loop Edition)
+=====================================================================
 
 Bake CatmullRom animation curves into dense linear keyframes to avoid
 Blockbench's CatmullRom loop boundary wrapping bug.
@@ -17,28 +17,47 @@ PROBLEM:
   Blockbench uses wrong control points for the CatmullRom spline at
   the loop boundary, causing chord-length parameterization distortion.
 
-SOLUTION:
-  Bake CatmullRom curves into linear keyframes with dense sampling.
-  This eliminates the CatmullRom wrapping problem entirely because
-  linear interpolation has no tangent/control point dependencies.
+  ADDITIONAL PROBLEMS (v5.0 fixes):
+  1. UNEVEN KEYFRAME SPACING: The previous baker preserved original
+     keyframe times alongside regular 0.02s samples. This created
+     tiny gaps (0.006-0.013s) near original keyframe times. With
+     linear interpolation, these uneven gaps caused velocity micro-
+     fluctuations — perceived as animation "stutter" or "jerkiness".
 
-  This is the same approach used by the Blockbench Bakery plugin and
-  recommended in issue #1965:
-  "Copy the whole loop → Paste it twice → Bake the middle section"
+  2. LOOP BOUNDARY TANGENT: The previous baker used linear extrapolation
+     for CatmullRom control points at the loop boundary (first/last
+     segments). For looping animations, this produces incorrect tangent
+     directions near t=0 and t=anim_length, causing the baked keyframes
+     near the boundary to have slightly wrong velocities.
+
+SOLUTION:
+  1. Sample ONLY at regular intervals (0.02s = 50fps). Do NOT preserve
+     original keyframe times in the output. The CatmullRom curve is
+     evaluated at regular sample points, which provides uniform spacing
+     and eliminates velocity micro-fluctuations.
+
+  2. For LOOPING animations, use proper CatmullRom loop wrapping:
+     - First segment's "previous" control point = second-to-last keyframe
+     - Last segment's "next" control point = second keyframe
+     This ensures C1 continuity across the loop boundary.
+
+  3. Always include a keyframe at t=0 AND t=anim_length (matching values),
+     ensuring the loop boundary is seamless.
 
 ALGORITHM:
   For each CatmullRom keyframe segment:
-    1. Compute the segment duration
-    2. Insert N intermediate sample points (configurable density)
-    3. Evaluate the CatmullRom spline at each sample time
-    4. Replace the CatmullRom keyframes with linear keyframes + samples
+    1. Extract per-axis time series (control points for the curve)
+    2. If looping, wrap control points at boundaries for C1 continuity
+    3. Sample at regular 0.02s intervals from t=0 to t=anim_length
+    4. Evaluate CatmullRom spline at each sample time
+    5. Replace with linear keyframes (uniform spacing, no jitter)
   
   For linear keyframes: pass through unchanged (no baking needed).
 
 DENSITY:
-  The sampling density controls the trade-off between file size and
-  visual smoothness. A density of ~20fps (one keyframe per 0.05s)
-  is sufficient for smooth animation playback.
+  50fps (0.02s interval) provides smooth animation even for fast walk
+  cycles (0.6667s = 33 keyframes per cycle). All gaps are exactly 0.02s,
+  ensuring constant-velocity linear interpolation.
 """
 
 from __future__ import annotations
@@ -65,7 +84,6 @@ logger = logging.getLogger(__name__)
 # Target sampling interval for baked linear keyframes (seconds).
 # One keyframe every 0.02s = 50fps, provides smooth animation even for
 # fast walk cycles (0.6667s = ~33 keyframes per cycle).
-# Previous 0.05s (20fps) was too coarse for short animations.
 BAKE_SAMPLE_INTERVAL: float = 0.02
 
 # Minimum segment duration to trigger baking.
@@ -111,13 +129,19 @@ def _get_catmullrom_value(
     t: float,
     kf_times: List[float],
     kf_values: List[float],
+    is_loop: bool = False,
 ) -> float:
     """Evaluate a CatmullRom curve at time t from keyframe time-value pairs.
+
+    For looping animations (is_loop=True), uses proper loop wrapping
+    for control points at the boundaries to ensure C1 continuity
+    across the loop boundary.
 
     Args:
         t: Time to evaluate at.
         kf_times: Sorted list of keyframe times.
         kf_values: Corresponding keyframe values.
+        is_loop: Whether the animation loops (affects boundary handling).
 
     Returns:
         Interpolated value at time t.
@@ -155,17 +179,28 @@ def _get_catmullrom_value(
     v1 = kf_values[idx]
     v2 = kf_values[idx + 1]
 
-    # Previous control point (extend if boundary)
+    # Previous control point
     if idx > 0:
         v0 = kf_values[idx - 1]
+    elif is_loop and n >= 3:
+        # Loop wrapping: the point "before" the first keyframe is the
+        # second-to-last keyframe (the last keyframe = first keyframe
+        # for looping, so we go one step further back).
+        # This ensures C1 tangent continuity at the loop boundary.
+        v0 = kf_values[-2]
     else:
-        v0 = 2.0 * v1 - v2  # Linear extrapolation
+        v0 = 2.0 * v1 - v2  # Linear extrapolation (non-loop)
 
-    # Next control point (extend if boundary)
+    # Next control point
     if idx + 2 < n:
         v3 = kf_values[idx + 2]
+    elif is_loop and n >= 3:
+        # Loop wrapping: the point "after" the last keyframe is the
+        # second keyframe (the first keyframe = last keyframe for
+        # looping, so we go one step further forward).
+        v3 = kf_values[1]
     else:
-        v3 = 2.0 * v2 - v1  # Linear extrapolation
+        v3 = 2.0 * v2 - v1  # Linear extrapolation (non-loop)
 
     return _catmull_rom_eval(s, v0, v1, v2, v3)
 
@@ -189,10 +224,14 @@ def bake_animation(anim: AnimationIR) -> AnimationIR:
     Returns:
         New AnimationIR with baked linear keyframes.
     """
+    is_loop = anim.loop == "loop"
+
     new_bones: Dict[str, BoneAnimationIR] = {}
 
     for bone_name, bone_anim in anim.bones.items():
-        new_keyframes = _bake_bone_keyframes(bone_anim.keyframes, anim.length)
+        new_keyframes = _bake_bone_keyframes(
+            bone_anim.keyframes, anim.length, is_loop
+        )
         new_bones[bone_name] = BoneAnimationIR(
             bone_name=bone_name,
             keyframes=new_keyframes,
@@ -210,12 +249,14 @@ def bake_animation(anim: AnimationIR) -> AnimationIR:
 def _bake_bone_keyframes(
     keyframes: List[KeyframeData],
     anim_length: float,
+    is_loop: bool = False,
 ) -> List[KeyframeData]:
     """Bake CatmullRom keyframes for one bone into linear keyframes.
 
     Args:
         keyframes: All keyframes for this bone.
         anim_length: Animation length for sampling range.
+        is_loop: Whether the animation loops.
 
     Returns:
         New list of keyframes with CatmullRom baked to linear.
@@ -249,7 +290,9 @@ def _bake_bone_keyframes(
             continue
 
         # Bake catmullrom → linear with dense sampling
-        baked_kfs = _bake_channel_catmullrom(kfs_sorted, channel, anim_length)
+        baked_kfs = _bake_channel_catmullrom(
+            kfs_sorted, channel, anim_length, is_loop
+        )
         result.extend(baked_kfs)
 
     # Sort by time, then channel
@@ -262,21 +305,27 @@ def _bake_channel_catmullrom(
     keyframes: List[KeyframeData],
     channel: str,
     anim_length: float,
+    is_loop: bool = False,
 ) -> List[KeyframeData]:
     """Bake CatmullRom keyframes for one channel into dense linear keyframes.
 
-    For each axis, extract the time series, sample the CatmullRom curve
-    at regular intervals, and create new linear keyframes.
+    KEY FIXES (v5.0):
+    1. Sample ONLY at regular 0.02s intervals — no original keyframe times.
+       This ensures uniform spacing and eliminates velocity micro-fluctuations.
+    2. Use proper CatmullRom loop wrapping for boundary control points
+       when is_loop=True, ensuring C1 continuity across the loop boundary.
+    3. Always include keyframes at t=0 and t=anim_length with matching values.
 
     Args:
         keyframes: Sorted keyframes for one channel.
         channel: Channel name.
         anim_length: Animation length.
+        is_loop: Whether the animation loops.
 
     Returns:
         New list of linear keyframes with baked CatmullRom values.
     """
-    # Extract per-axis time series
+    # Extract per-axis time series (these are the CatmullRom CONTROL POINTS)
     axis_times: Dict[str, List[float]] = {}
     axis_values: Dict[str, List[float]] = {}
     axis_molang: Dict[str, str] = {}
@@ -297,36 +346,52 @@ def _bake_channel_catmullrom(
         axis_times[axis] = times
         axis_values[axis] = values
 
-    # Collect all sample times
-    # Start with original keyframe times
-    sample_times = set()
-    for kf in keyframes:
-        sample_times.add(round(kf.time, 8))
+    # ---- Generate UNIFORM sample times ----
+    # KEY FIX (v5.0): Use ADAPTIVE interval that divides evenly into
+    # anim_length. This ensures perfectly uniform spacing with NO
+    # short gaps at the loop boundary.
+    #
+    # Problem with fixed 0.02s: anim_length=0.6667 / 0.02 = 33.335
+    # → last gap is only 0.0067s (0.6667 - 0.66), causing micro-stutter.
+    #
+    # Solution: Round the number of segments to the nearest integer,
+    # then compute the exact interval as anim_length / num_segments.
+    # For 0.6667s: num_segments = 33, interval = 0.6667/33 = 0.020202s
+    # → perfectly uniform: 0.0, 0.0202, 0.0404, ..., 0.6667
 
-    # Add regular sample points within the animation range
-    min_time = min(kf.time for kf in keyframes)
-    max_time = max(kf.time for kf in keyframes)
+    if anim_length <= 0:
+        # Fallback: use keyframe range
+        min_time = min(kf.time for kf in keyframes)
+        max_time = max(kf.time for kf in keyframes)
+        effective_length = max_time - min_time
+    else:
+        min_time = 0.0
+        max_time = anim_length
+        effective_length = anim_length
 
-    t = min_time
-    while t <= max_time + 1e-9:
-        sample_times.add(round(t, 8))
-        t += BAKE_SAMPLE_INTERVAL
+    sample_times: List[float] = []
 
-    # Ensure animation length is included for loop boundary
-    if anim_length > 0:
-        sample_times.add(round(anim_length, 8))
+    if effective_length > 0:
+        # Compute adaptive interval that divides evenly
+        num_segments = max(1, round(effective_length / BAKE_SAMPLE_INTERVAL))
+        adaptive_interval = effective_length / num_segments
 
-    sorted_times = sorted(sample_times)
+        for i in range(num_segments + 1):
+            t = min_time + i * adaptive_interval
+            sample_times.append(round(t, 8))
+    else:
+        # Single keyframe animation
+        sample_times.append(round(min_time, 8))
 
-    # At each sample time, evaluate CatmullRom for each axis
+    # ---- Evaluate CatmullRom at each sample time ----
     result: List[KeyframeData] = []
 
-    for t in sorted_times:
+    for t in sample_times:
         vals: Dict[str, float] = {}
         for axis in AXES:
             if axis_times[axis] and axis_values[axis]:
                 vals[axis] = _get_catmullrom_value(
-                    t, axis_times[axis], axis_values[axis]
+                    t, axis_times[axis], axis_values[axis], is_loop
                 )
             elif axis_times[axis]:
                 # No values — use 0.0

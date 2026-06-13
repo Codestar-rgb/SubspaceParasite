@@ -134,11 +134,15 @@ def _interpolate_axis_value(
     axis_times: List[float],
     axis_values: List[float],
     channel: str,
+    is_loop: bool = False,
 ) -> Optional[float]:
     """Interpolate the value of one axis at time t from its own time series.
 
     Uses Catmull-Rom interpolation for rotation channels (matching GeckoLib
     behavior) and linear interpolation for position/scale channels.
+
+    For looping animations (is_loop=True), uses proper loop wrapping
+    for control points at the boundaries to ensure C1 continuity.
 
     For boundary conditions (t before first or after last keyframe), uses
     the first/last value (clamp).
@@ -148,6 +152,7 @@ def _interpolate_axis_value(
         axis_times: Sorted list of times for this axis.
         axis_values: Corresponding list of values for this axis.
         channel: Channel name for interpolation mode selection.
+        is_loop: Whether the animation loops (affects boundary handling).
 
     Returns:
         Interpolated value, or None if the axis has no data at all.
@@ -177,26 +182,36 @@ def _interpolate_axis_value(
     if channel in ("rotation", "position", "scale"):
         # CatmullRom interpolation for all channels (GeckoLib 1.8.0 default)
         # Need four control points: idx-1, idx, idx+1, idx+2
-        # Use boundary extension for endpoints
         t1 = axis_times[idx]
         t2 = axis_times[idx + 1]
         v1 = axis_values[idx]
         v2 = axis_values[idx + 1]
 
-        # Previous control point (extend if at boundary)
+        # Previous control point
         if idx > 0:
             t0 = axis_times[idx - 1]
             v0 = axis_values[idx - 1]
+        elif is_loop and n >= 3:
+            # Loop wrapping: the point "before" the first keyframe is the
+            # second-to-last keyframe. This ensures C1 tangent continuity
+            # at the loop boundary.
+            t0 = axis_times[-2]
+            v0 = axis_values[-2]
         else:
             # Extend: mirror v1-v2 direction
             dt = t2 - t1
             t0 = t1 - dt
             v0 = 2.0 * v1 - v2  # Linear extrapolation
 
-        # Next control point (extend if at boundary)
+        # Next control point
         if idx + 2 < n:
             t3 = axis_times[idx + 2]
             v3 = axis_values[idx + 2]
+        elif is_loop and n >= 3:
+            # Loop wrapping: the point "after" the last keyframe is the
+            # second keyframe.
+            t3 = axis_times[1]
+            v3 = axis_values[1]
         else:
             dt = t2 - t1
             t3 = t2 + dt
@@ -221,6 +236,7 @@ def apply_carry_forward(
     bone_name: str,
     model_name: str,
     stats: dict,
+    is_loop: bool = False,
 ) -> List[KeyframeData]:
     """Fill missing axes at each time point using interpolation from per-axis curves.
 
@@ -310,6 +326,7 @@ def apply_carry_forward(
                         axis_times[axis],
                         axis_values[axis],
                         channel,
+                        is_loop=is_loop,
                     )
 
                     if interp_val is not None:
@@ -378,6 +395,8 @@ def apply_carry_forward_all(
     for anim_name, anim in animations.items():
         new_bones: Dict[str, BoneAnimationIR] = {}
 
+        is_loop = anim.loop == "loop"
+
         for bone_name, bone_anim in anim.bones.items():
             try:
                 new_keyframes = apply_carry_forward(
@@ -385,6 +404,7 @@ def apply_carry_forward_all(
                     bone_name,
                     model_name,
                     stats,
+                    is_loop=is_loop,
                 )
                 new_bones[bone_name] = BoneAnimationIR(
                     bone_name=bone_name,
