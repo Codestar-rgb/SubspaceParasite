@@ -3,8 +3,8 @@
     "format_version": "5.0",
     "model_format": "bedrock",
     "model_identifier": "nULL",
-    "creation_time": 1781283467,
-    "modification_time": 1781283467,
+    "creation_time": 1781321138,
+    "modification_time": 1781321138,
     "box_uv": false,
     "face_size": [
       1,
@@ -29,7 +29,7 @@
   "groups": [
     {
       "name": "root",
-      "uuid": "2872ebfedf634711",
+      "uuid": "ea94038283014b4e",
       "export": true,
       "locked": false,
       "scope": 0,
@@ -62,7 +62,7 @@
   ],
   "outliner": [
     {
-      "uuid": "2872ebfedf634711",
+      "uuid": "ea94038283014b4e",
       "isOpen": false
     }
   ],
@@ -74,7 +74,7 @@
       "source": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAIAAADkharWAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsIAAA7CARUoSoAAAAAcSURBVChTY/z//z8DKYAJShMNRjUQA4a+BgYGAPVYAxW+Sb4PAAAAAElFTkSuQmCC",
       "mode": "bitmap",
       "saved": true,
-      "uuid": "6bba21b5cfb445ab",
+      "uuid": "adefea8cd01645f2",
       "width": 16,
       "height": 12,
       "uv_width": 16,
@@ -84,7 +84,7 @@
   "animations": [
     {
       "name": "animation.null.idle",
-      "uuid": "3a1775125ce642c9",
+      "uuid": "bfc92625a4164f01",
       "loop": "loop",
       "override": false,
       "length": 4.0,
@@ -93,7 +93,7 @@
       "anim_time_update": "",
       "blend_weight": "",
       "animators": {
-        "2872ebfedf634711": {
+        "ea94038283014b4e": {
           "name": "root",
           "type": "bone",
           "keyframes": [
@@ -107,8 +107,23 @@
                   "z": 0.0
                 }
               ],
-              "uuid": "244d93758bb348f2",
+              "uuid": "733e8f9173954802",
               "time": 0.0,
+              "color": -1,
+              "interpolation": "linear"
+            },
+            {
+              "channel": "position",
+              "data_points": [
+                {
+                  "easing": "linear",
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 0.0
+                }
+              ],
+              "uuid": "f616ff9000554c48",
+              "time": 4.0,
               "color": -1,
               "interpolation": "linear"
             }
