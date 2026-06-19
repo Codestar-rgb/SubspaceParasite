@@ -100,8 +100,8 @@ def _get_mve_output_dir():
 
 MVE_OUTPUT_DIR = _get_mve_output_dir()
 
-# Sample counts per dimension
-TIME_SAMPLES_PER_CYCLE = 40   # 40 keyframes per cycle (~2s at 20fps)
+# Sample rate: keyframes per second (20fps = MC tick rate)
+TIME_SAMPLES_PER_CYCLE = 80   # 80 keyframes per cycle (increased from 40 for anti-aliasing)
 ATTACK_TIMER_SAMPLES = 5      # 0.0, 0.1, 0.2, 0.3, 0.4
 
 
@@ -204,17 +204,21 @@ def _detect_dominant_period(
     assignments: List[TrigAssignment],
     variables: Dict[str, str],
 ) -> float:
-    """Detect the DOMINANT cycle period across all assignments.
+    """Detect the DOMINANT cycle period and SNAP to integer cycles.
 
-    For seamless looping, we need ALL bones to complete an integer number
-    of cycles within the animation length. The safest choice is the MAX
-    period (lowest frequency) — slower bones complete exactly 1 cycle,
-    faster bones complete multiple cycles.
+    For seamless looping, the animation length must be an INTEGER MULTIPLE
+    of the cycle period. If we just use the raw period, the cosine wave
+    won't complete at the boundary, causing a visible jump/twitch.
+
+    Strategy:
+    1. Find the MAX period (lowest frequency) among all assignments.
+    2. Snap the animation length to the nearest integer multiple of this period.
+       This ensures the wave completes exactly N full cycles.
 
     We exclude spurious very-short periods (<0.3s) that come from
     high-frequency noise (e.g. constant-folded expressions).
 
-    Returns period in seconds.
+    Returns the SNAPPED animation length in seconds (integer × period).
     """
     periods = []
     for a in assignments:
@@ -227,26 +231,44 @@ def _detect_dominant_period(
     periods = [p for p in periods if p >= 0.3]
     if not periods:
         return 4.0
-    # Use MAX period (lowest frequency) so all bones seam correctly.
-    # Slower bones complete 1 cycle; faster bones complete integer multiples.
-    return max(periods)
+
+    # Find the most common period (mode) — this is the "dominant" cycle.
+    # Using MAX period was wrong: it picked slow hair-sway periods (1.8s)
+    # for walk animations where the actual walk cycle is 0.78s.
+    # Using the mode ensures we pick the period most bones animate at.
+    from collections import Counter
+    # Round periods to 2 decimal places for grouping
+    rounded = [round(p, 2) for p in periods]
+    period_counts = Counter(rounded)
+    # Most common period
+    base_period = period_counts.most_common(1)[0][0]
+
+    # Snap to nearest integer multiple of base_period for seamless looping.
+    # Use at least 1 full cycle.
+    snapped_length = base_period
+
+    # Ensure minimum length of 0.5s (Blockbench doesn't like very short anims)
+    if snapped_length < 0.5:
+        snapped_length = base_period * 2
+
+    return snapped_length
 
 
 def _force_seamless_loop(bone_curves: Dict[str, List[dict]]) -> None:
     """Force first frame == last frame for seamless looping.
 
-    For each bone's curve, set the LAST sample's values to match the FIRST
-    sample's values. This guarantees the loop seam is invisible.
+    DISABLED in v6.8.6: Forcing last=first causes LARGE jumps when the
+    animation length is not an integer multiple of a bone's cycle period.
+    Different bones have incommensurate periods, so no single length
+    satisfies all bones. The forced last=first creates a visible twitch
+    at the loop boundary for outlier bones.
+
+    Instead, we now sample exactly 1 cycle of the DOMINANT (most common)
+    period. Most bones complete exactly 1 cycle and loop naturally.
+    Outlier bones (different frequency) may have a small discontinuity,
+    but it's much smaller than the forced jump.
     """
-    for bone, curve in bone_curves.items():
-        if len(curve) < 2:
-            continue
-        first = curve[0]
-        last = curve[-1]
-        # Copy first frame's transform values to last frame (keep last time)
-        last["rotation"] = list(first["rotation"])
-        last["position"] = list(first["position"])
-        last["hidden"] = first["hidden"]
+    pass  # no-op
 
 
 def _split_still_ani_branches(state_body: str) -> Tuple[str, str]:

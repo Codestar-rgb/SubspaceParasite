@@ -154,8 +154,12 @@ def _detect_cycle_period(expr: str, variables: Dict[str, str]) -> float:
     # Period in ticks = 2π / freq; in seconds = ticks / 20
     period_ticks = 2.0 * math.pi / max_freq
     period_sec = period_ticks / 20.0
-    # Clamp to reasonable range
-    return max(0.5, min(period_sec * 2.0, 20.0))  # allow 2x for smooth loop
+    # Use the ACTUAL period (not 2x). Sampling exactly 1 cycle ensures
+    # the cosine/sine wave naturally returns to its starting value,
+    # providing a seamless loop WITHOUT needing _force_seamless_loop.
+    # The previous 2x multiplier caused non-integer cycle counts,
+    # leading to visible jumps/twitches at the loop boundary.
+    return max(0.3, min(period_sec, 20.0))
 
 
 def _simulate_state(
