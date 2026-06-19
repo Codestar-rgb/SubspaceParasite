@@ -330,14 +330,19 @@ def capture_model_animations(
     if not meta.states:
         return None
 
+    # Guard against sample_count=0 (env var misconfiguration)
+    if sample_count <= 0:
+        sample_count = TIME_SAMPLES_PER_CYCLE
+
+    # Read Java source ONCE (was read 3x per model — perf bug)
+    try:
+        with open(meta.java_path, "r", encoding="utf-8") as f:
+            java_src = f.read()
+    except Exception:
+        return None
+
     captured_states = []
     for state in meta.states:
-        try:
-            with open(meta.java_path, "r", encoding="utf-8") as f:
-                java_src = f.read()
-        except Exception:
-            continue
-
         inlined_body = _follow_custom_methods(java_src, state.body)
 
         # Split into walk/idle branches by getStillAni
@@ -501,10 +506,10 @@ def capture_model_animations(
             cycle_length, walk_cycle,
         )
 
-    # Capture attack fade curve
-    attack_fade = _capture_attack_fade(meta)
+    # Capture attack fade curve (pass java_src to avoid re-reading file)
+    attack_fade = _capture_attack_fade(meta, java_src)
     # Capture visibility info
-    visibility = _capture_visibility(meta)
+    visibility = _capture_visibility(meta, java_src)
 
     if not captured_states and not attack_fade and not visibility:
         return None
@@ -517,17 +522,18 @@ def capture_model_animations(
     }
 
 
-def _capture_attack_fade(meta: ModelMetadata) -> Optional[dict]:
+def _capture_attack_fade(meta: ModelMetadata, java_src: str = "") -> Optional[dict]:
     """Capture the attack timer fade curve.
 
     Java: float id = parasite.getAttackTimer();
           if (id > 0.0f) bone.field += Math.min(0.4f, id);
     """
-    try:
-        with open(meta.java_path, "r", encoding="utf-8") as f:
-            java_src = f.read()
-    except Exception:
-        return None
+    if not java_src:
+        try:
+            with open(meta.java_path, "r", encoding="utf-8") as f:
+                java_src = f.read()
+        except Exception:
+            return None
 
     # Find attackTimer pattern
     at_m = re.search(
@@ -570,13 +576,14 @@ def _capture_attack_fade(meta: ModelMetadata) -> Optional[dict]:
     return fades
 
 
-def _capture_visibility(meta: ModelMetadata) -> List[dict]:
+def _capture_visibility(meta: ModelMetadata, java_src: str = "") -> List[dict]:
     """Capture conditional visibility (isHidden) info."""
-    try:
-        with open(meta.java_path, "r", encoding="utf-8") as f:
-            java_src = f.read()
-    except Exception:
-        return []
+    if not java_src:
+        try:
+            with open(meta.java_path, "r", encoding="utf-8") as f:
+                java_src = f.read()
+        except Exception:
+            return []
 
     variants = []
     for m in re.finditer(
