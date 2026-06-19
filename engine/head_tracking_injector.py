@@ -120,7 +120,6 @@ def build_head_track_animation(
         "channel": "rotation",
         "data_points": [
             {
-                "easing": "linear",
                 **dp,
             }
         ],

@@ -961,8 +961,11 @@ class BBModelExporter:
         # Build data_points
         data_point: Dict[str, Any] = {}
 
-        # Add easing field (required by Blockbench for catmullrom compatibility)
-        data_point["easing"] = kf.easing if kf.easing else "linear"
+        # NOTE: Do NOT add 'easing' to data_points — Blockbench .bbmodel format
+        # only expects x/y/z in data_points. The 'easing' field belongs on the
+        # keyframe itself (already set via 'interpolation' field). Adding 'easing'
+        # to data_points can cause Blockbench to fail to render animations.
+        # (Previous versions added data_point["easing"] = "linear" which broke playback.)
 
         for axis in AXES:
             molang_attr = f"molang_{axis}"

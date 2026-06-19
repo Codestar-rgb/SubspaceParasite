@@ -166,7 +166,7 @@ def build_attack_fade_animation(
         dp[axis] = f"{max_deg:.4f}"
         kf = {
             "channel": "rotation",
-            "data_points": [{"easing": "linear", **dp}],
+            "data_points": [{**dp}],
             "uuid": _make_uuid(),
             "time": 0.0,
             "color": -1,
@@ -306,7 +306,7 @@ def build_body_bob_animation(
         dp[axis] = molang
         kf = {
             "channel": "position",
-            "data_points": [{"easing": "linear", **dp}],
+            "data_points": [{**dp}],
             "uuid": _make_uuid(),
             "time": 0.0,
             "color": -1,
@@ -416,7 +416,7 @@ def build_visibility_variants_animation(
         dp = {"x": scale_molang, "y": scale_molang, "z": scale_molang}
         kf = {
             "channel": "scale",
-            "data_points": [{"easing": "linear", **dp}],
+            "data_points": [{**dp}],
             "uuid": _make_uuid(),
             "time": 0.0,
             "color": -1,
