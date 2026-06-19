@@ -114,8 +114,11 @@ def _safe_eval(expr: str, env: Dict[str, float]) -> float:
         py_expr = py_expr.replace(f"math.{fn}(", f"__{fn}(")
     py_expr = py_expr.replace("MathHelper.func_76126_a", "__sin")
     py_expr = py_expr.replace("MathHelper.func_76134_d", "__cos")
+    py_expr = py_expr.replace("MathHelper.func_76134_b", "__cos")
     py_expr = py_expr.replace("MathHelper.func_76133_a", "__sqrt")
     py_expr = py_expr.replace("MathHelper.func_76132_a", "__abs")
+    py_expr = py_expr.replace("MathHelper.func_76130_b", "__clamp")
+    py_expr = py_expr.replace("MathHelper.func_76131_a", "__floor")
     # Remove Java float suffix and casts
     py_expr = re.sub(r"(\d+(?:\.\d+)?)f", r"\1", py_expr)
     py_expr = py_expr.replace("(float)", "").replace("(int)", "")
@@ -132,6 +135,8 @@ def _safe_eval(expr: str, env: Dict[str, float]) -> float:
         "__cos": math.cos,
         "__sqrt": math.sqrt,
         "__abs": abs,
+        "__clamp": lambda v, lo, hi: max(lo, min(hi, v)),
+        "__floor": math.floor,
     }
     try:
         return float(eval(py_expr, safe_globals, dict(env)))
@@ -173,11 +178,11 @@ def _detect_cycle_period(expr: str, variables: Dict[str, str]) -> float:
     movement speed; we default to the JSON walk length (0.6667s).
     """
     resolved = _resolve_expr(expr, variables)
-    # Find all frequency multipliers: ageInTicks * <float>
-    freqs = re.findall(r"ageInTicks\s*\*\s*([\d.]+)", resolved)
+    # Find all frequency multipliers: ageInTicks * <float> OR limbSwing * <float>
+    freqs = re.findall(r"(?:ageInTicks|limbSwing)\s*\*\s*([\d.]+)", resolved)
     if not freqs:
-        # Also check for ageInTicks * var where var resolves to a number
-        freqs = re.findall(r"ageInTicks\s*\*\s*\(([\d.]+)\)", resolved)
+        # Also check for (var) * <float> where var resolves to ageInTicks/limbSwing
+        freqs = re.findall(r"(?:ageInTicks|limbSwing)\s*\*\s*\(([\d.]+)\)", resolved)
     if not freqs:
         return 4.0  # default 4s cycle for idle
     max_freq = max(float(f) for f in freqs)

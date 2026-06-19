@@ -59,11 +59,15 @@ SRG_FIELDS: Dict[str, str] = {
 }
 
 # MathHelper SRG names → math functions
+# 1.12.2 has multiple SRG mappings for the same function (static vs instance)
 MATHHELPER: Dict[str, str] = {
     "func_76126_a": "sin",   # MathHelper.sin
-    "func_76134_d": "cos",   # MathHelper.cos
+    "func_76134_d": "cos",   # MathHelper.cos (static)
+    "func_76134_b": "cos",   # MathHelper.cos (instance/alt mapping)
     "func_76133_a": "sqrt",  # MathHelper.sqrt
     "func_76132_a": "abs",   # MathHelper.abs
+    "func_76130_b": "clamp", # MathHelper.clamp
+    "func_76131_a": "floor", # MathHelper.floor
 }
 
 # Method signatures (SRG names in 1.12.2)
@@ -264,17 +268,48 @@ def _extract_states(set_rotation_body: str) -> List[StateInfo]:
 _VAR_DECL_RE = re.compile(
     r"float\s+(\w+)\s*=\s*([^;]+);"
 )
+# Also match reassignments to pre-declared float variables: f1 = <expr>;
+# (no `float` prefix; variable was declared earlier as `float f1;`)
+_VAR_REASSIGN_RE = re.compile(
+    r"(?<![\w.])\b([a-z]\w*)\s*=\s*([^;={]+(?:\([^)]*\)[^;={]*)*);"
+)
 _ASSIGN_RE = re.compile(
     r"this\.(\w+)\.(field_\w+)\s*=\s*([^;]+);"
 )
 
 
 def _resolve_variables(state_body: str) -> Dict[str, str]:
-    """Extract float variable declarations: float varN = <expr>;"""
+    """Extract variable declarations and reassignments.
+
+    Matches both:
+      - `float varN = <expr>;` (declaration with type)
+      - `varN = <expr>;` (reassignment of pre-declared variable)
+    Excludes `this.bone.field = ...` (handled separately) and
+    `if/while` condition assignments.
+    """
     variables: Dict[str, str] = {}
+    # First pass: declarations with `float` prefix
     for m in _VAR_DECL_RE.finditer(state_body):
         var_name = m.group(1)
         expr = m.group(2).strip()
+        variables[var_name] = expr
+    # Second pass: reassignments without `float` prefix (e.g. `f1 = MathHelper.cos(...)`; )
+    # Skip lines that are clearly not variable reassignments:
+    #   - this.x.field = ... (bone field assignments, handled by _ASSIGN_RE)
+    #   - if/while conditions
+    #   - comparison operators (==, <=, >=, !=)
+    for m in _VAR_REASSIGN_RE.finditer(state_body):
+        var_name = m.group(1)
+        expr = m.group(2).strip()
+        # Skip if it's a this.bone.field assignment (var_name would be like "this")
+        if var_name in ("this", "if", "while", "for", "else", "return", "true", "false", "null"):
+            continue
+        # Skip if expr contains comparison operators (it's a condition, not an assignment)
+        if any(op in expr for op in ("==", "!=", "<=", ">=", "&&", "||")):
+            continue
+        # Skip if expr is just a literal number (likely a state setter, not trig)
+        if re.match(r"^-?[\d.]+f?$", expr):
+            continue
         variables[var_name] = expr
     return variables
 
@@ -444,16 +479,17 @@ def _extract_swing_calls(state_body: str) -> List[TrigAssignment]:
         field_map = {"swingX": "field_78795_f", "swingY": "field_78796_g", "swingZ": "field_78808_h"}
         field = field_map[helper]
 
-        # Build synthetic expression for the simulator
+        # Build synthetic expression for the simulator.
         # ModelSRP.swingX: mr.rotateAngleX = invert * limbSwingAmount * degree * cos(limbSwing * speed + offset) + weight * limbSwingAmount
-        # (simplified from the quadratic form: invert * degree * lsa² * cos(...) + weight * lsa)
-        # For idle simulation, limbSwing=ageInTicks, limbSwingAmount=1.0
+        # Note: the real helper multiplies by limbSwingAmount TWICE (quadratic scaling).
+        # For idle (limbSwingAmount=0): result = 0 (no walk motion)
+        # For walk (limbSwingAmount=1): result = invert * degree * cos(limbSwing*speed+offset) + weight
         if has_pref:
-            expr = f"{pref} + {invert} * {degree} * 1.0 * 1.0 * MathHelper.func_76134_d(ageInTicks * {speed})"
+            expr = f"{pref} + {invert} * limbSwingAmount * limbSwingAmount * {degree} * MathHelper.func_76134_d(limbSwing * {speed})"
         elif offset != "0" or weight != "0":
-            expr = f"{invert} * 1.0 * {degree} * MathHelper.func_76134_d(ageInTicks * {speed} + {offset}) + {weight} * 1.0"
+            expr = f"{invert} * limbSwingAmount * limbSwingAmount * {degree} * MathHelper.func_76134_d(limbSwing * {speed} + {offset}) + {weight} * limbSwingAmount"
         else:
-            expr = f"{invert} * {degree} * 1.0 * 1.0 * MathHelper.func_76134_d(ageInTicks * {speed})"
+            expr = f"{invert} * limbSwingAmount * limbSwingAmount * {degree} * MathHelper.func_76134_d(limbSwing * {speed})"
 
         assignments.append(TrigAssignment(
             bone=bone,
@@ -477,8 +513,8 @@ def _extract_swing_calls(state_body: str) -> List[TrigAssignment]:
         if not bone:
             continue
         # moveY: mr.offsetY = invert * cos(f * speed) * f1 * distance
-        # For idle: f=ageInTicks, f1=1.0
-        expr = f"{invert} * MathHelper.func_76134_d(ageInTicks * {speed}) * 1.0 * {distance}"
+        # f = limbSwing, f1 = limbSwingAmount. For idle (lsa=0): result = 0.
+        expr = f"{invert} * MathHelper.func_76134_d(limbSwing * {speed}) * limbSwingAmount * {distance}"
         assignments.append(TrigAssignment(
             bone=bone,
             field="field_82908_p",  # offsetY

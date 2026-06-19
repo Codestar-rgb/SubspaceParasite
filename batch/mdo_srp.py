@@ -349,35 +349,51 @@ def batch_convert_mdo_srp(
             status_parts.append(f"bones={len(model_ir.bones)}")
 
             # ---- Step 2: Parse animation.json (optional) ----
-            # v6.3: PREFER MVE-captured data (ground truth) over upstream JSON.
-            # MVE data contains per-state animations, attack fade, visibility
-            # that upstream extraction missed.
+            # v6.4: MERGE MVE-captured data WITH upstream JSON (not replace).
+            # Upstream JSON has named animations (walk/attack/sleeping/stage25)
+            # that MVE may not capture. MVE adds per-state-per-variant animations
+            # (idle/walk for each state) with ground-truth trig.
+            # Merge logic: start with MVE, then add upstream anims that don't
+            # conflict by name (upstream walk/attack/sleeping kept if MVE
+            # doesn't have same-named anim).
             animations_ir = []
             used_mve = False
             mve_raw = None
+            mve_anim_names = set()
             if has_mve_data(name, MVE_DATA_DIR):
                 mve_anims, mve_raw = get_mve_animations_for_model(name, MVE_DATA_DIR)
                 if mve_anims:
                     animations_ir = mve_anims
                     used_mve = True
+                    mve_anim_names = {a.name for a in mve_anims}
                     stats['has_anim'] += 1
-                    status_parts.append(f"anims={len(animations_ir)}(MVE)")
+                    status_parts.append(f"mve={len(animations_ir)}")
 
-            if not used_mve:
-                anim_path = os.path.join(src_dir, f"{name}.animation.json")
-                if os.path.exists(anim_path):
-                    try:
-                        with open(anim_path, 'r', encoding='utf-8') as f:
-                            anim_data = json.load(f)
-                        anim_dict = parse_animation_json(anim_data, model_name=name)
-                        animations_ir = list(anim_dict.values())
-                        anim_count = len(animations_ir)
+            # Load upstream JSON and MERGE (add anims not already in MVE)
+            upstream_count = 0
+            anim_path = os.path.join(src_dir, f"{name}.animation.json")
+            if os.path.exists(anim_path):
+                try:
+                    with open(anim_path, 'r', encoding="utf-8") as f:
+                        anim_data = json.load(f)
+                    anim_dict = parse_animation_json(anim_data, model_name=name)
+                    upstream_anims = list(anim_dict.values())
+                    # Apply namespace fix to upstream anims before merging
+                    upstream_anims, _ = _apply_namespace_and_loop_semantics(upstream_anims, name)
+                    for ua in upstream_anims:
+                        if ua.name not in mve_anim_names:
+                            animations_ir.append(ua)
+                            mve_anim_names.add(ua.name)
+                            upstream_count += 1
+                    if not used_mve:
                         stats['has_anim'] += 1
-                        status_parts.append(f"anims={anim_count}")
-                    except Exception as e:
+                    if upstream_count > 0:
+                        status_parts.append(f"upstream={upstream_count}")
+                except Exception as e:
+                    if not used_mve:
                         status_parts.append(f"anim_err({e})")
-                else:
-                    status_parts.append("no_anim")
+            elif not used_mve:
+                status_parts.append("no_anim")
 
             # ---- Step 2b (v6.1): Namespace + loop-semantic fixes ----
             # Inject 'srparasites' namespace into animation names to match

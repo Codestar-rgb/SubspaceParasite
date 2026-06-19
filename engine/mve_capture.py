@@ -171,24 +171,138 @@ def _capture_state_frame(
     return bone_transforms
 
 
+def _detect_dominant_period(
+    assignments: List[TrigAssignment],
+    variables: Dict[str, str],
+) -> float:
+    """Detect the DOMINANT cycle period across all assignments.
+
+    For seamless looping, we need ALL bones to complete an integer number
+    of cycles within the animation length. The safest choice is the MAX
+    period (lowest frequency) — slower bones complete exactly 1 cycle,
+    faster bones complete multiple cycles.
+
+    We exclude spurious very-short periods (<0.3s) that come from
+    high-frequency noise (e.g. constant-folded expressions).
+
+    Returns period in seconds.
+    """
+    periods = []
+    for a in assignments:
+        p = _detect_cycle_period(a.expression, variables)
+        if p > 0:
+            periods.append(p)
+    if not periods:
+        return 4.0
+    # Filter out spurious very-short periods (high-frequency noise)
+    periods = [p for p in periods if p >= 0.3]
+    if not periods:
+        return 4.0
+    # Use MAX period (lowest frequency) so all bones seam correctly.
+    # Slower bones complete 1 cycle; faster bones complete integer multiples.
+    return max(periods)
+
+
+def _force_seamless_loop(bone_curves: Dict[str, List[dict]]) -> None:
+    """Force first frame == last frame for seamless looping.
+
+    For each bone's curve, set the LAST sample's values to match the FIRST
+    sample's values. This guarantees the loop seam is invisible.
+    """
+    for bone, curve in bone_curves.items():
+        if len(curve) < 2:
+            continue
+        first = curve[0]
+        last = curve[-1]
+        # Copy first frame's transform values to last frame (keep last time)
+        last["rotation"] = list(first["rotation"])
+        last["position"] = list(first["position"])
+        last["hidden"] = first["hidden"]
+
+
+def _split_still_ani_branches(state_body: str) -> Tuple[str, str]:
+    """Split a state body into (walk_branch, idle_branch) by getStillAni.
+
+    SRP pattern:
+      if (!parasite.getStillAni()) {
+          // WALK: swingX/Y driven by limbSwing
+      } else {
+          // IDLE: cos/sin driven by ageInTicks
+      }
+      // SHARED: hair sway, tentacle sway (runs regardless of still/moving)
+
+    Returns (walk_body, idle_body) where each includes the SHARED code.
+    If no getStillAni split, returns (state_body, state_body).
+    """
+    if "getStillAni" not in state_body:
+        return state_body, state_body
+
+    # Find the if (!parasite.getStillAni()) { ... } else { ... } block
+    # Pattern: if (!parasite.getStillAni()) { WALK } else { IDLE }
+    # The else block may be absent (then idle = shared only)
+    still_re = re.compile(
+        r"if\s*\(\s*!\s*\w+\.getStillAni\(\)\s*\)\s*\{",
+    )
+    m = still_re.search(state_body)
+    if not m:
+        return state_body, state_body
+
+    # Find matching closing brace for the if block
+    if_start = m.end()
+    depth = 1
+    i = if_start
+    while i < len(state_body) and depth > 0:
+        if state_body[i] == "{":
+            depth += 1
+        elif state_body[i] == "}":
+            depth -= 1
+        i += 1
+    walk_body = state_body[if_start : i - 1]
+
+    # Check for else block
+    rest = state_body[i:]
+    idle_body = ""
+    else_m = re.match(r"\s*else\s*\{", rest)
+    if else_m:
+        else_start = else_m.end()
+        depth = 1
+        j = else_start
+        while j < len(rest) and depth > 0:
+            if rest[j] == "{":
+                depth += 1
+            elif rest[j] == "}":
+                depth -= 1
+            j += 1
+        idle_body = rest[else_start : j - 1]
+        shared = rest[j:]
+    else:
+        shared = rest
+
+    # Shared code (hair sway, etc.) runs in BOTH variants
+    walk_full = walk_body + "\n" + shared
+    idle_full = idle_body + "\n" + shared
+    return walk_full, idle_full
+
+
 def capture_model_animations(
     meta: ModelMetadata,
     sample_count: int = TIME_SAMPLES_PER_CYCLE,
 ) -> Optional[dict]:
     """Capture all animations for one model via MVE parameter sweep.
 
-    Returns a dict with:
-      - states: list of per-state animations (idle, state1, state2, ...)
-      - attack_fade: attack timer fade curve (if applicable)
-      - visibility: conditional visibility info (if applicable)
+    For each state with a getStillAni split, captures TWO variants:
+      - idle (else branch): ageInTicks-driven trig (swaying, breathing)
+      - walk (if branch): limbSwing-driven swing helpers
+    Shared code (hair sway, tentacle sway) runs in both.
+
+    Uses DOMINANT period detection (not max) so shorter-cycle bones seam.
+    Forces first==last frame for seamless looping.
     """
     if not meta.states:
         return None
 
     captured_states = []
     for state in meta.states:
-        # Follow custom method calls to inline their bodies
-        # (re-read java source for this)
         try:
             with open(meta.java_path, "r", encoding="utf-8") as f:
                 java_src = f.read()
@@ -196,68 +310,170 @@ def capture_model_animations(
             continue
 
         inlined_body = _follow_custom_methods(java_src, state.body)
-        variables = _resolve_variables(inlined_body)
-        assignments = _extract_all_anim_assignments(inlined_body)
 
-        if not assignments:
-            continue
+        # Split into walk/idle branches by getStillAni
+        walk_body, idle_body = _split_still_ani_branches(inlined_body)
 
         gs_val, gd_val = _extract_gs_gd(inlined_body)
 
-        # Detect cycle period
-        max_period = 4.0
-        for a in assignments:
-            p = _detect_cycle_period(a.expression, variables)
-            if p > max_period:
-                max_period = p
-        cycle_length = max_period
+        # Check if this state has a getStillAni split
+        has_still_ani_split = "getStillAni" in inlined_body
 
-        # Sample the cycle
-        bone_curves: Dict[str, List[dict]] = {}
-        for i in range(sample_count + 1):
-            t = i * cycle_length / sample_count
-            age_in_ticks = t * 20.0
-            limb_swing = t * 20.0
-            limb_swing_amount = 1.0
-
-            frame = _capture_state_frame(
-                inlined_body, variables, assignments,
-                age_in_ticks, limb_swing, limb_swing_amount,
-                gs_val, gd_val,
-            )
-            for bone, transform in frame.items():
-                bone_curves.setdefault(bone, []).append({
-                    "time": round(t, 6),
-                    "rotation": transform["rotation"],
-                    "position": transform["position"],
-                    "hidden": transform["hidden"],
-                })
-
-        # Determine animation name
-        if state.state_value == 0:
-            anim_name = f"animation.srparasites.{meta.model_name}.idle"
-            action = "idle"
+        # Semantic state label
+        sv = state.state_value
+        if sv == 0:
+            state_label = "stage0"
+        elif sv == 10:
+            state_label = "death"
+        elif sv == 25:
+            state_label = "stage25"
+        elif sv == 77:
+            state_label = "dormant"
         else:
-            anim_name = f"animation.srparasites.{meta.model_name}.state{state.state_value}"
-            action = f"state{state.state_value}"
+            state_label = f"stage{sv}"
 
-        captured_states.append({
-            "state": state.state_value,
-            "name": anim_name,
-            "action": action,
-            "length": round(cycle_length, 4),
-            "loop": "loop",
-            "bones": bone_curves,
-        })
+        # --- Capture IDLE variant (else branch) ---
+        idle_variables = _resolve_variables(idle_body)
+        idle_assignments = _extract_all_anim_assignments(idle_body)
+        cycle_length = _detect_dominant_period(idle_assignments, idle_variables) if idle_assignments else 4.0
+
+        idle_curves: Dict[str, List[dict]] = {}
+        if idle_assignments:
+            for i in range(sample_count + 1):
+                t = i * cycle_length / sample_count
+                age_in_ticks = t * 20.0
+                frame = _capture_state_frame(
+                    idle_body, idle_variables, idle_assignments,
+                    age_in_ticks=age_in_ticks,
+                    limb_swing=0.0,
+                    limb_swing_amount=0.0,
+                    gs_val=gs_val, gd_val=gd_val,
+                )
+                for bone, transform in frame.items():
+                    idle_curves.setdefault(bone, []).append({
+                        "time": round(t, 6),
+                        "rotation": transform["rotation"],
+                        "position": transform["position"],
+                        "hidden": transform["hidden"],
+                    })
+
+            _force_seamless_loop(idle_curves)
+            # Filter out bones with no motion
+            idle_curves = {
+                b: c for b, c in idle_curves.items()
+                if any(
+                    any(abs(v) > 1e-6 for v in s["rotation"]) or
+                    any(abs(v) > 1e-6 for v in s["position"])
+                    for s in c
+                )
+            }
+
+        if idle_curves:
+            if sv == 0:
+                anim_name = f"animation.srparasites.{meta.model_name}.idle"
+            else:
+                anim_name = f"animation.srparasites.{meta.model_name}.{state_label}_idle"
+            captured_states.append({
+                "state": sv,
+                "variant": "idle",
+                "name": anim_name,
+                "action": "idle" if sv == 0 else f"{state_label}_idle",
+                "length": round(cycle_length, 4),
+                "loop": "loop",
+                "bones": idle_curves,
+            })
+
+        # --- Capture WALK variant (if branch) ---
+        walk_variables = _resolve_variables(walk_body)
+        walk_assignments = _extract_all_anim_assignments(walk_body)
+        walk_cycle = _detect_dominant_period(walk_assignments, walk_variables) if walk_assignments else cycle_length
+
+        # Capture walk if: has getStillAni split, OR references limbSwing (direct walk-driven)
+        has_limb_swing = "limbSwing" in inlined_body
+        capture_walk = has_still_ani_split or has_limb_swing
+
+        walk_curves: Dict[str, List[dict]] = {}
+        if walk_assignments and capture_walk:
+            for i in range(sample_count + 1):
+                t = i * walk_cycle / sample_count
+                limb_swing = t * 20.0
+                frame = _capture_state_frame(
+                    walk_body, walk_variables, walk_assignments,
+                    age_in_ticks=t * 20.0,
+                    limb_swing=limb_swing,
+                    limb_swing_amount=1.0,
+                    gs_val=gs_val, gd_val=gd_val,
+                )
+                for bone, transform in frame.items():
+                    walk_curves.setdefault(bone, []).append({
+                        "time": round(t, 6),
+                        "rotation": transform["rotation"],
+                        "position": transform["position"],
+                        "hidden": transform["hidden"],
+                    })
+
+            _force_seamless_loop(walk_curves)
+            # Filter: keep only bones with walk-specific motion (non-zero when limbSwingAmount=1)
+            walk_curves = {
+                b: c for b, c in walk_curves.items()
+                if any(
+                    any(abs(v) > 1e-6 for v in s["rotation"]) or
+                    any(abs(v) > 1e-6 for v in s["position"])
+                    for s in c
+                )
+            }
+            # For models without getStillAni: walk body == full state body, so walk_curves
+            # includes idle bones too. Filter to keep only limbSwing-driven bones (those
+            # whose values differ between limbSwing=0 and limbSwing>0).
+            if not has_still_ani_split and has_limb_swing:
+                # Compare at the MIDDLE of the cycle (limbSwing > 0 there)
+                mid_t = walk_cycle / 2.0
+                mid_frame = _capture_state_frame(
+                    walk_body, walk_variables, walk_assignments,
+                    age_in_ticks=mid_t * 20.0,
+                    limb_swing=mid_t * 20.0,
+                    limb_swing_amount=1.0,
+                    gs_val=gs_val, gd_val=gd_val,
+                )
+                idle_mid_frame = _capture_state_frame(
+                    walk_body, walk_variables, walk_assignments,
+                    age_in_ticks=mid_t * 20.0,
+                    limb_swing=0.0,
+                    limb_swing_amount=0.0,
+                    gs_val=gs_val, gd_val=gd_val,
+                )
+                walk_only = {}
+                for bone, curve in walk_curves.items():
+                    walk_rot = mid_frame.get(bone, {}).get("rotation", [0,0,0])
+                    idle_rot = idle_mid_frame.get(bone, {}).get("rotation", [0,0,0])
+                    if any(abs(walk_rot[k] - idle_rot[k]) > 1e-3 for k in range(3)):
+                        walk_only[bone] = curve
+                walk_curves = walk_only
+
+        if walk_curves:
+            if sv == 0:
+                anim_name = f"animation.srparasites.{meta.model_name}.walk"
+            else:
+                anim_name = f"animation.srparasites.{meta.model_name}.{state_label}_walk"
+            captured_states.append({
+                "state": sv,
+                "variant": "walk",
+                "name": anim_name,
+                "action": "walk" if sv == 0 else f"{state_label}_walk",
+                "length": round(walk_cycle, 4),
+                "loop": "loop",
+                "bones": walk_curves,
+            })
+
         logger.info(
-            "[%s] MVE captured state %d: %d bones, %d samples, %.2fs",
-            meta.model_name, state.state_value, len(bone_curves),
-            sample_count + 1, cycle_length,
+            "[%s] MVE state %d: %d idle bones, %d walk bones, idle=%.2fs walk=%.2fs",
+            meta.model_name, sv,
+            len(idle_curves), len(walk_curves),
+            cycle_length, walk_cycle,
         )
 
     # Capture attack fade curve
     attack_fade = _capture_attack_fade(meta)
-
     # Capture visibility info
     visibility = _capture_visibility(meta)
 
