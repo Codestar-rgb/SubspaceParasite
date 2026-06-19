@@ -143,7 +143,7 @@ def build_head_track_animation(
         },
     }
 
-    logger.info(
+    logger.debug(
         "[%s] head_track: bone=%s, yaw=%s, pitch=%s",
         meta.model_name, head_bone, yaw_molang, pitch_molang,
     )

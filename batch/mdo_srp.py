@@ -298,7 +298,8 @@ def batch_convert_mdo_srp(
         'fail': 0,
         'has_anim': 0,
         'has_tex': 0,
-        'errors': [],
+        'errors': [],          # fatal errors (model skipped)
+        'warnings': [],        # non-fatal warnings (model converted with issues)
         'categories': {},
         'engine_stats': {
             'total_keyframes': 0,
@@ -445,6 +446,7 @@ def batch_convert_mdo_srp(
                     model_meta = analyze_model(name, DECOMPILED_DIR)
                 except Exception as e:
                     status_parts.append(f"java_err({e})")
+                    stats['warnings'].append(f"{category}/{name}: Java analysis failed: {e}")
 
                 if model_meta:
                     # Stub recovery: if the upstream extraction produced a stub,
@@ -672,6 +674,14 @@ def batch_convert_mdo_srp(
             print(f"    X {first_line}")
         if len(stats['errors']) > 10:
             print(f"    ... and {len(stats['errors']) - 10} more")
+
+    # v6.8 — Warnings report (non-fatal issues)
+    if stats.get('warnings'):
+        print(f"\n  Warnings ({len(stats['warnings'])}):")
+        for w in stats['warnings'][:10]:
+            print(f"    ! {w}")
+        if len(stats['warnings']) > 10:
+            print(f"    ... and {len(stats['warnings']) - 10} more")
 
     # v6.1 — Stub animation report
     stubs = stats.get('stubs', [])

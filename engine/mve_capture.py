@@ -494,7 +494,7 @@ def capture_model_animations(
                 "bones": walk_curves,
             })
 
-        logger.info(
+        logger.debug(
             "[%s] MVE state %d: %d idle bones, %d walk bones, idle=%.2fs walk=%.2fs",
             meta.model_name, sv,
             len(idle_curves), len(walk_curves),

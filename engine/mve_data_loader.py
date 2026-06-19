@@ -218,7 +218,7 @@ def mve_to_animations(mve_data: dict) -> List[AnimationIR]:
                 dedup_threshold = 2.0
             for existing in animations:
                 if _animations_visually_similar(anim, existing, threshold=dedup_threshold):
-                    logger.info(
+                    logger.debug(
                         "[%s] Skipping visually-similar state anim '%s' (≈ '%s')",
                         model_name, anim_name, existing.name,
                     )
@@ -228,7 +228,7 @@ def mve_to_animations(mve_data: dict) -> List[AnimationIR]:
                 continue
             animations.append(anim)
 
-    logger.info(
+    logger.debug(
         "[%s] MVE loaded: %d animations (after dedup), %d total bones",
         model_name, len(animations),
         sum(len(a.bones) for a in animations),

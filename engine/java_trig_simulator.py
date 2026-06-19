@@ -98,51 +98,14 @@ def _channel_from_field(field: str) -> str:
 def _safe_eval(expr: str, env: Dict[str, float]) -> float:
     """Safely evaluate a Java trig expression to a float.
 
-    Translates Java syntax to Python and evaluates with math.* functions.
-    Handles chained assignments (e.g. `f2 = 0.9f * MathHelper.sin(...)`)
-    by taking the last `=` segment.
+    v6.8: Uses AST-based safe_evaluator instead of eval().
+    Translates Java syntax (MathHelper.func_*, float suffixes, casts)
+    to Python, then evaluates via a whitelist-restricted AST walker.
+    This blocks all attribute access, subscripting, imports, and lambda —
+    only arithmetic + whitelisted math functions are allowed.
     """
-    # Handle chained assignments: "f2 = 0.9f * ..." → take last segment
-    if "=" in expr and not any(op in expr for op in ("==", "!=", "<=", ">=")):
-        parts = expr.rsplit("=", 1)
-        if len(parts) == 2:
-            expr = parts[1].strip()
-
-    # Replace MathHelper SRG names with math functions
-    py_expr = expr
-    for srg, fn in MATHHELPER.items():
-        py_expr = py_expr.replace(f"math.{fn}(", f"__{fn}(")
-    py_expr = py_expr.replace("MathHelper.func_76126_a", "__sin")
-    py_expr = py_expr.replace("MathHelper.func_76134_d", "__cos")
-    py_expr = py_expr.replace("MathHelper.func_76134_b", "__cos")
-    py_expr = py_expr.replace("MathHelper.func_76133_a", "__sqrt")
-    py_expr = py_expr.replace("MathHelper.func_76132_a", "__abs")
-    py_expr = py_expr.replace("MathHelper.func_76130_b", "__clamp")
-    py_expr = py_expr.replace("MathHelper.func_76131_a", "__floor")
-    # Remove Java float suffix and casts
-    py_expr = re.sub(r"(\d+(?:\.\d+)?)f", r"\1", py_expr)
-    py_expr = py_expr.replace("(float)", "").replace("(int)", "")
-    py_expr = py_expr.replace("(double)", "")
-    # PI / E constants
-    py_expr = re.sub(r"\bMath\.PI\b|\bMathHelper\.PI\b", str(math.pi), py_expr)
-    py_expr = re.sub(r"\bPI\b(?!\w)", str(math.pi), py_expr)
-    # Remove 'L' long suffix
-    py_expr = re.sub(r"(\d+)L\b", r"\1", py_expr)
-
-    safe_globals = {
-        "__builtins__": {},
-        "__sin": math.sin,
-        "__cos": math.cos,
-        "__sqrt": math.sqrt,
-        "__abs": abs,
-        "__clamp": lambda v, lo, hi: max(lo, min(hi, v)),
-        "__floor": math.floor,
-    }
-    try:
-        return float(eval(py_expr, safe_globals, dict(env)))
-    except Exception as e:
-        logger.debug("Failed to eval '%s' (-> '%s'): %s", expr, py_expr, e)
-        return 0.0
+    from engine.safe_evaluator import safe_eval_java
+    return safe_eval_java(expr, env)
 
 
 def _resolve_expr(expr: str, variables: Dict[str, str], depth: int = 0) -> str:
@@ -341,7 +304,7 @@ def _simulate_state(
         length=round(cycle_length, 4),
         bones=bones,
     )
-    logger.info(
+    logger.debug(
         "[%s] simulated state %d: %d bones, %d keyframes, cycle=%.2fs",
         model_name, state_value, len(bones),
         sum(len(b.keyframes) for b in bones.values()),

@@ -200,7 +200,7 @@ def build_attack_fade_animation(
         "blend_weight": blend_weight_molang,
         "animators": animators,
     }
-    logger.info(
+    logger.debug(
         "[%s] attack_overlay: %d bones, blend_weight=%s",
         meta.model_name, len(animators), blend_weight_molang,
     )
@@ -333,7 +333,7 @@ def build_body_bob_animation(
         "blend_weight": "",
         "animators": animators,
     }
-    logger.info(
+    logger.debug(
         "[%s] body_bob: %d bones (floor-timer driven, Molang approx)",
         meta.model_name, len(animators),
     )
@@ -443,7 +443,7 @@ def build_visibility_variants_animation(
         "blend_weight": "",
         "animators": animators,
     }
-    logger.info(
+    logger.debug(
         "[%s] visibility: %d bones (Molang scale-to-0 workaround)",
         meta.model_name, len(animators),
     )
