@@ -45,6 +45,7 @@ from engine.catmullrom_baker import bake_all_animations
 from core.types import AnimationIR
 from engine.java_analyzer import analyze_model, ModelMetadata
 from engine.java_trig_simulator import simulate_idle
+from engine.mve_data_loader import get_mve_animations_for_model, has_mve_data
 
 
 # ============================================================================
@@ -57,6 +58,13 @@ INPUT_DIR = "/home/z/my-project/MDO-SRP-SRC"
 # The java_analyzer parses these to extract head tracking, state machines,
 # and direct trig assignments that the upstream Qom-Inseac extraction missed.
 DECOMPILED_DIR = "/home/z/my-project/subspace-work/decompiled/all"
+
+# v6.3 — Path to MVE-captured animation data (code-level mocap).
+# When MVE data exists for a model, it is PREFERRED over upstream GeckoLib
+# JSON and Java trig simulation, because it contains ground-truth per-state
+# animations captured by simulating the Java setRotationAngles across the
+# full parameter space (state, attackTimer, time, limbSwingAmount).
+MVE_DATA_DIR = "/home/z/my-project/subspace-work/mve-capture/data"
 OUTPUT_DIR = "/home/z/my-project/SubspaceParasite/models"
 
 # v6.1 — Animation namespace for output animation names.
@@ -341,21 +349,35 @@ def batch_convert_mdo_srp(
             status_parts.append(f"bones={len(model_ir.bones)}")
 
             # ---- Step 2: Parse animation.json (optional) ----
+            # v6.3: PREFER MVE-captured data (ground truth) over upstream JSON.
+            # MVE data contains per-state animations, attack fade, visibility
+            # that upstream extraction missed.
             animations_ir = []
-            anim_path = os.path.join(src_dir, f"{name}.animation.json")
-            if os.path.exists(anim_path):
-                try:
-                    with open(anim_path, 'r', encoding='utf-8') as f:
-                        anim_data = json.load(f)
-                    anim_dict = parse_animation_json(anim_data, model_name=name)
-                    animations_ir = list(anim_dict.values())
-                    anim_count = len(animations_ir)
+            used_mve = False
+            mve_raw = None
+            if has_mve_data(name, MVE_DATA_DIR):
+                mve_anims, mve_raw = get_mve_animations_for_model(name, MVE_DATA_DIR)
+                if mve_anims:
+                    animations_ir = mve_anims
+                    used_mve = True
                     stats['has_anim'] += 1
-                    status_parts.append(f"anims={anim_count}")
-                except Exception as e:
-                    status_parts.append(f"anim_err({e})")
-            else:
-                status_parts.append("no_anim")
+                    status_parts.append(f"anims={len(animations_ir)}(MVE)")
+
+            if not used_mve:
+                anim_path = os.path.join(src_dir, f"{name}.animation.json")
+                if os.path.exists(anim_path):
+                    try:
+                        with open(anim_path, 'r', encoding='utf-8') as f:
+                            anim_data = json.load(f)
+                        anim_dict = parse_animation_json(anim_data, model_name=name)
+                        animations_ir = list(anim_dict.values())
+                        anim_count = len(animations_ir)
+                        stats['has_anim'] += 1
+                        status_parts.append(f"anims={anim_count}")
+                    except Exception as e:
+                        status_parts.append(f"anim_err({e})")
+                else:
+                    status_parts.append("no_anim")
 
             # ---- Step 2b (v6.1): Namespace + loop-semantic fixes ----
             # Inject 'srparasites' namespace into animation names to match
@@ -419,6 +441,23 @@ def batch_convert_mdo_srp(
                         status_parts.append(f"head(✓)")
                     if len(model_meta.states) > 1:
                         status_parts.append(f"states({len(model_meta.states)})")
+
+                    # v6.3 — Runtime behavior detection (reported after export)
+                    try:
+                        from engine.runtime_behavior_injector import (
+                            extract_attack_fade, extract_body_bob, extract_visibility_variants
+                        )
+                        fades = extract_attack_fade(model_meta)
+                        bobs = extract_body_bob(model_meta)
+                        vis = extract_visibility_variants(model_meta)
+                        if fades:
+                            status_parts.append(f"atk_fade({len(fades)})")
+                        if bobs:
+                            status_parts.append(f"bob({len(bobs)})")
+                        if vis:
+                            status_parts.append(f"vis({len(vis)})")
+                    except Exception:
+                        pass
 
             # ---- Step 3: Interpolation-aware carry-forward ----
             # GeckoLib animates each axis independently with its own time series.

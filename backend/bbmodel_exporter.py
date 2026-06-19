@@ -184,6 +184,24 @@ class BBModelExporter:
                 logger.warning("head_track injection failed: %s", e)
 
         # ------------------------------------------------------------------
+        # Phase 6c (v6.3): Inject runtime behavior animations (Molang)
+        #   - attack_overlay (blend_weight fade)
+        #   - body_bob (floor-timer driven)
+        #   - visibility (isHidden scale-to-0 workaround)
+        #   - walk blend_weight (limbSwingAmount² scaling)
+        # ------------------------------------------------------------------
+        if model_metadata is not None:
+            try:
+                from engine.runtime_behavior_injector import inject_all_runtime_behaviors
+                serialized_anims, rb_stats = inject_all_runtime_behaviors(
+                    serialized_anims, model_metadata, bone_uuids
+                )
+                if any(rb_stats.values()):
+                    logger.debug("runtime_behaviors: %s", rb_stats)
+            except Exception as e:
+                logger.warning("runtime_behavior injection failed: %s", e)
+
+        # ------------------------------------------------------------------
         # Assemble the final .bbmodel structure
         # ------------------------------------------------------------------
         bbmodel = {
