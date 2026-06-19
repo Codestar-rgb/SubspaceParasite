@@ -42,6 +42,7 @@ from engine.idle_walk_merger import merge_idle_into_walk
 from engine.loop_extender import extend_loop_animations
 from engine.walk_enhancer import enhance_walk_animations
 from engine.catmullrom_baker import bake_all_animations
+from engine.keyframe_simplifier import simplify_animations
 from core.types import AnimationIR
 from engine.java_analyzer import analyze_model, ModelMetadata
 from engine.java_trig_simulator import simulate_idle
@@ -568,6 +569,11 @@ def batch_convert_mdo_srp(
 
             if animations_ir:
                 animations_ir = bake_all_animations(animations_ir, name)
+                # v6.9: RDP keyframe simplification (reduces 60-80% keyframes)
+                animations_ir = simplify_animations(animations_ir, name)
+                simplified_kf = sum(len(ba.keyframes) for a in animations_ir for ba in a.bones.values())
+                if simplified_kf > 0:
+                    status_parts.append(f"rdp({simplified_kf})")
                 # Count baked keyframes
                 total_kf = sum(len(ba.keyframes) for a in animations_ir for ba in a.bones.values())
                 if total_kf > 0:

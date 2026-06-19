@@ -101,7 +101,7 @@ def _get_mve_output_dir():
 MVE_OUTPUT_DIR = _get_mve_output_dir()
 
 # Sample rate: keyframes per second (20fps = MC tick rate)
-TIME_SAMPLES_PER_CYCLE = 80   # 80 keyframes per cycle (increased from 40 for anti-aliasing)
+TIME_SAMPLES_PER_CYCLE = 20   # 80 keyframes per cycle (increased from 40 for anti-aliasing)
 ATTACK_TIMER_SAMPLES = 5      # 0.0, 0.1, 0.2, 0.3, 0.4
 
 
@@ -223,7 +223,7 @@ def _detect_dominant_period(
     periods = []
     for a in assignments:
         p = _detect_cycle_period(a.expression, variables)
-        if p > 0:
+        if p > 0 and p < 3.9:  # Filter out default 4.0s fallback
             periods.append(p)
     if not periods:
         return 4.0
@@ -252,7 +252,7 @@ def _detect_dominant_period(
         for a in assignments:
             if "limbSwing" in a.expression:
                 p = _detect_cycle_period(a.expression, variables)
-                if p > 0:
+                if p > 0 and p < 3.9:  # Filter out default 4.0s fallback
                     ls_periods.append(round(p, 2))
         if ls_periods:
             ls_counts = Counter(ls_periods)

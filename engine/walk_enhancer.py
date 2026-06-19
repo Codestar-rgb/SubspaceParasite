@@ -376,9 +376,18 @@ def _generate_synthetic_walk_keyframes(
 
     for i in range(num_kf + 1):
         t = i * anim_length / num_kf
-        # Sinusoidal walk cycle
-        angle = 2.0 * math.pi * t / anim_length + phase_offset
-        synthetic_value = amplitude * math.sin(angle)
+        # Asymmetric gait: 30% swing (fast lift) / 70% stance (slow support)
+        # This mimics real insect locomotion — legs lift quickly and spend
+        # more time on the ground, creating a crawling feel.
+        cycle_pos = (t / anim_length + phase_offset / (2.0 * math.pi)) % 1.0
+        if cycle_pos < 0.3:
+            # Swing phase (0-30%): fast lift, compressed sine
+            swing_t = cycle_pos / 0.3
+            synthetic_value = amplitude * math.sin(swing_t * math.pi)
+        else:
+            # Stance phase (30-100%): slow support, gradual return
+            stance_t = (cycle_pos - 0.3) / 0.7
+            synthetic_value = -amplitude * math.sin(stance_t * math.pi)
         # Add to existing center
         total_value = existing_center + synthetic_value
 
