@@ -86,9 +86,9 @@ def build_head_track_animation(
         return None
 
     # Compute Molang expressions
-    # Yaw (Y axis): Java rotateAngleY = netHeadYaw * yaw_coeff (radians)
-    #   BB rotation_y = -(sign(yaw_coeff)) * query.head_yaw * (|yaw_coeff| * RAD2DEG)
-    #   The leading - is the RH→LH Y-flip.
+    # Yaw: Java rotateAngle{Y or Z} = netHeadYaw * yaw_coeff (radians)
+    #   BB rotation = -(sign(yaw_coeff)) * query.head_yaw * (|yaw_coeff| * RAD2DEG)
+    #   The leading - is the RH→LH flip (applies to both Y and Z axes).
     yaw_mag = abs(ht.yaw_coeff) * RAD2DEG  # degrees per degree of head yaw
     yaw_sign = -1.0 if ht.yaw_coeff > 0 else 1.0  # RH→LH flip + Java sign
     if yaw_sign < 0:
@@ -96,7 +96,7 @@ def build_head_track_animation(
     else:
         yaw_molang = f"query.head_yaw * {yaw_mag:.4f}"
 
-    # Pitch (X axis): Java rotateAngleX = headPitch * pitch_coeff (radians)
+    # Pitch: Java rotateAngleX = headPitch * pitch_coeff (radians)
     #   BB rotation_x = sign(pitch_coeff) * query.head_pitch * (|pitch_coeff| * RAD2DEG)
     #   No RH→LH flip for X axis.
     pitch_mag = abs(ht.pitch_coeff) * RAD2DEG
@@ -107,15 +107,21 @@ def build_head_track_animation(
         pitch_molang = f"query.head_pitch * {pitch_mag:.4f}"
 
     # Build the keyframe with Molang string values
-    # In .bbmodel, data_points x/y/z can be strings (Molang) or floats
+    # The yaw axis can be Y (field_78796_g) or Z (field_78808_h) depending on the model.
+    # Pitch is always X (field_78795_f).
+    yaw_axis = ht.yaw_axis  # "y" or "z"
+    dp = {"x": "0", "y": "0", "z": "0"}
+    if ht.pitch_coeff != 0:
+        dp["x"] = pitch_molang
+    if ht.yaw_coeff != 0:
+        dp[yaw_axis] = yaw_molang
+
     keyframe = {
         "channel": "rotation",
         "data_points": [
             {
                 "easing": "linear",
-                "x": pitch_molang,
-                "y": yaw_molang,
-                "z": "0",
+                **dp,
             }
         ],
         "uuid": _make_uuid(),

@@ -183,52 +183,84 @@ def _extract_head_tracking(set_rotation_body: str) -> Optional[HeadTrackingInfo]
     """
     yaw_bone = None
     yaw_coeff = None
+    yaw_axis = "y"
     pitch_bone = None
     pitch_coeff = None
+    pitch_axis = "x"
 
-    # Yaw: this.<bone>.field_78796_g = netHeadYaw * <expr>
-    # Matches both `netHeadYaw * 0.016f` and `netHeadYaw * ((float)Math.PI / 180)`
+    # Yaw: this.<bone>.field_<X> = [expr *] netHeadYaw * <coeff>
+    # SRP uses field_78796_g (Y) OR field_78808_h (Z) for yaw.
+    # Coefficient may be negated: -1.0f * netHeadYaw * 0.016f OR netHeadYaw * -0.016f
+    # This regex handles all these variants.
     yaw_pat = re.compile(
-        r"this\.(\w+)\.field_78796_g\s*=\s*netHeadYaw\s*\*\s*([^;]+);"
+        r"this\.(\w+)\.(field_78796_g|field_78808_h)\s*=\s*"
+        r"(?:(-?[\d.]+)f?\s*\*\s*)?"  # optional leading multiplier like -1.0f *
+        r"netHeadYaw\s*\*\s*"
+        r"(-?[\d.]+)f?"  # coefficient
     )
     for m in yaw_pat.finditer(set_rotation_body):
         yaw_bone = m.group(1)
-        coeff_expr = m.group(2).strip()
-        # Try to evaluate the coefficient
-        if "Math.PI" in coeff_expr or "PI" in coeff_expr:
-            # PI/180 = 0.01745, handle the common pattern
-            yaw_coeff = math.pi / 180.0
-        else:
-            # Try parsing as float (e.g. "0.016f", "-0.016f")
-            try:
-                yaw_coeff = float(coeff_expr.replace("f", ""))
-            except ValueError:
-                yaw_coeff = 0.016  # default
-        break  # take first
+        field = m.group(2)
+        leading_mult = m.group(3)
+        coeff = m.group(4)
+        yaw_axis = "y" if field == "field_78796_g" else "z"
+        # Combine leading multiplier and coefficient
+        try:
+            yaw_coeff = float(coeff)
+            if leading_mult:
+                yaw_coeff *= float(leading_mult)
+        except ValueError:
+            yaw_coeff = 0.016
+        break
 
-    # Pitch: this.<bone>.field_78795_f = headPitch * <expr>
+    # Also handle PI/180 pattern: netHeadYaw * ((float)Math.PI / 180)
+    if yaw_bone is None:
+        yaw_pi_pat = re.compile(
+            r"this\.(\w+)\.(field_78796_g|field_78808_h)\s*=\s*netHeadYaw\s*\*\s*\([^;]*Math\.PI[^;]*\);"
+        )
+        for m in yaw_pi_pat.finditer(set_rotation_body):
+            yaw_bone = m.group(1)
+            field = m.group(2)
+            yaw_axis = "y" if field == "field_78796_g" else "z"
+            yaw_coeff = math.pi / 180.0
+            break
+
+    # Pitch: this.<bone>.field_78795_f = [expr *] headPitch * <coeff>
     pitch_pat = re.compile(
-        r"this\.(\w+)\.field_78795_f\s*=\s*headPitch\s*\*\s*([^;]+);"
+        r"this\.(\w+)\.field_78795_f\s*=\s*"
+        r"(?:(-?[\d.]+)f?\s*\*\s*)?"
+        r"headPitch\s*\*\s*"
+        r"(-?[\d.]+)f?"
     )
     for m in pitch_pat.finditer(set_rotation_body):
         pitch_bone = m.group(1)
-        coeff_expr = m.group(2).strip()
-        if "Math.PI" in coeff_expr or "PI" in coeff_expr:
-            pitch_coeff = math.pi / 180.0
-        else:
-            try:
-                pitch_coeff = float(coeff_expr.replace("f", ""))
-            except ValueError:
-                pitch_coeff = 0.016
+        leading_mult = m.group(2)
+        coeff = m.group(3)
+        try:
+            pitch_coeff = float(coeff)
+            if leading_mult:
+                pitch_coeff *= float(leading_mult)
+        except ValueError:
+            pitch_coeff = 0.016
         break
+
+    # Also handle PI/180 pattern for pitch
+    if pitch_bone is None:
+        pitch_pi_pat = re.compile(
+            r"this\.(\w+)\.field_78795_f\s*=\s*headPitch\s*\*\s*\([^;]*Math\.PI[^;]*\);"
+        )
+        for m in pitch_pi_pat.finditer(set_rotation_body):
+            pitch_bone = m.group(1)
+            pitch_coeff = math.pi / 180.0
+            break
 
     if yaw_bone or pitch_bone:
         return HeadTrackingInfo(
             bone_name=(yaw_bone or pitch_bone),
             yaw_coeff=(yaw_coeff or 0.0),
             pitch_coeff=(pitch_coeff or 0.0),
-            yaw_axis="y",
-            pitch_axis="x",
+            yaw_axis=yaw_axis,
+            pitch_axis=pitch_axis,
         )
     return None
 
