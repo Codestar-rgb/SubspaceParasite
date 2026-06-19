@@ -240,8 +240,28 @@ def _detect_dominant_period(
     # Round periods to 2 decimal places for grouping
     rounded = [round(p, 2) for p in periods]
     period_counts = Counter(rounded)
-    # Most common period
-    base_period = period_counts.most_common(1)[0][0]
+
+    # For walk animations: prefer limbSwing-driven periods over ageInTicks-driven.
+    # limbSwing periods are the actual walk cycle; ageInTicks periods are
+    # idle-like sway that happens to be present in the walk branch too.
+    # Check if any assignment uses limbSwing
+    has_limb_swing = any("limbSwing" in a.expression for a in assignments)
+    if has_limb_swing:
+        # Filter to only limbSwing-driven periods
+        ls_periods = []
+        for a in assignments:
+            if "limbSwing" in a.expression:
+                p = _detect_cycle_period(a.expression, variables)
+                if p > 0:
+                    ls_periods.append(round(p, 2))
+        if ls_periods:
+            ls_counts = Counter(ls_periods)
+            base_period = ls_counts.most_common(1)[0][0]
+        else:
+            base_period = period_counts.most_common(1)[0][0]
+    else:
+        # No limbSwing — use overall mode (idle animation)
+        base_period = period_counts.most_common(1)[0][0]
 
     # Snap to nearest integer multiple of base_period for seamless looping.
     # Use at least 1 full cycle.
@@ -457,7 +477,7 @@ def capture_model_animations(
                     walk_body, walk_variables, walk_assignments,
                     age_in_ticks=t * 20.0,
                     limb_swing=limb_swing,
-                    limb_swing_amount=1.0,
+                    limb_swing_amount=0.4,
                     gs_val=gs_val, gd_val=gd_val,
                 )
                 for bone, transform in frame.items():
@@ -488,7 +508,7 @@ def capture_model_animations(
                     walk_body, walk_variables, walk_assignments,
                     age_in_ticks=mid_t * 20.0,
                     limb_swing=mid_t * 20.0,
-                    limb_swing_amount=1.0,
+                    limb_swing_amount=0.4,
                     gs_val=gs_val, gd_val=gd_val,
                 )
                 idle_mid_frame = _capture_state_frame(
