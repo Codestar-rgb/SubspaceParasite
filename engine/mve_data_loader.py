@@ -170,6 +170,7 @@ def mve_to_animations(mve_data: dict) -> List[AnimationIR]:
                 is_boundary = any(abs(t - bt) < 1e-4 for bt in boundary_times)
 
                 # Rotation keyframe: keep if non-zero OR boundary (t=0/t=length)
+                # The boundary check ensures seamless loops (first==last frame).
                 if any(abs(v) > 1e-6 for v in rot) or is_boundary:
                     kf = KeyframeData(
                         time=t,
@@ -182,8 +183,14 @@ def mve_to_animations(mve_data: dict) -> List[AnimationIR]:
                     )
                     keyframes.append(kf)
 
-                # Position keyframe: keep if non-zero OR boundary
-                if any(abs(v) > 1e-6 for v in pos) or is_boundary:
+                # Position keyframe: keep ONLY if non-zero.
+                # Do NOT create zero-value position keyframes at boundaries —
+                # Blockbench treats position keyframes as ABSOLUTE bone offsets.
+                # A zero position kf at t=0 would reset the bone to origin,
+                # and having both position AND rotation kfs at the same time
+                # can confuse Blockbench's animation playback.
+                # Only emit position kfs when there's actual position animation.
+                if any(abs(v) > 1e-6 for v in pos):
                     kf = KeyframeData(
                         time=t,
                         channel="position",
