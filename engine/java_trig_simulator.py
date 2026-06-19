@@ -134,21 +134,49 @@ def _resolve_expr(expr: str, variables: Dict[str, str], depth: int = 0) -> str:
 def _detect_cycle_period(expr: str, variables: Dict[str, str]) -> float:
     """Detect the natural cycle period (in seconds) from trig frequencies.
 
-    Looks for `ageInTicks * FREQ` patterns and computes 2π/max(FREQ) ticks,
-    converted to seconds at 20tps.
+    Looks for `ageInTicks * FREQ` or `limbSwing * FREQ` patterns and computes
+    2π/max(FREQ) ticks, converted to seconds at 20tps.
 
-    For walk-state expressions using `limbSwing * FREQ`, the cycle depends on
-    movement speed; we default to the JSON walk length (0.6667s).
+    Handles GS (speed multiplier) resolution: swingX expressions use
+    `limbSwing * 0.3f * GS` where GS is a variable. The regex captures
+    `0.3` but misses `* GS`. This function resolves GS from variables
+    to get the actual frequency (0.3 * GS_value).
     """
     resolved = _resolve_expr(expr, variables)
-    # Find all frequency multipliers: ageInTicks * <float> OR limbSwing * <float>
-    freqs = re.findall(r"(?:ageInTicks|limbSwing)\s*\*\s*([\d.]+)", resolved)
+
+    # Check if GS is defined as a variable (common in SRP walk states)
+    gs_val = 1.0
+    if "GS" in variables:
+        try:
+            gs_val = float(variables["GS"].replace("f", "").strip())
+        except (ValueError, AttributeError):
+            pass
+
+    # Find all frequency multipliers: ageInTicks/limbSwing * <float>f? [* <float>f?...]
+    # The expression may be like "limbSwing * 0.3f * 0.9f" after GS resolution.
+    # We need to capture ALL consecutive multipliers after limbSwing/ageInTicks.
+    freqs = []
+    for m in re.finditer(r"(?:ageInTicks|limbSwing)\s*\*\s*([\d.]+)f?", resolved):
+        freq = float(m.group(1))
+        # Check for additional multipliers: * <float>f? or * (<float>f?)
+        pos = m.end()
+        while True:
+            extra = re.match(r"\s*\*\s*\(?([\d.]+)f?\)?", resolved[pos:pos+20])
+            if extra:
+                freq *= float(extra.group(1))
+                pos += extra.end()
+            else:
+                break
+        freqs.append(freq)
+
     if not freqs:
         # Also check for (var) * <float> where var resolves to ageInTicks/limbSwing
         freqs = re.findall(r"(?:ageInTicks|limbSwing)\s*\*\s*\(([\d.]+)\)", resolved)
+        freqs = [float(f) for f in freqs]
+
     if not freqs:
         return 4.0  # default 4s cycle for idle
-    max_freq = max(float(f) for f in freqs)
+    max_freq = max(freqs)
     if max_freq <= 0:
         return 4.0
     # Period in ticks = 2π / freq; in seconds = ticks / 20

@@ -329,7 +329,7 @@ _VAR_DECL_RE = re.compile(
 # Also match reassignments to pre-declared float variables: f1 = <expr>;
 # (no `float` prefix; variable was declared earlier as `float f1;`)
 _VAR_REASSIGN_RE = re.compile(
-    r"(?<![\w.])\b([a-z]\w*)\s*=\s*([^;={]+(?:\([^)]*\)[^;={]*)*);"
+    r"(?<![\w.])\b([a-zA-Z]\w*)\s*=\s*([^;={]+(?:\([^)]*\)[^;={]*)*);"
 )
 _ASSIGN_RE = re.compile(
     r"this\.(\w+)\.(field_\w+)\s*([+\-*/]?)=\s*([^;]+);"
@@ -365,8 +365,9 @@ def _resolve_variables(state_body: str) -> Dict[str, str]:
         # Skip if expr contains comparison operators (it's a condition, not an assignment)
         if any(op in expr for op in ("==", "!=", "<=", ">=", "&&", "||")):
             continue
-        # Skip if expr is just a literal number (likely a state setter, not trig)
-        if re.match(r"^-?[\d.]+f?$", expr):
+        # Skip pure literal numbers EXCEPT for GS/GD (speed/degree multipliers
+        # needed by _detect_cycle_period for accurate walk period calculation)
+        if re.match(r"^-?[\d.]+f?$", expr) and var_name not in ("GS", "GD", "gs", "gd"):
             continue
         variables[var_name] = expr
     return variables
