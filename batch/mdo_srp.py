@@ -46,26 +46,17 @@ from core.types import AnimationIR
 from engine.java_analyzer import analyze_model, ModelMetadata
 from engine.java_trig_simulator import simulate_idle
 from engine.mve_data_loader import get_mve_animations_for_model, has_mve_data
+import config
 
 
 # ============================================================================
-# Configuration
+# Configuration (v6.7 — sourced from config.py, env-overridable)
 # ============================================================================
 
-INPUT_DIR = "/home/z/my-project/MDO-SRP-SRC"
-
-# v6.2 — Path to decompiled SRP model classes (for Java trig analysis).
-# The java_analyzer parses these to extract head tracking, state machines,
-# and direct trig assignments that the upstream Qom-Inseac extraction missed.
-DECOMPILED_DIR = "/home/z/my-project/subspace-work/decompiled/all"
-
-# v6.3 — Path to MVE-captured animation data (code-level mocap).
-# When MVE data exists for a model, it is PREFERRED over upstream GeckoLib
-# JSON and Java trig simulation, because it contains ground-truth per-state
-# animations captured by simulating the Java setRotationAngles across the
-# full parameter space (state, attackTimer, time, limbSwingAmount).
-MVE_DATA_DIR = "/home/z/my-project/subspace-work/mve-capture/data"
-OUTPUT_DIR = "/home/z/my-project/SubspaceParasite/models"
+INPUT_DIR = config.INPUT_DIR
+DECOMPILED_DIR = config.DECOMPILED_DIR
+MVE_DATA_DIR = config.MVE_DATA_DIR
+OUTPUT_DIR = config.OUTPUT_DIR
 
 # v6.1 — Animation namespace for output animation names.
 # Original SRP mod uses GeckoLib convention: animation.srparasites.<name>.<action>

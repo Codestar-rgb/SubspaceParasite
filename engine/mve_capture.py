@@ -61,6 +61,7 @@ import math
 import os
 import re
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from engine.java_analyzer import (
@@ -88,8 +89,16 @@ from core.types import AnimationIR, AxisValue, BoneAnimationIR, KeyframeData
 
 logger = logging.getLogger(__name__)
 
-# MVE output directory
-MVE_OUTPUT_DIR = "/home/z/my-project/subspace-work/mve-capture/data"
+# MVE output directory (v6.7: from config, env-overridable)
+def _get_mve_output_dir():
+    try:
+        import config
+        return config.MVE_DATA_DIR
+    except ImportError:
+        import os
+        return os.environ.get("SRP_MVE_DIR", "/home/z/my-project/subspace-work/mve-capture/data")
+
+MVE_OUTPUT_DIR = _get_mve_output_dir()
 
 # Sample counts per dimension
 TIME_SAMPLES_PER_CYCLE = 40   # 40 keyframes per cycle (~2s at 20fps)
@@ -646,12 +655,16 @@ def capture_all_models(
 
 if __name__ == "__main__":
     import sys
-    SW = "/home/z/my-project/subspace-work"
-    DECOMP = f"{SW}/decompiled/all"
+    try:
+        import config
+        SW = str(Path(config.WORK_ROOT))
+        DECOMP = config.DECOMPILED_DIR
+    except ImportError:
+        SW = os.environ.get("SRP_WORK_ROOT", "/home/z/my-project/subspace-work")
+        DECOMP = os.path.join(SW, "decompiled", "all")
 
     # Get all model names from MDO-SRP-SRC
-    import os
-    src_dir = f"{SW}/SubspaceParasite/MDO-SRP-SRC"
+    src_dir = os.environ.get("SRP_INPUT_DIR", os.path.join(SW, "SubspaceParasite", "MDO-SRP-SRC"))
     model_names = []
     for cat in os.listdir(src_dir):
         cat_dir = os.path.join(src_dir, cat)

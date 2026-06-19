@@ -34,7 +34,16 @@ from core.types import (
 
 logger = logging.getLogger(__name__)
 
-MVE_OUTPUT_DIR = "/home/z/my-project/subspace-work/mve-capture/data"
+
+def _get_mve_output_dir():
+    try:
+        import config
+        return config.MVE_DATA_DIR
+    except ImportError:
+        import os
+        return os.environ.get("SRP_MVE_DIR", "/home/z/my-project/subspace-work/mve-capture/data")
+
+MVE_OUTPUT_DIR = _get_mve_output_dir()
 
 
 def has_mve_data(model_name: str, mve_dir: str = MVE_OUTPUT_DIR) -> bool:
@@ -201,8 +210,14 @@ def mve_to_animations(mve_data: dict) -> List[AnimationIR]:
             # This catches stage1_idle/stage2_idle which differ only in sub-degree
             # trig frequency but look identical to the eye.
             is_duplicate = False
+            # Dedup threshold from config (env-overridable)
+            try:
+                import config
+                dedup_threshold = config.DEDUP_THRESHOLD
+            except ImportError:
+                dedup_threshold = 2.0
             for existing in animations:
-                if _animations_visually_similar(anim, existing, threshold=2.0):
+                if _animations_visually_similar(anim, existing, threshold=dedup_threshold):
                     logger.info(
                         "[%s] Skipping visually-similar state anim '%s' (≈ '%s')",
                         model_name, anim_name, existing.name,

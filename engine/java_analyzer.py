@@ -186,22 +186,40 @@ def _extract_head_tracking(set_rotation_body: str) -> Optional[HeadTrackingInfo]
     pitch_bone = None
     pitch_coeff = None
 
-    # Yaw: this.<bone>.field_78796_g = netHeadYaw * [+-]<coeff>f
+    # Yaw: this.<bone>.field_78796_g = netHeadYaw * <expr>
+    # Matches both `netHeadYaw * 0.016f` and `netHeadYaw * ((float)Math.PI / 180)`
     yaw_pat = re.compile(
-        r"this\.(\w+)\.field_78796_g\s*=\s*netHeadYaw\s*\*\s*(-?[\d.]+)f"
+        r"this\.(\w+)\.field_78796_g\s*=\s*netHeadYaw\s*\*\s*([^;]+);"
     )
     for m in yaw_pat.finditer(set_rotation_body):
         yaw_bone = m.group(1)
-        yaw_coeff = float(m.group(2))
+        coeff_expr = m.group(2).strip()
+        # Try to evaluate the coefficient
+        if "Math.PI" in coeff_expr or "PI" in coeff_expr:
+            # PI/180 = 0.01745, handle the common pattern
+            yaw_coeff = math.pi / 180.0
+        else:
+            # Try parsing as float (e.g. "0.016f", "-0.016f")
+            try:
+                yaw_coeff = float(coeff_expr.replace("f", ""))
+            except ValueError:
+                yaw_coeff = 0.016  # default
         break  # take first
 
-    # Pitch: this.<bone>.field_78795_f = headPitch * [+-]<coeff>f
+    # Pitch: this.<bone>.field_78795_f = headPitch * <expr>
     pitch_pat = re.compile(
-        r"this\.(\w+)\.field_78795_f\s*=\s*headPitch\s*\*\s*(-?[\d.]+)f"
+        r"this\.(\w+)\.field_78795_f\s*=\s*headPitch\s*\*\s*([^;]+);"
     )
     for m in pitch_pat.finditer(set_rotation_body):
         pitch_bone = m.group(1)
-        pitch_coeff = float(m.group(2))
+        coeff_expr = m.group(2).strip()
+        if "Math.PI" in coeff_expr or "PI" in coeff_expr:
+            pitch_coeff = math.pi / 180.0
+        else:
+            try:
+                pitch_coeff = float(coeff_expr.replace("f", ""))
+            except ValueError:
+                pitch_coeff = 0.016
         break
 
     if yaw_bone or pitch_bone:
@@ -231,16 +249,22 @@ def _extract_states(set_rotation_body: str) -> List[StateInfo]:
         return [StateInfo(state_value=0, body=set_rotation_body)]
 
     var_name = status_m.group(1)
-    # Capture everything BEFORE the status assignment as pre-branch code
-    # (variable declarations like `float f1 = MathHelper.cos(...)`)
-    pre_branch = set_rotation_body[: status_m.start()]
-
-    states: List[StateInfo] = []
-
-    # Find all if/else if branches with == N
+    # Capture everything BEFORE the first state branch as "pre-state" code.
+    # This includes: variable declarations (float f1 = MathHelper.cos(...)) AND
+    # unconditional assignments (this.bone.field = f1) that run regardless of state.
+    # The first if(state==N) branch marks the start of state-specific code.
+    first_branch_m = None
     branch_pat = re.compile(
         rf"(?:else\s+)?if\s*\(\s*{re.escape(var_name)}\s*==\s*(\d+)\s*\)\s*\{{"
     )
+    first_branch_m = branch_pat.search(set_rotation_body, status_m.end())
+    if first_branch_m:
+        pre_branch = set_rotation_body[: first_branch_m.start()]
+    else:
+        pre_branch = set_rotation_body[: status_m.start()]
+
+    states: List[StateInfo] = []
+
     matches = list(branch_pat.finditer(set_rotation_body))
     if not matches:
         return [StateInfo(state_value=0, body=set_rotation_body)]
@@ -259,7 +283,8 @@ def _extract_states(set_rotation_body: str) -> List[StateInfo]:
                 depth -= 1
             j += 1
         state_body = set_rotation_body[body_start : j - 1]
-        # Prepend pre-branch variable declarations so the simulator can resolve them
+        # Prepend pre-state code (variable declarations + unconditional assignments)
+        # so the simulator can resolve variables and capture state-independent anims
         full_body = pre_branch + "\n" + state_body
         states.append(StateInfo(state_value=state_val, body=full_body))
 
@@ -638,10 +663,41 @@ def analyze_model(model_name: str, decompiled_root: str) -> Optional[ModelMetada
         meta.total_trig_assignments = total
         meta.has_stub_friendly_trig = total > 3  # significant animation data
 
-    # Extract setLivingAnimations body bob
-    sla_body = _extract_method_body(java_src, SET_LIVING_ANIMATIONS)
-    if sla_body:
-        meta.body_bobs = _extract_body_bobs(sla_body)
+    # v6.7: Also analyze setLivingAnimations (func_78088_a AND func_78086_a) for animation data.
+    # Some SRP models (orbScary, orbVoid, nade, quac) put ALL animation in
+    # setLivingAnimations, leaving setRotationAngles empty. Without this,
+    # these models appear as unrecoverable stubs.
+    # func_78088_a: setLivingAnimations(Entity, float, float, float, float, float, float)
+    # func_78086_a: setLivingAnimations(EntityLivingBase, float, float, float) — older override
+    for sla_method in [SET_LIVING_ANIMATIONS, "func_78086_a"]:
+        sla_body = _extract_method_body(java_src, sla_method)
+        if not sla_body:
+            continue
+        if sla_method == SET_LIVING_ANIMATIONS:
+            meta.body_bobs = _extract_body_bobs(sla_body)
+        # If setRotationAngles had too few REAL assignments (<=3), treat as
+        # effectively empty and try setLivingAnimations as the animation source.
+        # This catches models where setRotationAngles only has variable declarations
+        # but the actual bone assignments are in setLivingAnimations.
+        if meta.total_trig_assignments <= 3:
+            sla_states = _extract_states(sla_body)
+            if sla_states:
+                # Replace states entirely with sla states (sra had no real anims)
+                meta.states = sla_states
+            else:
+                meta.states = [StateInfo(state_value=0, body=sla_body)]
+
+            total = 0
+            for s in meta.states:
+                inlined_body = _follow_custom_methods(java_src, s.body)
+                s.body = inlined_body
+                total += len(_extract_all_anim_assignments(inlined_body))
+            # Only update if sla actually has more assignments (avoid regressing)
+            if total > meta.total_trig_assignments:
+                meta.total_trig_assignments = total
+                meta.has_stub_friendly_trig = total >= 2  # lower threshold for sla fallback
+            if not meta.head_tracking:
+                meta.head_tracking = _extract_head_tracking(sla_body)
 
     return meta
 
@@ -694,7 +750,12 @@ def metadata_to_dict(meta: ModelMetadata) -> dict:
 if __name__ == "__main__":
     # Self-test: analyze elvia and print metadata
     import sys
-    SW = "/home/z/my-project/subspace-work"
+    import os
+    try:
+        import config
+        SW = str(config.WORK_ROOT)
+    except ImportError:
+        SW = os.environ.get("SRP_WORK_ROOT", "/home/z/my-project/subspace-work")
     name = sys.argv[1] if len(sys.argv) > 1 else "elvia"
     meta = analyze_model(name, f"{SW}/decompiled/all")
     if meta:

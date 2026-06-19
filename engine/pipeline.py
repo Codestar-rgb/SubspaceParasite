@@ -56,13 +56,13 @@ from typing import Any, Dict, List, Optional
 
 from core.types import AnimationIR, BoneAnimationIR
 
-from .validator import validate_animations, ValidationResult
-from .symbol_compiler import compile_symbol_table
-from .period_locker import lock_periods
-from .loop_aligner import align_loops
-from .rotation_normalizer import normalize_rotations
-from .symbol_evaluator import evaluate_symbol_tables
-from .symbol_table import SymbolTable
+from .legacy.validator import validate_animations, ValidationResult
+from .legacy.symbol_compiler import compile_symbol_table
+from .legacy.period_locker import lock_periods
+from .legacy.loop_aligner import align_loops
+from .legacy.rotation_normalizer import normalize_rotations
+from .legacy.symbol_evaluator import evaluate_symbol_tables
+from .legacy.symbol_table import SymbolTable
 
 logger = logging.getLogger(__name__)
 

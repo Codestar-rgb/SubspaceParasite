@@ -1,9 +1,36 @@
 #!/usr/bin/env python3
 """
-Super Converter — Configuration
-=================================
-Central configuration constants for the Super Architecture converter.
+Super Converter — Configuration (v6.7)
+========================================
+Central configuration constants and paths for the Super Architecture converter.
+
+All paths are configurable via environment variables for portability.
+Defaults assume the standard layout under subspace-work/.
 """
+
+import os
+from pathlib import Path
+
+# ============================================================================
+# Path Configuration (v6.7 — centralized, env-overridable)
+# ============================================================================
+
+# Converter directory (where config.py lives, i.e. SubspaceParasite/)
+_CONVERTER_DIR = Path(__file__).resolve().parent
+# Work root (subspace-work/, parent of SubspaceParasite/)
+WORK_ROOT = Path(os.environ.get("SRP_WORK_ROOT", _CONVERTER_DIR.parent))
+
+# Input: MDO-SRP-SRC GeckoLib JSON source data (geo.json + animation.json + png)
+INPUT_DIR = str(Path(os.environ.get("SRP_INPUT_DIR", WORK_ROOT / "SubspaceParasite" / "MDO-SRP-SRC")))
+
+# Decompiled: CFR-decompiled SRP ModelX.java files (for Java trig analysis)
+DECOMPILED_DIR = str(Path(os.environ.get("SRP_DECOMPILED_DIR", WORK_ROOT / "decompiled" / "all")))
+
+# MVE: captured animation data (code-level mocap JSON)
+MVE_DATA_DIR = str(Path(os.environ.get("SRP_MVE_DIR", WORK_ROOT / "mve-capture" / "data")))
+
+# Output: MOD-SRP .bbmodel files
+OUTPUT_DIR = str(Path(os.environ.get("SRP_OUTPUT_DIR", WORK_ROOT / "MOD-SRP")))
 
 # ============================================================================
 # Pipeline Configuration
@@ -57,6 +84,17 @@ GC_INTERVAL = 20
 
 # Maximum number of errors to display in summary
 MAX_ERRORS_DISPLAY = 10
+
+# ============================================================================
+# MVE / Dedup Configuration (v6.7)
+# ============================================================================
+
+# Number of time samples per cycle for MVE capture
+MVE_SAMPLE_COUNT = int(os.environ.get("SRP_MVE_SAMPLES", "40"))
+
+# Dedup threshold: animations with value differences below this (in degrees)
+# are considered visually similar and deduplicated. Configurable via env.
+DEDUP_THRESHOLD = float(os.environ.get("SRP_DEDUP_THRESHOLD", "2.0"))
 
 # ============================================================================
 # Face Names (in .bbmodel order)
