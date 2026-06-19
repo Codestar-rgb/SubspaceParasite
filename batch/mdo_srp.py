@@ -380,10 +380,26 @@ def batch_convert_mdo_srp(
                     upstream_anims = list(anim_dict.values())
                     # Apply namespace fix to upstream anims before merging
                     upstream_anims, _ = _apply_namespace_and_loop_semantics(upstream_anims, name)
+                    # Normalize upstream anim names to use the correct model name casing
+                    # (upstream JSON uses lowercase like 'fervillager', but the model
+                    # name is CamelCase like 'ferVillager'). This prevents duplicate
+                    # anims that differ only in case.
+                    name_lower = name.lower()
                     for ua in upstream_anims:
-                        if ua.name not in mve_anim_names:
+                        # Replace lowercase model name with actual model name in anim name
+                        # e.g. animation.srparasites.fervillager.walk → animation.srparasites.ferVillager.walk
+                        if f".{name_lower}." in ua.name:
+                            ua.name = ua.name.replace(f".{name_lower}.", f".{name}.")
+                        elif ua.name.endswith(f".{name_lower}"):
+                            ua.name = ua.name[:-(len(name_lower))] + name
+                    # Case-insensitive dedup: skip upstream anims that match an MVE anim
+                    # (ignoring case differences in the model name portion)
+                    mve_anim_names_lower = {n.lower() for n in mve_anim_names}
+                    for ua in upstream_anims:
+                        if ua.name.lower() not in mve_anim_names_lower:
                             animations_ir.append(ua)
                             mve_anim_names.add(ua.name)
+                            mve_anim_names_lower.add(ua.name.lower())
                             upstream_count += 1
                     if not used_mve:
                         stats['has_anim'] += 1

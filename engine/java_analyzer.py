@@ -94,12 +94,13 @@ class StateInfo:
 
 @dataclass
 class TrigAssignment:
-    """A direct trig assignment: this.bone.field = expr;"""
+    """A direct trig assignment: this.bone.field = expr; (or +=, -=, *=, /=)"""
     bone: str
     field: str               # SRG field name
     axis: str                # resolved axis: "rotateAngleX/Y/Z" or "offsetX/Y/Z"
     expression: str          # Java expression (e.g. "0.2f * MathHelper.sin(ageInTicks * 0.08f) * 0.73f")
     line: int
+    op: str = "="            # assignment operator: "=", "+=", "-=", "*=", "/="
 
 
 @dataclass
@@ -274,7 +275,7 @@ _VAR_REASSIGN_RE = re.compile(
     r"(?<![\w.])\b([a-z]\w*)\s*=\s*([^;={]+(?:\([^)]*\)[^;={]*)*);"
 )
 _ASSIGN_RE = re.compile(
-    r"this\.(\w+)\.(field_\w+)\s*=\s*([^;]+);"
+    r"this\.(\w+)\.(field_\w+)\s*([+\-*/]?)=\s*([^;]+);"
 )
 
 
@@ -315,14 +316,16 @@ def _resolve_variables(state_body: str) -> Dict[str, str]:
 
 
 def _extract_trig_assignments(state_body: str) -> List[TrigAssignment]:
-    """Extract direct trig assignments: this.bone.field_X = <expr>;"""
+    """Extract direct trig assignments: this.bone.field_X = <expr>; (or +=, -=, etc.)"""
     assignments: List[TrigAssignment] = []
     variables = _resolve_variables(state_body)
 
     for m in _ASSIGN_RE.finditer(state_body):
         bone = m.group(1)
         field = m.group(2)
-        expr = m.group(3).strip()
+        op_char = m.group(3)  # "", "+", "-", "*", "/"
+        op = (op_char + "=") if op_char else "="
+        expr = m.group(4).strip()
         line = state_body[: m.start()].count("\n") + 1
 
         if field not in SRG_FIELDS:
@@ -334,8 +337,9 @@ def _extract_trig_assignments(state_body: str) -> List[TrigAssignment]:
         # Skip isHidden assignments (handled separately)
         if field == "field_78807_k":
             continue
-        # Skip pure constant assignments (no trig/variable)
-        if not re.search(r"MathHelper|sin|cos|\bage\d", expr) and not any(
+        # Skip pure constant assignments (no trig/variable) ONLY for plain "="
+        # (For +=/-= with constants like += -1.7f, we MUST keep them as pose offsets)
+        if op == "=" and not re.search(r"MathHelper|sin|cos|\bage\d", expr) and not any(
             v in expr for v in variables if re.match(r"age\w+", v)
         ):
             # Check if it references a variable that itself contains trig
@@ -349,6 +353,7 @@ def _extract_trig_assignments(state_body: str) -> List[TrigAssignment]:
             axis=SRG_FIELDS[field],
             expression=expr,
             line=line,
+            op=op,
         ))
 
     return assignments

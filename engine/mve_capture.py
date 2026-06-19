@@ -143,13 +143,17 @@ def _capture_state_frame(
     env = {**env_base, **var_values}
 
     # Evaluate each assignment and accumulate per bone
-    # A bone may have multiple assignments (e.g. rotation X and Y)
+    # A bone may have multiple assignments (e.g. rotation X and Y, or += pose offsets)
     bone_transforms: Dict[str, Dict[str, Any]] = {}
+    # Track raw radian values per (bone, channel, axis) to handle += correctly
+    # (+= must accumulate in RADIANS before the rad→deg conversion)
+    raw_values: Dict[str, Dict[str, Dict[str, float]]] = {}  # bone → channel → axis → value (radians/pixels)
     for a in assignments:
         resolved = _resolve_expr(a.expression, variables)
         val = _safe_eval(resolved, env)
         axis = _axis_from_field(a.field)
         channel = _channel_from_field(a.field)
+        axis_idx = {"x":0,"y":1,"z":2}[axis]
 
         bone = a.bone
         if bone not in bone_transforms:
@@ -158,15 +162,31 @@ def _capture_state_frame(
                 "position": [0.0, 0.0, 0.0],
                 "hidden": False,
             }
+            raw_values[bone] = {"rotation": [0.0,0.0,0.0], "position": [0.0,0.0,0.0]}
 
-        if channel == "rotation":
-            # radians → degrees, RH→LH sign flip
-            val_deg = val * RAD2DEG * AXIS_SIGN_FLIP[axis]
-            bone_transforms[bone]["rotation"][{"x":0,"y":1,"z":2}[axis]] = val_deg
-        else:  # position
-            # ModelRenderer position is in model units (1/16 block); BB uses pixels
-            val_px = val * 16.0 * AXIS_SIGN_FLIP[axis]
-            bone_transforms[bone]["position"][{"x":0,"y":1,"z":2}[axis]] = val_px
+        # Apply operator (in raw radian/px units, BEFORE conversion)
+        if a.op == "=":
+            raw_values[bone][channel][axis_idx] = val
+        elif a.op == "+=":
+            raw_values[bone][channel][axis_idx] += val
+        elif a.op == "-=":
+            raw_values[bone][channel][axis_idx] -= val
+        elif a.op == "*=":
+            raw_values[bone][channel][axis_idx] *= val
+        elif a.op == "/=":
+            if val != 0:
+                raw_values[bone][channel][axis_idx] /= val
+
+    # Now convert raw radians/pixels to degrees/pixels with RH→LH transform
+    for bone, channels in raw_values.items():
+        for axis_idx in range(3):
+            axis = ["x","y","z"][axis_idx]
+            # rotation: radians → degrees, RH→LH sign flip
+            rot_rad = channels["rotation"][axis_idx]
+            bone_transforms[bone]["rotation"][axis_idx] = rot_rad * RAD2DEG * AXIS_SIGN_FLIP[axis]
+            # position: model units → pixels, RH→LH sign flip
+            pos_u = channels["position"][axis_idx]
+            bone_transforms[bone]["position"][axis_idx] = pos_u * 16.0 * AXIS_SIGN_FLIP[axis]
 
     return bone_transforms
 
