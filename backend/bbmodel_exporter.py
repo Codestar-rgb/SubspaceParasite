@@ -94,6 +94,7 @@ class BBModelExporter:
         texture_path: Optional[str] = None,
         texture_name: str = "model",
         namespace: str = "srparasites",
+        model_metadata=None,
     ) -> dict:
         """Generate a .bbmodel project dict from ModelIR and AnimationIR.
 
@@ -107,6 +108,9 @@ class BBModelExporter:
                           source string (no embedded image).
             texture_name: Name for the texture entry in the .bbmodel.
             namespace: Resource namespace for texture metadata.
+            model_metadata: Optional ModelMetadata (v6.2) for head tracking
+                            injection. If provided and has head_tracking,
+                            a Molang-driven head_track animation is appended.
 
         Returns:
             Dict representing the .bbmodel structure, ready for
@@ -166,6 +170,18 @@ class BBModelExporter:
         # Phase 6: Serialize animations (with bone UUID mapping)
         # ------------------------------------------------------------------
         serialized_anims = self._serialize_animations(animations or [], bone_uuids)
+
+        # ------------------------------------------------------------------
+        # Phase 6b (v6.2): Inject head tracking animation (Molang)
+        # ------------------------------------------------------------------
+        if model_metadata is not None and model_metadata.head_tracking:
+            try:
+                from engine.head_tracking_injector import build_head_track_animation
+                head_track = build_head_track_animation(model_metadata, bone_uuids)
+                if head_track:
+                    serialized_anims.append(head_track)
+            except Exception as e:
+                logger.warning("head_track injection failed: %s", e)
 
         # ------------------------------------------------------------------
         # Assemble the final .bbmodel structure

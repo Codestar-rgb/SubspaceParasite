@@ -86,13 +86,29 @@ logger = logging.getLogger(__name__)
 # are considered "overlay-only" and need enhancement.
 # Only leg bone rotation is considered — hair/tentacle/body sway from idle
 # merger is excluded from this calculation.
-ENHANCE_THRESHOLD: float = 10.0
+#
+# v6.1 (fidelity tuning): lowered 10.0 → 5.0. Decompiled Java analysis
+# (ModelBano.setRotationAngles) shows the main leg swing uses
+#   swingY(jointFLLX, 0.8, 1.0, ...) → rotateAngleY = limbSwingAmount² * 1.0 * cos(limbSwing*0.8)
+# which at full walk yields ~57° peak amplitude. The reverse-engineered JSON
+# only captures ~22° (the overlay portion). With threshold=10°, Bano's walk
+# (22° leg range) was NOT enhanced. Lowering to 5° ensures under-amplified
+# walks get the synthetic boost they need.
+ENHANCE_THRESHOLD: float = 5.0
 
 # Target total rotation amplitude for enhanced leg bones (degrees).
 # Original SRP models use 14-23° for main leg joints (swingY) and
 # 5-12° for secondary joints (swingX with offset/weight variants).
-TARGET_PRIMARY_AMPLITUDE: float = 20.0   # For main swing (Y-axis on X-suffix bones)
-TARGET_SECONDARY_AMPLITUDE: float = 10.0  # For flex/sway (X-axis on Y-suffix bones)
+#
+# v6.1 (fidelity tuning): raised 20.0 → 30.0 for primary, 10.0 → 15.0 for
+# secondary. Decompiled analysis shows Java's `degree` parameter ranges
+# 1.0-1.4 rad (57°-80°) for main swingY joints. The JSON overlay typically
+# contributes 5-10°, so the synthetic portion needs to target ~30° total
+# to reach the Java ground-truth amplitude (overlay 10° + synthetic 20° = 30°
+# is still below Java's 57°, but avoids overshooting for models where the
+# JSON overlay is already substantial).
+TARGET_PRIMARY_AMPLITUDE: float = 30.0   # For main swing (Y-axis on X-suffix bones)
+TARGET_SECONDARY_AMPLITUDE: float = 15.0  # For flex/sway (X-axis on Y-suffix bones)
 
 # Number of keyframes per walk cycle for the synthetic rotation.
 SYNTHETIC_KF_PER_CYCLE: int = 16
@@ -593,8 +609,9 @@ def enhance_walk_animation(
 
     if enhanced_count > 0:
         logger.info(
-            "[%s] WalkEnhancer v6: enhanced '%s' (leg_range=%.1f°, %d leg bones enhanced)",
+            "[%s] WalkEnhancer v6.1: enhanced '%s' (leg_range=%.1f°, %d leg bones enhanced, target=%.0f°/%.0f°)",
             model_name, anim.name, leg_max_range, enhanced_count,
+            TARGET_PRIMARY_AMPLITUDE, TARGET_SECONDARY_AMPLITUDE,
         )
 
     return AnimationIR(
@@ -630,7 +647,7 @@ def enhance_walk_animations(
 
     if enhanced_count > 0:
         logger.info(
-            "[%s] WalkEnhancer v6: enhanced %d/%d walk animations",
+            "[%s] WalkEnhancer v6.1: enhanced %d/%d walk animations",
             model_name, enhanced_count, len(animations),
         )
 
