@@ -524,16 +524,18 @@ def build_walk_speed_molang(walk_anim_length: float = 0.6667) -> str:
 def inject_walk_blend_weight(animations: List[dict], model_name: str) -> int:
     """Inject blend_weight Molang into walk animations in-place.
 
-    Returns count of modified animations.
+    NOTE: This is DISABLED in v6.8.5 because blend_weight on walk animations
+    makes them invisible in Blockbench (query.modified_distance_moved = 0 when
+    not in-game, so blend_weight = 0 = animation doesn't play).
+
+    The limbSwingAmount² scaling is a runtime behavior that only makes sense
+    in GeckoLib (in-game). In Blockbench preview, it breaks animation playback.
+    Users who need this scaling should apply it via GeckoLib code, not .bbmodel
+    blend_weight.
+
+    Returns count of modified animations (always 0 now).
     """
-    modified = 0
-    molang = build_walk_speed_molang()
-    for anim in animations:
-        name = anim.get("name", "")
-        if "walk" in name.lower():
-            anim["blend_weight"] = molang
-            modified += 1
-    return modified
+    return 0
 
 
 # ---------------------------------------------------------------------------
