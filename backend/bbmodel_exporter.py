@@ -407,6 +407,66 @@ class BBModelExporter:
                     if from_pos[0] > to_pos[0]:
                         from_pos[0], to_pos[0] = to_pos[0], from_pos[0]
 
+                # v6.9.9: Bake 180-degree bone rotations into cube positions.
+                # The parser negates X (RH->LH). 180-degree rotations cause
+                # double-mirror issues. Fix: bake the mirror components into cube
+                # positions and zero the rotation.
+                #
+                # Y=180: mirrors X,Z. Parser negates X (equivalent). Bake Z mirror only.
+                # Z=180: mirrors X,Y. Bake X and Y mirror (parser X negation is different
+                #        from pivot mirror, so X also needs baking).
+                # X=180: mirrors Y,Z. Bake Y and Z mirror.
+                bone_rot = bone.rotation
+                try:
+                    rx = float(bone_rot[0]) if len(bone_rot) > 0 else 0.0
+                    ry = float(bone_rot[1]) if len(bone_rot) > 1 else 0.0
+                    rz = float(bone_rot[2]) if len(bone_rot) > 2 else 0.0
+                except (TypeError, IndexError):
+                    rx = ry = rz = 0.0
+
+                def _is_180(a):
+                    return abs(abs(a) - 180.0) < 0.5
+
+                bake_y180 = _is_180(ry)  # Y=180: bake Z mirror
+                bake_z180 = _is_180(rz)  # Z=180: bake X,Y mirror
+                bake_x180 = _is_180(rx)  # X=180: bake Y,Z mirror
+
+                if bake_y180 or bake_z180 or bake_x180:
+                    px, py, pz = float(abs_pivot[0]), float(abs_pivot[1]), float(abs_pivot[2])
+                    # Y=180: mirror Z around pivot Z
+                    if bake_y180:
+                        from_pos[2] = 2 * pz - from_pos[2]
+                        to_pos[2] = 2 * pz - to_pos[2]
+                        if from_pos[2] > to_pos[2]:
+                            from_pos[2], to_pos[2] = to_pos[2], from_pos[2]
+                    # Z=180: mirror X and Y around pivots
+                    if bake_z180:
+                        from_pos[0] = 2 * px - from_pos[0]
+                        to_pos[0] = 2 * px - to_pos[0]
+                        if from_pos[0] > to_pos[0]:
+                            from_pos[0], to_pos[0] = to_pos[0], from_pos[0]
+                        from_pos[1] = 2 * py - from_pos[1]
+                        to_pos[1] = 2 * py - to_pos[1]
+                        if from_pos[1] > to_pos[1]:
+                            from_pos[1], to_pos[1] = to_pos[1], from_pos[1]
+                    # X=180: mirror Y and Z around pivots
+                    if bake_x180:
+                        from_pos[1] = 2 * py - from_pos[1]
+                        to_pos[1] = 2 * py - to_pos[1]
+                        if from_pos[1] > to_pos[1]:
+                            from_pos[1], to_pos[1] = to_pos[1], from_pos[1]
+                        from_pos[2] = 2 * pz - from_pos[2]
+                        to_pos[2] = 2 * pz - to_pos[2]
+                        if from_pos[2] > to_pos[2]:
+                            from_pos[2], to_pos[2] = to_pos[2], from_pos[2]
+                    bone_rot_baked = [
+                        0.0 if bake_x180 else rx,
+                        0.0 if bake_y180 else ry,
+                        0.0 if bake_z180 else rz,
+                    ]
+                else:
+                    bone_rot_baked = [rx, ry, rz]
+
                 # Element origin = bone's absolute pivot (rotation center)
                 bb_origin = [float(abs_pivot[0]), float(abs_pivot[1]), float(abs_pivot[2])]
 
@@ -586,11 +646,14 @@ class BBModelExporter:
             bone_uid = bone_uuids[bone.name]
             abs_pivot = abs_pivots.get(bone.name, [0.0, 0.0, 0.0])
 
-            # Rotation — use directly from IR (no quaternion simplification)
-            # The reference converter preserves original rotation decompositions
-            # (e.g., [-180, 0, 180] is kept as-is, not simplified to [0, 180, 0])
+            # Rotation — use directly from IR, but zero 180-degree axes that
+            # were baked into cube positions (v6.9.9).
             rot = bone.rotation
             rx, ry, rz = float(rot[0]), float(rot[1]), float(rot[2])
+            # Zero baked rotation axes
+            if abs(abs(rx) - 180.0) < 0.5: rx = 0.0
+            if abs(abs(ry) - 180.0) < 0.5: ry = 0.0
+            if abs(abs(rz) - 180.0) < 0.5: rz = 0.0
 
             bb_rotation = [
                 round_for_bbmodel(rx),
