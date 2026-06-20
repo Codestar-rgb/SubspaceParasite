@@ -262,3 +262,117 @@ def simplify_animations_v2(
         )
 
     return animations
+
+
+def _resample_uniform(kfs, anim_length):
+    """Resample keyframes to uniform time spacing.
+    
+    After RDP, keyframes are at curve extrema which may be non-uniformly
+    spaced. This resamples them to uniform spacing while preserving the
+    curve shape via linear interpolation from the RDP result.
+    
+    This eliminates the 'mechanical' and 'acceleration' feel caused by
+    irregular keyframe spacing in loop animations.
+    """
+    if len(kfs) < 3:
+        return kfs
+    
+    # Sort by time
+    kfs = sorted(kfs, key=lambda k: (k.time, k.channel))
+    
+    # Group by channel
+    by_channel = {}
+    for kf in kfs:
+        by_channel.setdefault(kf.channel, []).append(kf)
+    
+    result = []
+    for ch, ch_kfs in by_channel.items():
+        if len(ch_kfs) < 3:
+            result.extend(ch_kfs)
+            continue
+        
+        ch_kfs = sorted(ch_kfs, key=lambda k: k.time)
+        n = len(ch_kfs)
+        
+        # Create uniform times
+        uniform_times = [i * anim_length / (n - 1) for i in range(n)]
+        
+        # Get original times and values per axis
+        orig_times = [kf.time for kf in ch_kfs]
+        
+        for t in uniform_times:
+            # Interpolate each axis
+            axis_vals = {}
+            for axis in ('x', 'y', 'z'):
+                orig_vals = [getattr(kf, axis).value for kf in ch_kfs]
+                if t <= orig_times[0]:
+                    axis_vals[axis] = orig_vals[0]
+                elif t >= orig_times[-1]:
+                    axis_vals[axis] = orig_vals[-1]
+                else:
+                    # Linear interpolation
+                    for j in range(len(orig_times) - 1):
+                        if orig_times[j] <= t <= orig_times[j + 1]:
+                            dt = orig_times[j + 1] - orig_times[j]
+                            if dt < 1e-10:
+                                axis_vals[axis] = orig_vals[j]
+                            else:
+                                s = (t - orig_times[j]) / dt
+                                axis_vals[axis] = orig_vals[j] + s * (orig_vals[j + 1] - orig_vals[j])
+                            break
+                    else:
+                        axis_vals[axis] = orig_vals[-1]
+            
+            result.append(KeyframeData(
+                time=round(t, 6),
+                channel=ch,
+                x=AxisValue.explicit_val(axis_vals['x']),
+                y=AxisValue.explicit_val(axis_vals['y']),
+                z=AxisValue.explicit_val(axis_vals['z']),
+                easing='linear',
+                interpolation='linear',
+            ))
+    
+    result.sort(key=lambda k: (k.time, k.channel))
+    return result
+
+
+def simplify_animations_v3(
+    animations,
+    model_name: str = "",
+    threshold: float = RDP_THRESHOLD,
+    anim_length: float = 0,
+):
+    """v6.9.3: RDP + uniform resample for smooth loop animations.
+    
+    1. Apply bone-aware RDP simplification (preserve tentacle micro-oscillations)
+    2. Resample to uniform time spacing (eliminate mechanical/acceleration feel)
+    """
+    total_before = 0
+    total_after = 0
+
+    for anim in animations:
+        length = anim_length if anim_length > 0 else anim.length
+        new_bones = {}
+        for bone_name, bone_anim in anim.bones.items():
+            total_before += len(bone_anim.keyframes)
+            # Step 1: RDP simplification
+            simplified = _simplify_keyframes_v2(bone_anim.keyframes, bone_name, threshold)
+            # Step 2: Uniform resample for smooth playback
+            if len(simplified) >= 3 and anim.loop == "loop" and length > 0:
+                simplified = _resample_uniform(simplified, length)
+            total_after += len(simplified)
+            new_bones[bone_name] = BoneAnimationIR(
+                bone_name=bone_name,
+                keyframes=simplified,
+            )
+        anim.bones = new_bones
+
+    if total_before > 0:
+        reduction = (1 - total_after / total_before) * 100
+        logger.debug(
+            "[%s] RDP v3 (uniform): %d -> %d keyframes (%.1f%% reduction)",
+            model_name, total_before, total_after, reduction,
+        )
+
+    return animations
