@@ -411,7 +411,7 @@ class BBModelExporter:
                 bb_origin = [float(abs_pivot[0]), float(abs_pivot[1]), float(abs_pivot[2])]
 
                 # Build faces with UV conversion (includes face swaps)
-                faces = self._convert_faces(cube.uv, mirror=mirror)
+                faces = self._convert_faces(cube.uv, mirror=mirror, bone_rotation=bone.rotation)
 
                 element = {
                     "name": f"{bone.name}_c{cube_idx}",
@@ -441,7 +441,8 @@ class BBModelExporter:
         return elements
 
     def _convert_faces(
-        self, uv_data: Dict[str, Any], mirror: bool = False
+        self, uv_data: Dict[str, Any], mirror: bool = False,
+        bone_rotation: tuple = (0.0, 0.0, 0.0),
     ) -> dict:
         """Convert face UV data from geo.json to .bbmodel format.
 
@@ -502,6 +503,33 @@ class BBModelExporter:
                     "uv": [0.0, 0.0, 0.0, 0.0],
                     "texture": -1,
                 }
+
+        # v6.9.8: Face UV swap for 180-degree bone rotations.
+        # When a bone has 180-degree rotation around Z, the east/west faces
+        # swap physically. Blockbench does NOT automatically swap the UV
+        # mapping, so we must swap it manually.
+        # Z=180: east<->west, up<->down
+        # Y=180: east<->west, north<->south
+        # X=180: north<->south, up<->down
+        try:
+            rx = float(bone_rotation[0]) if len(bone_rotation) > 0 else 0.0
+            ry = float(bone_rotation[1]) if len(bone_rotation) > 1 else 0.0
+            rz = float(bone_rotation[2]) if len(bone_rotation) > 2 else 0.0
+        except (TypeError, IndexError):
+            rx = ry = rz = 0.0
+
+        def _is_180(angle):
+            return abs(abs(angle) - 180.0) < 0.5
+
+        # v6.9.8: Only swap east/west for any 180-degree rotation.
+        # The RH->LH X-mirror transform means 180-degree rotations only
+        # need east/west UV swap to compensate. North/south and up/down
+        # are handled correctly by Blockbench's rotation rendering.
+        # (Verified against heblu-SubSRP reference: only E/W swap needed.)
+        swap_ew = _is_180(rz) or _is_180(ry) or _is_180(rx)
+
+        if swap_ew and "east" in faces and "west" in faces:
+            faces["east"], faces["west"] = faces["west"], faces["east"]
 
         return faces
 
@@ -860,6 +888,52 @@ class BBModelExporter:
                             last["data_points"] = [
                                 dict(dp) for dp in first.get("data_points", [])
                             ]
+        # v6.9.8: Velocity continuity at loop boundary.
+        # For loop animations, ensure the velocity at the last keyframe matches
+        # the velocity at the first keyframe. This eliminates the "stutter" or
+        # "pause" caused by velocity reversal at the loop boundary.
+        # Approach: adjust the second-to-last keyframe so that the velocity
+        # segment (second_to_last -> last) matches (first -> second).
+        if anim.loop == "loop" and anim.length > 0:
+            for animator_key, animator in animators.items():
+                kfs = animator.get("keyframes", [])
+                if len(kfs) < 4:
+                    continue
+                by_channel = {}
+                for kf in kfs:
+                    ch = kf.get("channel", "")
+                    by_channel.setdefault(ch, []).append(kf)
+                for ch, ch_kfs in by_channel.items():
+                    if len(ch_kfs) < 4:
+                        continue
+                    first = ch_kfs[0]
+                    second = ch_kfs[1]
+                    second_last = ch_kfs[-2]
+                    last = ch_kfs[-1]
+                    dt_first = second["time"] - first["time"]
+                    dt_last = last["time"] - second_last["time"]
+                    if dt_first < 1e-6 or dt_last < 1e-6:
+                        continue
+                    # Adjust second_to_last for velocity continuity per axis
+                    new_dp = dict(second_last["data_points"][0])
+                    changed = False
+                    for ax in ("x", "y", "z"):
+                        try:
+                            f_val = float(first["data_points"][0].get(ax, 0))
+                            s_val = float(second["data_points"][0].get(ax, 0))
+                            l_val = float(last["data_points"][0].get(ax, 0))
+                            sl_val = float(second_last["data_points"][0].get(ax, 0))
+                            v_first = (s_val - f_val) / dt_first
+                            # We want: (l_val - new_sl_val) / dt_last = v_first
+                            new_sl_val = l_val - v_first * dt_last
+                            if abs(new_sl_val - sl_val) > 0.01:
+                                new_dp[ax] = round(new_sl_val, 4)
+                                changed = True
+                        except (ValueError, TypeError):
+                            pass
+                    if changed:
+                        second_last["data_points"] = [new_dp]
+
         # Compute animation length if not set
         anim_length = anim.length
         if anim_length <= 0:

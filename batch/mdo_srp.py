@@ -41,6 +41,7 @@ from engine.carry_forward import apply_carry_forward_all
 from engine.idle_walk_merger import merge_idle_into_walk
 # loop_extender removed in v6.9.2 (was no-op)
 from engine.walk_enhancer import enhance_walk_animations
+from engine.frequency_snapper import snap_animation_frequencies
 from engine.catmullrom_baker import bake_all_animations
 from engine.keyframe_simplifier import simplify_animations_v3 as simplify_animations
 from core.types import AnimationIR
@@ -544,6 +545,13 @@ def batch_convert_mdo_srp(
                 walk_enhanced = sum(1 for a in animations_ir if 'walk' in a.name.lower())
                 if walk_enhanced > 0:
                     status_parts.append(f"walk_enh({walk_enhanced})")
+
+            # ---- Step 3c2: Frequency snapping (v6.9.8) ----
+            # Snap all loop animations' bone frequencies to integer cycles.
+            # This eliminates velocity discontinuity at the loop boundary
+            # (stutter/pause) by ensuring all bones complete full cycles.
+            if animations_ir:
+                animations_ir = snap_animation_frequencies(animations_ir, name)
 
             # ---- Step 3d: Loop animation (removed v6.9.2) ----
             # loop_extender was a no-op since v6.1, removed in v6.9.2.
