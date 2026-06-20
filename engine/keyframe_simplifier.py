@@ -100,6 +100,9 @@ def _simplify_keyframes(
     """Simplify keyframes for one bone using RDP per (channel, axis).
 
     Preserves t=0 and t=length boundary keyframes for seamless loops.
+    v6.9.12: Amplitude-adaptive threshold — high-amplitude bones get a
+    tighter threshold (relative to amplitude) to preserve curve smoothness
+    for catmullrom interpolation.
     """
     if len(keyframes) < 4:
         return keyframes  # Too few to simplify
@@ -129,7 +132,17 @@ def _simplify_keyframes(
                 val = getattr(kf, axis).value
                 points.append((kf.time, val))
 
-            simplified = _rdp_simplify(points, threshold)
+            # v6.9.12: Amplitude-adaptive threshold
+            # For high-amplitude axes, use a tighter threshold (relative to amplitude)
+            # to preserve smooth catmullrom curves.
+            axis_amp = max(p[1] for p in points) - min(p[1] for p in points)
+            if axis_amp > 30:
+                # High amplitude: threshold = 0.3% of amplitude (min 0.05°)
+                adaptive_thresh = max(0.05, axis_amp * 0.003)
+            else:
+                adaptive_thresh = threshold
+
+            simplified = _rdp_simplify(points, adaptive_thresh)
             simplified_times = {t for t, _ in simplified}
             # Map back to keyframe indices
             for i, kf in enumerate(ch_kfs_sorted):
