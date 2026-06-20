@@ -805,6 +805,31 @@ class BBModelExporter:
         if not animators:
             return None
 
+        # v6.9.1: Force seamless loop — for loop animations, set the last
+        # keyframe's values to match the first keyframe's values per channel.
+        # This eliminates visible "snap" at the loop boundary caused by
+        # incommensurate bone frequencies (different bones complete different
+        # fractions of their cycle at the animation boundary).
+        if anim.loop == "loop" and anim.length > 0:
+            for animator_key, animator in animators.items():
+                kfs = animator.get("keyframes", [])
+                if len(kfs) < 2:
+                    continue
+                # Group by channel
+                by_channel = {}
+                for kf in kfs:
+                    ch = kf.get("channel", "")
+                    by_channel.setdefault(ch, []).append(kf)
+                for ch, ch_kfs in by_channel.items():
+                    if len(ch_kfs) < 2:
+                        continue
+                    first = ch_kfs[0]
+                    last = ch_kfs[-1]
+                    # Copy first frame's data_points to last frame
+                    last["data_points"] = [
+                        dict(dp) for dp in first.get("data_points", [])
+                    ]
+
         # Compute animation length if not set
         anim_length = anim.length
         if anim_length <= 0:
