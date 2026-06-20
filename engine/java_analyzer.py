@@ -373,6 +373,40 @@ def _resolve_variables(state_body: str) -> Dict[str, str]:
     return variables
 
 
+def _extract_var_assignments_ordered(state_body: str) -> List[Tuple[int, str, str]]:
+    """Extract variable assignments in source code order.
+
+    v6.9.6: Returns variable declarations AND reassignments with their line
+    numbers, so callers can process them in code order alongside bone
+    assignments. This fixes the bug where a variable reassigned later in the
+    function (e.g. f1 reassigned for state1 bones) would overwrite the earlier
+    value used by idle bones.
+
+    Returns:
+        List of (line_number, var_name, expr) tuples in code order.
+    """
+    result: List[Tuple[int, str, str]] = []
+    # Declarations: float varN = expr;
+    for m in _VAR_DECL_RE.finditer(state_body):
+        line = state_body[: m.start()].count("\n") + 1
+        result.append((line, m.group(1), m.group(2).strip()))
+    # Reassignments: varN = expr;
+    for m in _VAR_REASSIGN_RE.finditer(state_body):
+        var_name = m.group(1)
+        if var_name in ("this", "if", "while", "for", "else", "return", "true", "false", "null"):
+            continue
+        expr = m.group(2).strip()
+        if any(op in expr for op in ("==", "!=", "<=", ">=", "&&", "||")):
+            continue
+        if re.match(r"^-?[\d.]+f?$", expr) and var_name not in ("GS", "GD", "gs", "gd"):
+            continue
+        line = state_body[: m.start()].count("\n") + 1
+        result.append((line, var_name, expr))
+    # Sort by line number (declarations and reassignments interleaved)
+    result.sort(key=lambda x: x[0])
+    return result
+
+
 def _extract_trig_assignments(state_body: str) -> List[TrigAssignment]:
     """Extract direct trig assignments: this.bone.field_X = <expr>; (or +=, -=, etc.)"""
     assignments: List[TrigAssignment] = []

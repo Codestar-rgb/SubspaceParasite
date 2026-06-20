@@ -73,6 +73,7 @@ from engine.java_analyzer import (
     _extract_all_anim_assignments,
     _extract_method_body,
     _resolve_variables,
+    _extract_var_assignments_ordered,
     _follow_custom_methods,
     analyze_model,
 )
@@ -118,6 +119,26 @@ def _extract_gs_gd(state_body: str) -> Tuple[float, float]:
     return gs_val, gd_val
 
 
+def _resolve_variables_decls_only(state_body: str) -> Dict[str, str]:
+    """Return only the FIRST (declaration) value of each variable.
+
+    v6.9.6: For period detection, we need the initial declared values, not
+    reassigned values. When a variable is reassigned mid-function (e.g. f1
+    set to idle freq 0.086, then reassigned to state1 freq 0.196), the
+    period detection should use the idle freq (declaration) because most
+    bones reference the variable before reassignment.
+
+    Returns:
+        Dict mapping var_name -> expr (first declaration only).
+    """
+    var_stmts = _extract_var_assignments_ordered(state_body)
+    result: Dict[str, str] = {}
+    for _, vname, vexpr in var_stmts:
+        if vname not in result:  # first occurrence (declaration) wins
+            result[vname] = vexpr
+    return result
+
+
 def _capture_state_frame(
     state_body: str,
     variables: Dict[str, str],
@@ -132,7 +153,21 @@ def _capture_state_frame(
 
     Returns dict: bone_name → {rotation: [x,y,z], position: [x,y,z], hidden: bool}
     """
-    # Resolve variables for this frame
+    # v6.9.6: Process variable assignments and bone assignments in SOURCE CODE
+    # ORDER to correctly handle variable reassignment.
+    #
+    # BUG (v6.8 and earlier): All variables were resolved to their FINAL value
+    # (last assignment wins), then all bone assignments were evaluated with those
+    # final values. When a variable is reassigned mid-function (e.g. f1 is set
+    # to idle frequency 0.086 for most bones, then reassigned to state1 frequency
+    # 0.196 for jointM1/M2), ALL bones referencing f1 would use 0.196 — making
+    # idle bones animate at the state1 speed (1.5-2.3x too fast).
+    #
+    # FIX: Build a timeline of (line, 'var', name, expr) and (line, 'assign', a)
+    # tuples sorted by line number. Process in order: when we hit a variable
+    # assignment, evaluate and update var_values; when we hit a bone assignment,
+    # evaluate with the CURRENT var_values (which reflect all assignments up to
+    # that point in the code).
     env_base = {
         "ageInTicks": age_in_ticks,
         "limbSwing": limb_swing,
@@ -143,57 +178,72 @@ def _capture_state_frame(
         "GD": gd_val,
         "scale": 0.0625,
     }
-    var_values: Dict[str, float] = {}
-    for vname, vexpr in variables.items():
-        resolved = _resolve_expr(vexpr, variables)
-        val = _safe_eval(resolved, {**env_base, **var_values})
-        var_values[vname] = val
 
-    env = {**env_base, **var_values}
-
-    # Evaluate each assignment and accumulate per bone
-    # A bone may have multiple assignments (e.g. rotation X and Y, or += pose offsets)
-    bone_transforms: Dict[str, Dict[str, Any]] = {}
-    # Track raw radian values per (bone, channel, axis) to handle += correctly
-    # (+= must accumulate in RADIANS before the rad→deg conversion)
-    raw_values: Dict[str, Dict[str, Dict[str, float]]] = {}  # bone → channel → axis → value (radians/pixels)
+    # Build ordered timeline: variable assignments + bone assignments, by line
+    var_stmts = _extract_var_assignments_ordered(state_body)  # [(line, name, expr)]
+    timeline = []
+    for line, vname, vexpr in var_stmts:
+        timeline.append((line, "var", vname, vexpr))
     for a in assignments:
-        resolved = _resolve_expr(a.expression, variables)
-        val = _safe_eval(resolved, env)
-        axis = _axis_from_field(a.field)
-        channel = _channel_from_field(a.field)
-        axis_idx = {"x":0,"y":1,"z":2}[axis]
+        timeline.append((a.line, "assign", a, None))
+    timeline.sort(key=lambda x: x[0])
 
-        bone = a.bone
-        if bone not in bone_transforms:
-            bone_transforms[bone] = {
-                "rotation": [0.0, 0.0, 0.0],
-                "position": [0.0, 0.0, 0.0],
-                "hidden": False,
-            }
-            raw_values[bone] = {"rotation": [0.0,0.0,0.0], "position": [0.0,0.0,0.0]}
+    var_values: Dict[str, float] = {}
+    bone_transforms: Dict[str, Dict[str, Any]] = {}
+    raw_values: Dict[str, Dict[str, Dict[str, float]]] = {}
 
-        # Apply operator (in raw radian/px units, BEFORE conversion)
-        if a.op == "=":
-            raw_values[bone][channel][axis_idx] = val
-        elif a.op == "+=":
-            raw_values[bone][channel][axis_idx] += val
-        elif a.op == "-=":
-            raw_values[bone][channel][axis_idx] -= val
-        elif a.op == "*=":
-            raw_values[bone][channel][axis_idx] *= val
-        elif a.op == "/=":
-            if val != 0:
-                raw_values[bone][channel][axis_idx] /= val
+    for entry in timeline:
+        if entry[1] == "var":
+            _, _, vname, vexpr = entry
+            env = {**env_base, **var_values}
+            try:
+                val = _safe_eval(vexpr, env)
+            except Exception:
+                # Fallback: try resolving via _resolve_expr (handles nested vars)
+                resolved = _resolve_expr(vexpr, variables)
+                val = _safe_eval(resolved, env)
+            var_values[vname] = val
+        else:  # "assign"
+            _, _, a, _ = entry
+            env = {**env_base, **var_values}
+            try:
+                val = _safe_eval(a.expression, env)
+            except Exception:
+                # Fallback: resolve via _resolve_expr with full variables dict
+                resolved = _resolve_expr(a.expression, variables)
+                val = _safe_eval(resolved, env)
+            axis = _axis_from_field(a.field)
+            channel = _channel_from_field(a.field)
+            axis_idx = {"x": 0, "y": 1, "z": 2}[axis]
 
-    # Now convert raw radians/pixels to degrees/pixels with RH→LH transform
+            bone = a.bone
+            if bone not in bone_transforms:
+                bone_transforms[bone] = {
+                    "rotation": [0.0, 0.0, 0.0],
+                    "position": [0.0, 0.0, 0.0],
+                    "hidden": False,
+                }
+                raw_values[bone] = {"rotation": [0.0, 0.0, 0.0], "position": [0.0, 0.0, 0.0]}
+
+            # Apply operator (in raw radian/px units, BEFORE conversion)
+            if a.op == "=":
+                raw_values[bone][channel][axis_idx] = val
+            elif a.op == "+=":
+                raw_values[bone][channel][axis_idx] += val
+            elif a.op == "-=":
+                raw_values[bone][channel][axis_idx] -= val
+            elif a.op == "*=":
+                raw_values[bone][channel][axis_idx] *= val
+            elif a.op == "/=":
+                if val != 0:
+                    raw_values[bone][channel][axis_idx] /= val
+
+    # Convert raw radians/pixels to degrees/pixels with RH→LH transform
     for bone, channels in raw_values.items():
         for axis_idx in range(3):
-            axis = ["x","y","z"][axis_idx]
-            # rotation: radians → degrees, RH→LH sign flip
+            axis = ["x", "y", "z"][axis_idx]
             rot_rad = channels["rotation"][axis_idx]
             bone_transforms[bone]["rotation"][axis_idx] = rot_rad * RAD2DEG * AXIS_SIGN_FLIP[axis]
-            # position: model units → pixels, RH→LH sign flip
             pos_u = channels["position"][axis_idx]
             bone_transforms[bone]["position"][axis_idx] = pos_u * 16.0 * AXIS_SIGN_FLIP[axis]
 
@@ -411,7 +461,8 @@ def capture_model_animations(
         # --- Capture IDLE variant (else branch) ---
         idle_variables = _resolve_variables(idle_body)
         idle_assignments = _extract_all_anim_assignments(idle_body)
-        cycle_length = _detect_dominant_period(idle_assignments, idle_variables) if idle_assignments else 4.0
+        idle_vars_decls = _resolve_variables_decls_only(idle_body)
+        cycle_length = _detect_dominant_period(idle_assignments, idle_vars_decls) if idle_assignments else 4.0
 
         idle_curves: Dict[str, List[dict]] = {}
         if idle_assignments:
@@ -462,7 +513,8 @@ def capture_model_animations(
         # --- Capture WALK variant (if branch) ---
         walk_variables = _resolve_variables(walk_body)
         walk_assignments = _extract_all_anim_assignments(walk_body)
-        walk_cycle = _detect_dominant_period(walk_assignments, walk_variables) if walk_assignments else cycle_length
+        walk_vars_decls = _resolve_variables_decls_only(walk_body)
+        walk_cycle = _detect_dominant_period(walk_assignments, walk_vars_decls) if walk_assignments else cycle_length
 
         # Capture walk if: has getStillAni split, OR references limbSwing (direct walk-driven)
         has_limb_swing = "limbSwing" in inlined_body
