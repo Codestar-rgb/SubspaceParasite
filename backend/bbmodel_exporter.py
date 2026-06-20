@@ -815,10 +815,14 @@ class BBModelExporter:
         if not animators:
             return None
 
-        # v6.9.4: Conditional seamless loop — only force last=first when
-        # the natural seam is small (<5 deg). For large seams (incommensurate
-        # frequencies), forcing creates a BIGGER internal jump between
-        # second-to-last and last, which is worse than the boundary snap.
+        # v6.9.5: Seamless loop strategy depends on interpolation.
+        # - catmullrom: ALWAYS force last=first. The catmullrom spline smooths
+        #   the internal transition (no visible jump between second-to-last and
+        #   last), and first=last makes the wrapping segment zero-length,
+        #   eliminating Blockbench's catmullrom loop wrapping tangent bug.
+        # - linear: Conditional force (v6.9.4) -- only when natural seam <5 deg.
+        #   For large seams, forcing creates a visible internal jump (linear
+        #   has no smoothing), so keep natural values and accept boundary snap.
         if anim.loop == "loop" and anim.length > 0:
             for animator_key, animator in animators.items():
                 kfs = animator.get("keyframes", [])
@@ -833,22 +837,29 @@ class BBModelExporter:
                         continue
                     first = ch_kfs[0]
                     last = ch_kfs[-1]
-                    # Only force if natural seam < 5 deg
-                    natural_seam_ok = True
-                    for ax in ("x", "y", "z"):
-                        try:
-                            fv = float(first["data_points"][0].get(ax, 0))
-                            lv = float(last["data_points"][0].get(ax, 0))
-                            if abs(fv - lv) > 5.0:
-                                natural_seam_ok = False
-                                break
-                        except (ValueError, TypeError):
-                            pass
-                    if natural_seam_ok:
+                    # Check interpolation of this channel
+                    uses_catmullrom = ch_kfs[0].get("interpolation") == "catmullrom"
+                    if uses_catmullrom:
+                        # Always force seamless for catmullrom (smooths internally)
                         last["data_points"] = [
                             dict(dp) for dp in first.get("data_points", [])
                         ]
-
+                    else:
+                        # Linear: only force if natural seam < 5 deg
+                        natural_seam_ok = True
+                        for ax in ("x", "y", "z"):
+                            try:
+                                fv = float(first["data_points"][0].get(ax, 0))
+                                lv = float(last["data_points"][0].get(ax, 0))
+                                if abs(fv - lv) > 5.0:
+                                    natural_seam_ok = False
+                                    break
+                            except (ValueError, TypeError):
+                                pass
+                        if natural_seam_ok:
+                            last["data_points"] = [
+                                dict(dp) for dp in first.get("data_points", [])
+                            ]
         # Compute animation length if not set
         anim_length = anim.length
         if anim_length <= 0:
@@ -1023,11 +1034,22 @@ class BBModelExporter:
                 # Numerical value — round for output
                 data_point[axis] = round_for_bbmodel(axis_val.value)
 
+        # v6.9.5: Rotation channels use catmullrom interpolation for smooth
+        # sine-wave-driven motion. Linear interpolation between sparse (~60)
+        # keyframes creates polygon corners at each keyframe -- perceived as
+        # "mechanical" or "stepped" motion. Catmullrom draws smooth curves
+        # through the keyframe points, matching the original sine wave shape.
+        # Position/scale keep their original interpolation (usually linear).
+        if kf.channel == "rotation":
+            out_interp = "catmullrom"
+        else:
+            out_interp = kf.interpolation
+
         return {
             "channel": kf.channel,
             "data_points": [data_point],
             "uuid": generate_uuid(),
             "time": round_for_bbmodel(kf.time),
             "color": -1,
-            "interpolation": kf.interpolation,
+            "interpolation": out_interp,
         }
