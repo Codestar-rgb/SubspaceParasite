@@ -42,7 +42,7 @@ from engine.idle_walk_merger import merge_idle_into_walk
 # loop_extender removed in v6.9.2 (was no-op)
 from engine.walk_enhancer import enhance_walk_animations
 from engine.catmullrom_baker import bake_all_animations
-from engine.keyframe_simplifier import simplify_animations_v2 as simplify_animations
+from engine.keyframe_simplifier import simplify_animations
 from core.types import AnimationIR
 from engine.java_analyzer import analyze_model, ModelMetadata
 from engine.java_trig_simulator import simulate_idle
@@ -545,4 +545,162 @@ def batch_convert_mdo_srp(
                 if walk_enhanced > 0:
                     status_parts.append(f"walk_enh({walk_enhanced})")
 
-            # ---- Step 3d: Loop animation multi-cycle extension ----
+            # ---- Step 3d: Loop animation (removed v6.9.2) ----
+            # loop_extender was a no-op since v6.1, removed in v6.9.2.
+
+            # ---- Step 3e: Bake CatmullRom to linear keyframes ----
+            # Blockbench issue #1965: CatmullRom interpolation in looping
+            # animations has a known tangent discontinuity at the loop
+            # boundary. The Bedrock format does NOT enable animation_loop_wrapping,
+            # causing wrong control points at the boundary.
+            # Fix: Bake CatmullRom curves into dense linear keyframes.
+            # This eliminates the CatmullRom wrapping problem entirely because
+            # linear interpolation has no tangent/control point dependencies.
+
+            if animations_ir:
+                animations_ir = bake_all_animations(animations_ir, name)
+                # v6.9: RDP keyframe simplification (reduces 60-80% keyframes)
+                animations_ir = simplify_animations(animations_ir, name)
+                simplified_kf = sum(len(ba.keyframes) for a in animations_ir for ba in a.bones.values())
+                if simplified_kf > 0:
+                    status_parts.append(f"rdp({simplified_kf})")
+                # Count baked keyframes
+                total_kf = sum(len(ba.keyframes) for a in animations_ir for ba in a.bones.values())
+                if total_kf > 0:
+                    cr_kf = sum(1 for a in animations_ir for ba in a.bones.values()
+                                for kf in ba.keyframes if kf.interpolation == "catmullrom")
+                    lin_kf = total_kf - cr_kf
+                    if cr_kf > 0:
+                        status_parts.append(f"bake({cr_kf}cr→{lin_kf}lin)")
+                    else:
+                        status_parts.append(f"all_lin({lin_kf})")
+
+            # Count keyframes for stats
+            if animations_ir:
+                kf_count = sum(len(ba.keyframes) for a in animations_ir for ba in a.bones.values())
+                stats['engine_stats']['total_keyframes'] += kf_count
+                stats['engine_stats']['total_bones'] += sum(len(a.bones) for a in animations_ir)
+                stats['engine_stats']['total_animations'] += len(animations_ir)
+                if kf_count > 0:
+                    status_parts.append(f"kf={kf_count}")
+
+            # ---- Step 4: Find texture PNG (optional) ----
+            tex_path = os.path.join(src_dir, f"{name}.png")
+            if os.path.exists(tex_path):
+                stats['has_tex'] += 1
+                status_parts.append("tex=YES")
+            else:
+                tex_path = None
+                status_parts.append("tex=NO")
+
+            # ---- Step 5: Export to .bbmodel ----
+            bbmodel = exporter.export(
+                model_ir,
+                animations=animations_ir,
+                texture_path=tex_path,
+                texture_name=name,
+                namespace='srparasites',
+                model_metadata=model_meta,
+            )
+
+            # Save
+            out_path = os.path.join(out_dir, f"{name}.bbmodel")
+            exporter.save(bbmodel, out_path)
+
+            stats['ok'] += 1
+            stats['categories'][category]['ok'] += 1
+
+            elements = bbmodel.get('elements', [])
+            animations = bbmodel.get('animations', [])
+            file_size = os.path.getsize(out_path)
+            status_parts.append(f"bbmodel({len(elements)}e, {len(animations)}a, {file_size/1024:.0f}KB)")
+
+        except Exception as e:
+            stats['fail'] += 1
+            stats['categories'][category]['fail'] += 1
+            status_parts.append(f"ERROR: {e}")
+            stats['errors'].append(f"{category}/{name}: {traceback.format_exc()}")
+
+        print(" | ".join(status_parts))
+
+        # Periodic GC
+        if i % 20 == 0:
+            import gc
+            gc.collect()
+
+    elapsed = time.time() - start_time
+
+    # Summary
+    print()
+    print("=" * 70)
+    print("  SUPER CONVERTER — BATCH CONVERSION SUMMARY")
+    print("=" * 70)
+    print(f"  Total models:           {stats['total']}")
+    print(f"  Converted OK:           {stats['ok']}")
+    print(f"  Failed:                 {stats['fail']}")
+    print(f"  With animations:        {stats['has_anim']}")
+    print(f"  With textures:          {stats['has_tex']}")
+    print()
+
+    es = stats['engine_stats']
+    if es['total_animations'] > 0:
+        print(f"  --- Animation Engine (Super Architecture) ---")
+        print(f"  Total animations:       {es['total_animations']}")
+        print(f"  Total keyframes:        {es['total_keyframes']}")
+        print(f"  Total animated bones:   {es['total_bones']}")
+        print(f"  Carry-forward fixes:    {es['carry_forward_applied']}")
+        print(f"  Loop alignments:        {es['loop_alignments']}")
+        print(f"  Rotations normalized:   {es['rotations_normalized']}")
+        print(f"  Periods detected:       {es['periods_detected']}")
+        print(f"  Conversion warnings:    {es['warnings']}")
+        print()
+
+    print(f"  --- By Category ---")
+    for cat in sorted(stats['categories'].keys()):
+        cs = stats['categories'][cat]
+        print(f"  {cat}: {cs['ok']}/{cs['total']} OK")
+    print()
+    print(f"  Output: {output_dir}")
+    print(f"  Elapsed: {elapsed:.1f}s")
+
+    if stats['errors']:
+        print(f"\n  Errors ({len(stats['errors'])}):")
+        for e in stats['errors'][:10]:
+            first_line = e.split('\n')[0]
+            print(f"    X {first_line}")
+        if len(stats['errors']) > 10:
+            print(f"    ... and {len(stats['errors']) - 10} more")
+
+    # v6.8 — Warnings report (non-fatal issues)
+    if stats.get('warnings'):
+        print(f"\n  Warnings ({len(stats['warnings'])}):")
+        for w in stats['warnings'][:10]:
+            print(f"    ! {w}")
+        if len(stats['warnings']) > 10:
+            print(f"    ... and {len(stats['warnings']) - 10} more")
+
+    # v6.1 — Stub animation report
+    stubs = stats.get('stubs', [])
+    if stubs:
+        print(f"\n  --- Stub Animations ({len(stubs)}) ---")
+        print(f"  These are placeholder animations (few bones, few keyframes,")
+        print(f"  all-zero/identical values). The upstream reverse-engineering")
+        print(f"  failed to capture the Java setRotationAngles logic for these.")
+        print(f"  They need manual animation work in Blockbench:")
+        for s in stubs[:20]:
+            print(f"    ! {s}")
+        if len(stubs) > 20:
+            print(f"    ... and {len(stubs) - 20} more")
+
+    print()
+    print("=" * 70)
+    print("  DONE — Super Converter v6.1 batch conversion complete!")
+    print(f"  Output: {output_dir}")
+    print("=" * 70)
+
+    return stats
+
+
+if __name__ == "__main__":
+    result = batch_convert_mdo_srp()
+    sys.exit(0 if result['fail'] == 0 else 1)
