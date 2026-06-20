@@ -24,45 +24,48 @@ import config
 sys.path.insert(0, os.path.join(CONVERTER_DIR, "batch"))
 from mdo_srp import _apply_namespace_and_loop_semantics, _detect_stub_animations
 
-def _fix_fly_animation(bbmodel, model_name):
-    """Fix fly animation: add missing body roll (Z rotation) from Java source.
+def _fix_fly_mainbody(bbmodel, model_name):
+    """Fix fly mainbody position using Java source formula.
     
-    Java: mainbody.field_82908_p (rotateAngleZ) = sin(ageInTicks*0.2)*0.72
-    The upstream animation.json is missing this body roll motion.
+    Java: mainbody.field_82908_p (offsetY) = sin(ageInTicks*0.2)*0.72
+    The upstream animation.json has irregular position data.
+    Replace with clean sine wave matching the reference file.
     """
     import math, uuid as uuid_mod
     for anim in bbmodel.get('animations', []):
-        if not anim['name'].endswith('.fly') or anim['name'].endswith('.fly_vomit'):
+        if not anim['name'].endswith('.fly') or 'fly_vomit' in anim['name']:
             continue
         if model_name != 'heblu':
             continue
-        # Add body roll to mainbody
         for aname, adat in anim.get('animators', {}).items():
             if adat.get('name') == 'mainbody':
                 length = anim['length']
-                n_samples = 20
-                dt = length / (n_samples - 1)
-                # Generate Z rotation keyframes (body roll)
-                roll_kfs = []
+                # Generate clean sine wave position
+                # Reference: 7 kf at t=0, 0.785, 1.537, 2.356, 3.192, 3.927, 4.712
+                # But our length is 3.27s, so adapt
+                n_samples = 8
+                pos_kfs = []
                 for i in range(n_samples):
-                    t = i * dt
+                    t = i * length / (n_samples - 1)
                     age_in_ticks = t * 20.0
-                    # Java: field_82908_p = sin(ageInTicks*0.2)*0.72 (radians)
-                    z_val = math.degrees(math.sin(age_in_ticks * 0.2) * 0.72)
-                    roll_kfs.append({
-                        'channel': 'rotation',
-                        'data_points': [{'x': -45.84, 'y': 0.0, 'z': round(z_val, 2)}],
+                    # Java: field_82908_p = sin(ageInTicks*0.2)*0.72
+                    # But reference has phase shift: y=-0.72 at t=0
+                    # So use -cos(ageInTicks*0.2)*0.72 (phase = -pi/2)
+                    y_val = -math.cos(age_in_ticks * 0.2) * 0.72
+                    pos_kfs.append({
+                        'channel': 'position',
+                        'data_points': [{'x': 0.0, 'y': round(y_val, 4), 'z': 0.0}],
                         'uuid': str(uuid_mod.uuid4()),
                         'time': round(t, 4),
                         'color': -1,
                         'interpolation': 'catmullrom',
                     })
-                # Replace existing rotation keyframes
-                existing = [k for k in adat.get('keyframes', []) if k.get('channel') != 'rotation']
-                adat['keyframes'] = existing + roll_kfs
+                # Keep rotation keyframes, replace position
+                existing = [k for k in adat.get('keyframes', []) if k.get('channel') != 'position']
+                adat['keyframes'] = existing + pos_kfs
                 adat['keyframes'].sort(key=lambda k: k['time'])
                 break
-    print(f"  fixed fly body roll")
+    print(f"  fixed fly mainbody position")
 
 
 def _add_combined_animations(bbmodel, model_name, anim_path):
@@ -290,8 +293,8 @@ def convert_model(category, name, out_dir=None):
         bbmodel['animations'] = [a for a in bbmodel['animations']
             if a.get('length', 0) > 0 and len(a.get('animators', {})) >= 5]
 
-    # v6.9.14: Fix fly animation (add missing body roll)
-    _fix_fly_animation(bbmodel, name)
+    # v6.9.15: Fix fly mainbody position (clean sine from Java source)
+    _fix_fly_mainbody(bbmodel, name)
 
     # v6.9.13: Add combined animations
     _add_combined_animations(bbmodel, name, anim_path)
