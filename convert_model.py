@@ -24,6 +24,47 @@ import config
 sys.path.insert(0, os.path.join(CONVERTER_DIR, "batch"))
 from mdo_srp import _apply_namespace_and_loop_semantics, _detect_stub_animations
 
+def _fix_fly_animation(bbmodel, model_name):
+    """Fix fly animation: add missing body roll (Z rotation) from Java source.
+    
+    Java: mainbody.field_82908_p (rotateAngleZ) = sin(ageInTicks*0.2)*0.72
+    The upstream animation.json is missing this body roll motion.
+    """
+    import math, uuid as uuid_mod
+    for anim in bbmodel.get('animations', []):
+        if not anim['name'].endswith('.fly') or anim['name'].endswith('.fly_vomit'):
+            continue
+        if model_name != 'heblu':
+            continue
+        # Add body roll to mainbody
+        for aname, adat in anim.get('animators', {}).items():
+            if adat.get('name') == 'mainbody':
+                length = anim['length']
+                n_samples = 20
+                dt = length / (n_samples - 1)
+                # Generate Z rotation keyframes (body roll)
+                roll_kfs = []
+                for i in range(n_samples):
+                    t = i * dt
+                    age_in_ticks = t * 20.0
+                    # Java: field_82908_p = sin(ageInTicks*0.2)*0.72 (radians)
+                    z_val = math.degrees(math.sin(age_in_ticks * 0.2) * 0.72)
+                    roll_kfs.append({
+                        'channel': 'rotation',
+                        'data_points': [{'x': -45.84, 'y': 0.0, 'z': round(z_val, 2)}],
+                        'uuid': str(uuid_mod.uuid4()),
+                        'time': round(t, 4),
+                        'color': -1,
+                        'interpolation': 'catmullrom',
+                    })
+                # Replace existing rotation keyframes
+                existing = [k for k in adat.get('keyframes', []) if k.get('channel') != 'rotation']
+                adat['keyframes'] = existing + roll_kfs
+                adat['keyframes'].sort(key=lambda k: k['time'])
+                break
+    print(f"  fixed fly body roll")
+
+
 def _add_combined_animations(bbmodel, model_name, anim_path):
     """Add combined animations based on Java source state logic.
 
@@ -248,6 +289,9 @@ def convert_model(category, name, out_dir=None):
     if 'animations' in bbmodel:
         bbmodel['animations'] = [a for a in bbmodel['animations']
             if a.get('length', 0) > 0 and len(a.get('animators', {})) >= 5]
+
+    # v6.9.14: Fix fly animation (add missing body roll)
+    _fix_fly_animation(bbmodel, name)
 
     # v6.9.13: Add combined animations
     _add_combined_animations(bbmodel, name, anim_path)
