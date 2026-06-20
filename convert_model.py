@@ -24,6 +24,101 @@ import config
 sys.path.insert(0, os.path.join(CONVERTER_DIR, "batch"))
 from mdo_srp import _apply_namespace_and_loop_semantics, _detect_stub_animations
 
+def _add_combined_animations(bbmodel, model_name, anim_path):
+    """Add combined animations based on Java source state logic.
+
+    v6.9.13: Creates separate animations for different entity states:
+    - kirin: idle_shaking (idle + mainbody trembling from shakingC>0)
+    - heblu: fly_vomit (fly + vomit head shaking from vomit>0)
+    """
+    import copy, math, uuid as uuid_mod
+
+    anims = bbmodel.get('animations', [])
+    anim_names = {a['name'] for a in anims}
+
+    # Detect model-specific combined animations
+    if model_name == 'kirin':
+        # Add idle_shaking = idle + mainbody trembling
+        idle = next((a for a in anims if a['name'].endswith('.idle')), None)
+        if idle and f'{idle["name"]}_shaking' not in anim_names:
+            shaking = copy.deepcopy(idle)
+            shaking['name'] = f'{idle["name"]}_shaking'
+            shaking['uuid'] = str(uuid_mod.uuid4())
+            # Add mainbody trembling (2.95 rad/tick, 5.1° amplitude)
+            for aname, adat in shaking['animators'].items():
+                if adat.get('name') == 'mainbody':
+                    length = shaking['length']
+                    n_samples = 40
+                    dt = length / (n_samples - 1)
+                    trembling_kfs = []
+                    for i in range(n_samples):
+                        t = i * dt
+                        age_in_ticks = t * 20.0
+                        x_val = math.degrees(math.sin(age_in_ticks * 2.95) * 0.0891)
+                        y_val = math.degrees(math.sin(age_in_ticks * 2.95) * 0.0891)
+                        trembling_kfs.append({
+                            'channel': 'rotation',
+                            'data_points': [{'x': round(x_val, 4), 'y': round(y_val, 4), 'z': 0.0}],
+                            'uuid': str(uuid_mod.uuid4()),
+                            'time': round(t, 4),
+                            'color': -1,
+                            'interpolation': 'catmullrom',
+                        })
+                    adat['keyframes'] = trembling_kfs
+                    break
+            anims.append(shaking)
+            print(f"  added idle_shaking")
+
+    elif model_name == 'heblu':
+        # Add fly_vomit = fly + vomit (jointN1-N5 head shaking)
+        fly = next((a for a in anims if a['name'].endswith('.fly')), None)
+        if fly and f'{fly["name"]}_vomit' not in anim_names:
+            # Load upstream vomit data
+            try:
+                with open(anim_path, 'r', encoding='utf-8') as f:
+                    up_data = json.load(f)
+                vomit_up = up_data.get('animations', {}).get(f'animation.{model_name}.vomit', {})
+                vomit_bones = vomit_up.get('bones', {})
+
+                fly_vomit = copy.deepcopy(fly)
+                fly_vomit['name'] = f'{fly["name"]}_vomit'
+                fly_vomit['uuid'] = str(uuid_mod.uuid4())
+
+                for aname, adat in fly_vomit['animators'].items():
+                    bone_name = adat.get('name', '')
+                    if bone_name in vomit_bones:
+                        vomit_data = vomit_bones[bone_name]
+                        if isinstance(vomit_data, dict) and 'rotation' in vomit_data:
+                            rot = vomit_data['rotation']
+                            if isinstance(rot, dict):
+                                all_times = set()
+                                for ax in ['x','y','z']:
+                                    if ax in rot:
+                                        all_times.update(float(t) for t in rot[ax].keys())
+                                all_times = sorted(all_times)
+                                new_kfs = []
+                                for t in all_times:
+                                    x_val = rot.get('x', {}).get(f'{t:.4f}', rot.get('x', {}).get(f'{t:.1f}', 0.0))
+                                    y_val = rot.get('y', {}).get(f'{t:.4f}', rot.get('y', {}).get(f'{t:.1f}', 0.0))
+                                    z_val = rot.get('z', {}).get(f'{t:.4f}', rot.get('z', {}).get(f'{t:.1f}', 0.0))
+                                    new_kfs.append({
+                                        'channel': 'rotation',
+                                        'data_points': [{'x': float(x_val), 'y': float(y_val), 'z': float(z_val)}],
+                                        'uuid': str(uuid_mod.uuid4()),
+                                        'time': round(t, 4),
+                                        'color': -1,
+                                        'interpolation': 'catmullrom',
+                                    })
+                                if new_kfs:
+                                    existing = [k for k in adat.get('keyframes', []) if k.get('channel') != 'rotation']
+                                    adat['keyframes'] = existing + new_kfs
+                                    adat['keyframes'].sort(key=lambda k: k['time'])
+                anims.append(fly_vomit)
+                print(f"  added fly_vomit")
+            except (FileNotFoundError, KeyError):
+                pass
+
+
 def convert_model(category, name, out_dir=None):
     INPUT_DIR = config.INPUT_DIR
     DECOMPILED_DIR = config.DECOMPILED_DIR
@@ -153,6 +248,28 @@ def convert_model(category, name, out_dir=None):
     if 'animations' in bbmodel:
         bbmodel['animations'] = [a for a in bbmodel['animations']
             if a.get('length', 0) > 0 and len(a.get('animators', {})) >= 5]
+
+    # v6.9.13: Add combined animations
+    _add_combined_animations(bbmodel, name, anim_path)
+
+    # v6.9.13: Force seamless loop for combined animations (fly_vomit, idle_shaking)
+    for anim in bbmodel.get('animations', []):
+        if anim.get('loop') == 'loop' and anim.get('length', 0) > 0:
+            for aname, adat in anim.get('animators', {}).items():
+                kfs = adat.get('keyframes', [])
+                if len(kfs) < 2:
+                    continue
+                by_channel = {}
+                for kf in kfs:
+                    ch = kf.get('channel', '')
+                    by_channel.setdefault(ch, []).append(kf)
+                for ch, ch_kfs in by_channel.items():
+                    if len(ch_kfs) < 2:
+                        continue
+                    first = ch_kfs[0]
+                    last = ch_kfs[-1]
+                    # Force last = first for seamless loop
+                    last['data_points'] = [dict(dp) for dp in first.get('data_points', [])]
 
     out_path = os.path.join(out_dir, f"{name}.bbmodel")
     exporter.save(bbmodel, out_path)
