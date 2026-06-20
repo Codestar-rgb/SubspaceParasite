@@ -42,14 +42,18 @@ def convert_model(category, name, out_dir=None):
     print(f"  bones={len(model_ir.bones)}")
 
     # Step 2: Parse/merge animations (MVE + upstream)
+    # v6.9.11: Only use MVE idle. Skip MVE walk/death_idle when upstream has anims.
     animations_ir = []
     mve_anim_names = set()
     if has_mve_data(name, MVE_DATA_DIR):
         mve_anims, mve_raw = get_mve_animations_for_model(name, MVE_DATA_DIR)
         if mve_anims:
-            animations_ir = mve_anims
-            mve_anim_names = {a.name for a in mve_anims}
-            print(f"  mve={len(animations_ir)}")
+            # Filter: keep only MVE idle, skip walk/death_idle (lower quality than upstream)
+            mve_anims = [a for a in mve_anims if 'idle' in a.name.lower() and 'death' not in a.name.lower()]
+            if mve_anims:
+                animations_ir = mve_anims
+                mve_anim_names = {a.name for a in mve_anims}
+                print(f"  mve(idle only)={len(animations_ir)}")
 
     anim_path = os.path.join(src_dir, f"{name}.animation.json")
     if os.path.exists(anim_path):
@@ -109,7 +113,20 @@ def convert_model(category, name, out_dir=None):
     if animations_ir:
         animations_ir = snap_animation_frequencies(animations_ir, name)
 
-    # Step 3e: Bake + simplify
+    # Step 3e: Filter out stub/empty animations (v6.9.11)
+    # Remove: length <= 0, <5 kf, or <3 animators (stubs like visibility)
+    if animations_ir:
+        filtered = []
+        for a in animations_ir:
+            total_kf = sum(len(ba.keyframes) for ba in a.bones.values())
+            n_bones = len(a.bones)
+            if a.length > 0 and total_kf >= 5 and n_bones >= 3:
+                filtered.append(a)
+            else:
+                print(f"  skip stub: {a.name} (len={a.length}, kf={total_kf}, bones={n_bones})")
+        animations_ir = filtered
+
+    # Step 3f: Bake + simplify
     if animations_ir:
         animations_ir = bake_all_animations(animations_ir, name)
         animations_ir = simplify_animations(animations_ir, name)
@@ -131,6 +148,11 @@ def convert_model(category, name, out_dir=None):
         namespace='srparasites',
         model_metadata=model_meta,
     )
+
+    # v6.9.11: Remove stub/visibility animations from final output
+    if 'animations' in bbmodel:
+        bbmodel['animations'] = [a for a in bbmodel['animations']
+            if a.get('length', 0) > 0 and len(a.get('animators', {})) >= 5]
 
     out_path = os.path.join(out_dir, f"{name}.bbmodel")
     exporter.save(bbmodel, out_path)

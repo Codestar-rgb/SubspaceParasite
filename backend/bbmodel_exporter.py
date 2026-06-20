@@ -407,15 +407,12 @@ class BBModelExporter:
                     if from_pos[0] > to_pos[0]:
                         from_pos[0], to_pos[0] = to_pos[0], from_pos[0]
 
-                # v6.9.9: Bake 180-degree bone rotations into cube positions.
-                # The parser negates X (RH->LH). 180-degree rotations cause
-                # double-mirror issues. Fix: bake the mirror components into cube
-                # positions and zero the rotation.
-                #
-                # Y=180: mirrors X,Z. Parser negates X (equivalent). Bake Z mirror only.
-                # Z=180: mirrors X,Y. Bake X and Y mirror (parser X negation is different
-                #        from pivot mirror, so X also needs baking).
-                # X=180: mirrors Y,Z. Bake Y and Z mirror.
+                # v6.9.10: Bake PURE single-axis 180-degree rotations into cube positions.
+                # Only apply when the rotation is exactly one axis = ±180 and others = 0.
+                # This matches the reference converter behavior:
+                #   skin_1 [0,0,180] -> bake Y mirror, zero Z rotation
+                #   skin_2 [0,-180,0] -> bake Z mirror, zero Y rotation
+                # Combined rotations like [-180,0,180] are preserved (not baked).
                 bone_rot = bone.rotation
                 try:
                     rx = float(bone_rot[0]) if len(bone_rot) > 0 else 0.0
@@ -426,31 +423,32 @@ class BBModelExporter:
 
                 def _is_180(a):
                     return abs(abs(a) - 180.0) < 0.5
+                def _is_zero(a):
+                    return abs(a) < 0.5
 
-                bake_y180 = _is_180(ry)  # Y=180: bake Z mirror
-                bake_z180 = _is_180(rz)  # Z=180: bake X,Y mirror
-                bake_x180 = _is_180(rx)  # X=180: bake Y,Z mirror
+                # Pure single-axis 180: exactly one axis is ±180, others are 0
+                pure_x180 = _is_180(rx) and _is_zero(ry) and _is_zero(rz)
+                pure_y180 = _is_180(ry) and _is_zero(rx) and _is_zero(rz)
+                pure_z180 = _is_180(rz) and _is_zero(rx) and _is_zero(ry)
 
-                if bake_y180 or bake_z180 or bake_x180:
+                if pure_y180 or pure_z180 or pure_x180:
                     px, py, pz = float(abs_pivot[0]), float(abs_pivot[1]), float(abs_pivot[2])
-                    # Y=180: mirror Z around pivot Z
-                    if bake_y180:
+                    if pure_y180:
+                        # Y=180: mirror Z around pivot Z (X already mirrored by parser)
                         from_pos[2] = 2 * pz - from_pos[2]
                         to_pos[2] = 2 * pz - to_pos[2]
                         if from_pos[2] > to_pos[2]:
                             from_pos[2], to_pos[2] = to_pos[2], from_pos[2]
-                    # Z=180: mirror X and Y around pivots
-                    if bake_z180:
+                    elif pure_z180:
+                        # Z=180: mirrors X and Y. Parser negated X, but for Z=180
+                        # bones the X mirror should be around the pivot (not just
+                        # negate). Mirror X around pivot X to get correct position.
                         from_pos[0] = 2 * px - from_pos[0]
                         to_pos[0] = 2 * px - to_pos[0]
                         if from_pos[0] > to_pos[0]:
                             from_pos[0], to_pos[0] = to_pos[0], from_pos[0]
-                        from_pos[1] = 2 * py - from_pos[1]
-                        to_pos[1] = 2 * py - to_pos[1]
-                        if from_pos[1] > to_pos[1]:
-                            from_pos[1], to_pos[1] = to_pos[1], from_pos[1]
-                    # X=180: mirror Y and Z around pivots
-                    if bake_x180:
+                    elif pure_x180:
+                        # X=180: mirror Y and Z around pivots (X already mirrored by parser)
                         from_pos[1] = 2 * py - from_pos[1]
                         to_pos[1] = 2 * py - to_pos[1]
                         if from_pos[1] > to_pos[1]:
@@ -459,18 +457,11 @@ class BBModelExporter:
                         to_pos[2] = 2 * pz - to_pos[2]
                         if from_pos[2] > to_pos[2]:
                             from_pos[2], to_pos[2] = to_pos[2], from_pos[2]
-                    bone_rot_baked = [
-                        0.0 if bake_x180 else rx,
-                        0.0 if bake_y180 else ry,
-                        0.0 if bake_z180 else rz,
-                    ]
-                else:
-                    bone_rot_baked = [rx, ry, rz]
 
                 # Element origin = bone's absolute pivot (rotation center)
                 bb_origin = [float(abs_pivot[0]), float(abs_pivot[1]), float(abs_pivot[2])]
 
-                # Build faces with UV conversion (includes face swaps)
+                # Build faces with UV conversion (includes 180-deg east/west swap)
                 faces = self._convert_faces(cube.uv, mirror=mirror, bone_rotation=bone.rotation)
 
                 element = {
@@ -580,13 +571,16 @@ class BBModelExporter:
 
         def _is_180(angle):
             return abs(abs(angle) - 180.0) < 0.5
+        def _is_zero(angle):
+            return abs(angle) < 0.5
 
-        # v6.9.8: Only swap east/west for any 180-degree rotation.
-        # The RH->LH X-mirror transform means 180-degree rotations only
-        # need east/west UV swap to compensate. North/south and up/down
-        # are handled correctly by Blockbench's rotation rendering.
-        # (Verified against heblu-SubSRP reference: only E/W swap needed.)
-        swap_ew = _is_180(rz) or _is_180(ry) or _is_180(rx)
+        # v6.9.10: Swap east/west UVs ONLY for pure single-axis 180 rotations.
+        # Combined rotations like [180,0,-90] or [-180,0,180] do NOT need swap
+        # (verified against heblu-SubSRP reference: only skin_1/2/4/5 need swap).
+        pure_x180 = _is_180(rx) and _is_zero(ry) and _is_zero(rz)
+        pure_y180 = _is_180(ry) and _is_zero(rx) and _is_zero(rz)
+        pure_z180 = _is_180(rz) and _is_zero(rx) and _is_zero(ry)
+        swap_ew = pure_x180 or pure_y180 or pure_z180
 
         if swap_ew and "east" in faces and "west" in faces:
             faces["east"], faces["west"] = faces["west"], faces["east"]
@@ -646,14 +640,22 @@ class BBModelExporter:
             bone_uid = bone_uuids[bone.name]
             abs_pivot = abs_pivots.get(bone.name, [0.0, 0.0, 0.0])
 
-            # Rotation — use directly from IR, but zero 180-degree axes that
-            # were baked into cube positions (v6.9.9).
+            # Rotation — preserve all rotations, except pure single-axis 180
+            # which was baked into cube positions (v6.9.10).
+            # Only zero if the bone has cubes (baking only applies to bones with cubes).
             rot = bone.rotation
             rx, ry, rz = float(rot[0]), float(rot[1]), float(rot[2])
-            # Zero baked rotation axes
-            if abs(abs(rx) - 180.0) < 0.5: rx = 0.0
-            if abs(abs(ry) - 180.0) < 0.5: ry = 0.0
-            if abs(abs(rz) - 180.0) < 0.5: rz = 0.0
+            if bone.cubes:  # Only zero if bone has cubes that were baked
+                def _is_180(a):
+                    return abs(abs(a) - 180.0) < 0.5
+                def _is_zero(a):
+                    return abs(a) < 0.5
+                if _is_180(rx) and _is_zero(ry) and _is_zero(rz):
+                    rx = 0.0
+                if _is_180(ry) and _is_zero(rx) and _is_zero(rz):
+                    ry = 0.0
+                if _is_180(rz) and _is_zero(rx) and _is_zero(ry):
+                    rz = 0.0
 
             bb_rotation = [
                 round_for_bbmodel(rx),
