@@ -442,6 +442,8 @@ def build_visibility_variants_animation(
         "anim_time_update": "",
         "blend_weight": "",
         "animators": animators,
+        # v6.9.2: Metadata for GeckoLib 4 bone visibility API
+        "visibility_metadata": {var["bone"]: var["condition"] for var in variants},
     }
     logger.debug(
         "[%s] visibility: %d bones (Molang scale-to-0 workaround)",

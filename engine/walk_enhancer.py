@@ -107,8 +107,8 @@ ENHANCE_THRESHOLD: float = 5.0
 # to reach the Java ground-truth amplitude (overlay 10° + synthetic 20° = 30°
 # is still below Java's 57°, but avoids overshooting for models where the
 # JSON overlay is already substantial).
-TARGET_PRIMARY_AMPLITUDE: float = 30.0   # For main swing (Y-axis on X-suffix bones)
-TARGET_SECONDARY_AMPLITUDE: float = 15.0  # For flex/sway (X-axis on Y-suffix bones)
+TARGET_PRIMARY_AMPLITUDE: float = 20.6   # v6.9.2: Java-calibrated swingY degree=0.9 @ lsa=0.4
+TARGET_SECONDARY_AMPLITUDE: float = 11.5  # v6.9.2: Java-calibrated swingX degree=0.5 @ lsa=0.4
 
 # Number of keyframes per walk cycle for the synthetic rotation.
 SYNTHETIC_KF_PER_CYCLE: int = 16

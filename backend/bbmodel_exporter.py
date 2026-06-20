@@ -721,9 +721,19 @@ class BBModelExporter:
                 logger.warning(
                     "Texture dimension mismatch: declared %dx%d, "
                     "PNG actual %dx%d. Overriding with PNG dimensions "
-                    "(ground truth).",
+                    "(ground truth). UV coordinates will be rescaled.",
                     tex_width, tex_height, png_width, png_height,
                 )
+                # v6.9.2: Calculate UV scale factor for rescaling
+                # When declared dimensions differ from PNG actual,
+                # UV coordinates in geo.json were calculated based on declared
+                # dimensions. We need to rescale them to match actual PNG.
+                scale_x = png_width / tex_width if tex_width > 0 else 1.0
+                scale_y = png_height / tex_height if tex_height > 0 else 1.0
+                # Store scale factors for element UV rescaling
+                # (Applied in _build_elements when processing UV faces)
+                self._uv_scale_x = scale_x
+                self._uv_scale_y = scale_y
                 tex_width = png_width
                 tex_height = png_height
 

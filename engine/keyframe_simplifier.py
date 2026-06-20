@@ -182,3 +182,83 @@ def simplify_animations(
         )
 
     return animations
+
+
+# v6.9.2: Bone name classifier for RDP sensitivity.
+# High-frequency bones (tentacles, hair, spines) have subtle rapid oscillations
+# that are visually important for the "creepy crawling" feel of SRP parasites.
+# These should NOT be aggressively simplified — use a much lower threshold.
+
+# Bones matching these patterns get a lower RDP threshold (0.02° instead of 0.15°)
+HIGH_FREQ_PATTERNS = [
+    "tacle", "tentacle", "hair", "spine", "joint", "tendril",
+    "ff1", "ff2", "ff3",  # hair joint variants
+    "dec",  # decorative segments
+]
+
+# Bones matching these patterns are structural (legs, body) — safe to simplify normally
+STRUCTURAL_PATTERNS = [
+    "leg", "body", "head", "arm", "main", "root", "neck",
+    "frontleg", "backleg", "jointL", "jointR", "jointM",
+]
+
+
+def _get_bone_threshold(bone_name: str, default_threshold: float) -> float:
+    """Get RDP threshold for a bone based on its name.
+
+    High-frequency bones (tentacles, hair) get a much lower threshold
+    to preserve their subtle rapid oscillations.
+    """
+    lower = bone_name.lower()
+    for pattern in HIGH_FREQ_PATTERNS:
+        if pattern in lower:
+            return 0.02  # Very low threshold — preserve micro-oscillations
+    return default_threshold
+
+
+def _simplify_keyframes_v2(
+    keyframes: List[KeyframeData],
+    bone_name: str,
+    default_threshold: float = RDP_THRESHOLD,
+) -> List[KeyframeData]:
+    """Simplify keyframes with bone-aware threshold.
+
+    Uses a lower threshold for high-frequency bones (tentacles, hair, spines)
+    to preserve their biological micro-oscillations.
+    """
+    threshold = _get_bone_threshold(bone_name, default_threshold)
+    return _simplify_keyframes(keyframes, threshold)
+
+
+def simplify_animations_v2(
+    animations: List[AnimationIR],
+    model_name: str = "",
+    threshold: float = RDP_THRESHOLD,
+) -> List[AnimationIR]:
+    """Simplify animations with bone-aware RDP threshold.
+
+    This is the v6.9.2 version that preserves high-frequency bone oscillations.
+    """
+    total_before = 0
+    total_after = 0
+
+    for anim in animations:
+        new_bones = {}
+        for bone_name, bone_anim in anim.bones.items():
+            total_before += len(bone_anim.keyframes)
+            simplified = _simplify_keyframes_v2(bone_anim.keyframes, bone_name, threshold)
+            total_after += len(simplified)
+            new_bones[bone_name] = BoneAnimationIR(
+                bone_name=bone_name,
+                keyframes=simplified,
+            )
+        anim.bones = new_bones
+
+    if total_before > 0:
+        reduction = (1 - total_after / total_before) * 100
+        logger.debug(
+            "[%s] RDP v2 simplification: %d → %d keyframes (%.1f%% reduction)",
+            model_name, total_before, total_after, reduction,
+        )
+
+    return animations

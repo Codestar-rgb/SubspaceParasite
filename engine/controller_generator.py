@@ -138,3 +138,63 @@ def generate_for_model(model_name: str, bbmodel_path: str, output_dir: str) -> s
         return out_path
     except Exception as e:
         return ""
+
+
+def generate_state_mapping(model_name: str, animations: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Generate a state mapping table for mod developers.
+
+    Maps each animation to its corresponding SRP Java state and action.
+    This helps 1.20.1 mod developers wire up GeckoLib AnimationControllers
+    to the correct entity states.
+
+    Returns a dict with:
+      - model: model name
+      - states: {state_value: {action, animation_name, description}}
+      - animations: [list of all animation names with their purpose]
+    """
+    anim_names = [a.get("name", "") for a in animations]
+    mapping = {
+        "model": model_name,
+        "states": {},
+        "animations": [],
+    }
+
+    # Map animation names to SRP states
+    state_map = {
+        0: {"action": "idle", "desc": "Base form idle (standing still)"},
+        1: {"action": "stage1", "desc": "Evolution stage 1"},
+        2: {"action": "stage2", "desc": "Evolution stage 2"},
+        3: {"action": "stage3", "desc": "Evolution stage 3 (special)"},
+        4: {"action": "stage4", "desc": "Evolution stage 4"},
+        10: {"action": "death", "desc": "Death state (rigid pose)"},
+        25: {"action": "stage25", "desc": "Evolution stage 25 (final)"},
+        77: {"action": "dormant", "desc": "Dormant state"},
+    }
+
+    for sv, info in state_map.items():
+        action = info["action"]
+        # Find matching animations
+        idle_name = f"animation.srparasites.{model_name}.{action}_idle" if sv != 0 else f"animation.srparasites.{model_name}.idle"
+        walk_name = f"animation.srparasites.{model_name}.{action}_walk" if sv != 0 else f"animation.srparasites.{model_name}.walk"
+        mapping["states"][str(sv)] = {
+            "action": action,
+            "description": info["desc"],
+            "idle_animation": idle_name if idle_name in anim_names else None,
+            "walk_animation": walk_name if walk_name in anim_names else None,
+        }
+
+    # List all animations with their purpose
+    for aname in anim_names:
+        purpose = "unknown"
+        if "idle" in aname: purpose = "idle"
+        elif "walk" in aname: purpose = "walk"
+        elif "attack" in aname: purpose = "attack"
+        elif "death" in aname: purpose = "death"
+        elif "sleeping" in aname: purpose = "sleeping"
+        elif "head_track" in aname: purpose = "head_tracking (Molang)"
+        elif "visibility" in aname: purpose = "bone_visibility (Molang)"
+        elif "body_bob" in aname: purpose = "body_bob (Molang)"
+        elif "stage" in aname: purpose = "evolution_state"
+        mapping["animations"].append({"name": aname, "purpose": purpose})
+
+    return mapping
