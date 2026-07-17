@@ -132,20 +132,8 @@ def _simplify_keyframes(
                 val = getattr(kf, axis).value
                 points.append((kf.time, val))
 
-            # v6.9.12: Amplitude-adaptive threshold
-            # For high-amplitude axes, use a tighter threshold to preserve
-            # smooth catmullrom curves. Use the MINIMUM of bone-specific
-            # threshold and adaptive threshold (keep more keyframes).
-            axis_amp = max(p[1] for p in points) - min(p[1] for p in points)
-            if axis_amp > 30:
-                # High amplitude: threshold = 0.1% of amplitude (min 0.02°)
-                adaptive_thresh = max(0.02, axis_amp * 0.001)
-                # Use the smaller of bone-specific and adaptive
-                adaptive_thresh = min(adaptive_thresh, threshold)
-            else:
-                adaptive_thresh = threshold
-
-            simplified = _rdp_simplify(points, adaptive_thresh)
+            # Use fixed threshold (no amplitude-adaptive, reverted v6.9.12)
+            simplified = _rdp_simplify(points, threshold)
             simplified_times = {t for t, _ in simplified}
             # Map back to keyframe indices
             for i, kf in enumerate(ch_kfs_sorted):
