@@ -1,94 +1,137 @@
-# SubspaceParasite
+# SRP Model Converter
 
-MDO-SRP Super Converter — GeckoLib → Blockbench `.bbmodel` conversion pipeline for the SRParasites (Scape and Run Parasites) mod.
+将 Minecraft 1.12.2 **Scape and Run: Parasites** (SRP) 模组的 Java `ModelRenderer` 模型转换为 Blockbench `.bbmodel` 格式，并生成 GeckoLib 兼容的动画。
 
-## Directory Structure
+## 概述
+
+本转换器读取 SRP 模组的反编译 Java 源码、GeckoLib `.geo.json` / `.animation.json` 文件和纹理贴图，通过 MVE (Model Variable Evaluator) 代码级动作捕捉技术，从 Java `setRotationAngles` 方法中提取骨骼动画数据，生成可直接在 Blockbench 中打开和编辑的 `.bbmodel` 项目文件。
+
+## 特性
+
+### 核心转换
+- **Java ModelRenderer → Blockbench 骨骼**: 完整转换骨骼层级、旋转、枢轴点
+- **Per-face UV 映射**: 正确处理负 uv_size 翻转和 180° 旋转面交换
+- **RH→LH 坐标变换**: Minecraft 右手坐标系 → Blockbench 左手坐标系
+- **纹理嵌入**: 自动将 PNG 纹理嵌入 .bbmodel 文件
+
+### 动画系统
+- **MVE 代码级动作捕捉**: 从 Java `setRotationAngles` 提取 ground-truth 动画
+- **变量顺序处理**: 正确处理 Java 变量重新赋值（v6.9.6 修复）
+- **频率吸附**: 检测正弦波频率，吸附到整数周期实现无缝循环
+- **边界混合**: 非正弦骨骼的 smoothstep 边界过渡
+- **Catmullrom 插值**: 平滑曲线插值，消除机械感
+- **速度连续性**: 调整倒数第二帧确保循环边界速度匹配
+
+### 质量优化
+- **振幅自适应 RDP**: 根据骨骼振幅自动调整简化阈值
+- **零振幅检测**: 移除无运动骨骼的多余关键帧
+- **Stub 动画过滤**: 自动移除空动画和无效动画
+- **组合动画生成**: 自动生成 idle_shaking、fly_vomit 等状态组合动画
+
+## 项目结构
 
 ```
 SubspaceParasite/
-├── batch/              # Batch conversion scripts
-│   └── mdo_srp.py      # MDO-SRP batch converter entry point
-├── frontend/           # Input parsers
-│   ├── geckolib_parser.py  # GeckoLib geo.json + animation.json parser
-│   └── axis_tracker.py     # Per-axis explicit/default tracking
-├── engine/             # Animation processing pipeline
-│   ├── carry_forward.py    # Interpolation-aware carry-forward
-│   ├── loop_extender.py    # Multi-cycle loop extension
-│   ├── catmullrom_baker.py # CatmullRom → linear baking
-│   ├── idle_walk_merger.py # Idle+walk animation merging
-│   ├── walk_enhancer.py    # Synthetic walk leg rotation
-│   └── ...                 # Additional pipeline stages
-├── backend/            # Output exporters
-│   └── bbmodel_exporter.py # .bbmodel format exporter
-├── core/               # Core libraries
-│   ├── types.py            # Unified IR type definitions
-│   ├── math_utils.py       # UUID, rounding, LCM, autocorrelation
-│   ├── quaternion.py       # Full quaternion math + SLERP
-│   └── coords.py           # MC 1.12.2 → GeckoLib transforms
-├── config.py           # Configuration constants
-├── run.py              # CLI runner
-├── models/             # Converted .bbmodel files (168 models)
-│   ├── abomination/    # Abomination composites
-│   ├── adapted/        # Adapted primitive variants
-│   ├── ancient/        # Ancient parasitic entities
-│   ├── awakened/       # Awakened variants
-│   ├── crude/          # Crude parasitic forms
-│   ├── derived/        # Derived evolved forms
-│   ├── deterrent/      # Deterrent-stage entities
-│   ├── feral/          # Feral infected variants
-│   ├── focused/        # Focused combat variants
-│   ├── hijacked/       # Hijacked host bodies
-│   ├── inborn/         # Innate parasitic entities
-│   ├── infected/       # Infected host creatures
-│   ├── misc/           # Miscellaneous entities
-│   ├── primitive/      # Base primitive forms
-│   ├── projectile/     # Projectile entities
-│   └── pure/           # Pure evolved forms
-└── REPORT.md           # Detailed technical report
+├── frontend/              # 解析器
+│   └── geckolib_parser.py # 解析 .geo.json 和 .animation.json
+├── engine/                # 转换引擎
+│   ├── mve_capture.py     # MVE 代码级动作捕捉
+│   ├── java_analyzer.py   # Java 源码分析
+│   ├── java_trig_simulator.py # Java 三角函数模拟
+│   ├── safe_evaluator.py  # 安全 AST 表达式求值
+│   ├── carry_forward.py   # 插值感知的轴值填充
+│   ├── idle_walk_merger.py # Idle-Walk 动画合并
+│   ├── walk_enhancer.py   # 行走动画增强
+│   ├── frequency_snapper.py # 频率吸附 + 边界混合
+│   ├── catmullrom_baker.py # Catmullrom 曲线烘焙
+│   ├── keyframe_simplifier.py # RDP 关键帧简化
+│   ├── controller_generator.py # 控制器生成
+│   ├── head_tracking_injector.py # 头部跟踪注入
+│   └── runtime_behavior_injector.py # 运行时行为注入
+├── backend/               # 导出器
+│   └── bbmodel_exporter.py # .bbmodel 格式导出
+├── batch/                 # 批量转换
+│   └── mdo_srp.py         # 全量批量转换脚本
+├── core/                  # 核心数据结构
+│   ├── types.py           # AnimationIR, BoneIR, KeyframeData
+│   ├── quaternion.py      # 四元数旋转
+│   └── math_utils.py      # 数学工具
+├── convert_model.py       # 单模型转换脚本
+├── config.py              # 配置
+└── MDO-SRP-SRC/           # 源数据 (geo.json + animation.json + png)
 ```
 
-## Converter Pipeline (v4.0)
+## 使用方法
 
-The super converter uses a **multi-stage animation pipeline**:
-
-```
-Parse → CarryForward → LoopExtend → CatmullRomBake → IdleWalkMerge → WalkEnhance → Export
-```
-
-### Key Features
-
-- **Interpolation-Aware Carry-Forward**: Fills missing axes at merged time points using CatmullRom interpolation from each axis's own time series (not simple step-function carry-forward)
-- **Loop Extension**: Short loop animations are extended to 3–8x cycles to reduce CatmullRom boundary distortion frequency
-- **CatmullRom Baking**: All CatmullRom curves are baked into dense linear keyframes (20fps) to eliminate Blockbench's CatmullRom loop boundary bug
-- **Idle-Walk Merging**: Merges idle animation data (arm/tentacle sway) into walk animations to simulate GeckoLib's animation layering
-- **Walk Enhancement**: Adds synthetic leg rotation to walk animations that are overlay-only (the original mod relies on Java-side programmatic leg rotation)
-- **Quaternion Rotation Handling**: Proper shortest-path rotation normalization without gimbal lock
-- **UV Normalization**: Correct handling of negative `uv_size` values in source data
-- **Duplicate Bone Merging**: Handles source models with duplicate bone entries
-
-### Usage
+### 单模型转换
 
 ```bash
-# Single model conversion
-python3 run.py single --geo model.geo.json --anim model.animation.json --tex model.png --output model.bbmodel
+python3 convert_model.py <category> <name>
+# 示例: python3 convert_model.py pure pheon
+# 示例: python3 convert_model.py deterrent dod
+```
 
-# Batch conversion (MDO-SRP)
+### 批量转换
+
+```bash
 python3 batch/mdo_srp.py
 ```
 
-## Model Format
+### 输出
 
-All models are in **Blockbench .bbmodel** format (Bedrock model format), compatible with Blockbench 4.x+.
+转换后的 `.bbmodel` 文件保存在 `models/<category>/` 目录下。
 
-Each file contains:
-- Model geometry (bones, cubes, UV mapping)
-- Animations (keyframe-based with linear interpolation after CatmullRom baking)
-- Embedded texture (base64 PNG)
+## 转换流程
 
-## Source Data
+```
+1. 解析 geo.json → BoneIR (骨骼结构)
+2. 加载动画数据 (MVE + upstream animation.json)
+3. Carry-forward 插值填充
+4. Idle-Walk 动画合并
+5. Walk 动画增强
+6. 频率吸附 + 边界混合
+7. Catmullrom 烘焙
+8. RDP 关键帧简化
+9. 导出 .bbmodel
+```
 
-Source models from: [Qom-Inseac (SRParasites)](https://github.com/Codestar-rgb/Qom-Inseac)
+## 版本历史
 
-## Version
+| 版本 | 主要改进 |
+|------|----------|
+| v6.9.15 | 修复 fly mainbody 位置 (移除错误 Z 旋转) |
+| v6.9.13 | 添加组合状态动画 (idle_shaking, fly_vomit) |
+| v6.9.12 | 振幅自适应 RDP + 移除速度平滑尖峰 |
+| v6.9.11 | 精确 180° 旋转烘焙 + UV 面交换 |
+| v6.9.10 | 纯单轴 180° 烘焙修复 |
+| v6.9.8 | 频率吸附 + 边界混合 + 速度平滑 |
+| v6.9.6 | 变量重新赋值 bug 修复 (影响 146 个模型) |
+| v6.9.5 | Catmullrom 插值 (消除机械感) |
+| v6.9.0 | RDP 关键帧简化 |
 
-Super Converter v4.0 — Walk Animation Completeness Release
+## 技术细节
+
+### MVE 代码级动作捕捉
+
+MVE (Model Variable Evaluator) 通过解析 Java `setRotationAngles` 方法的反编译源码，提取每个骨骼的三角函数赋值表达式，然后在多帧时间点上求值，生成 ground-truth 动画数据。
+
+**变量顺序处理** (v6.9.6): Java 代码中变量可能被重新赋值（如 `f1` 先用于 idle 频率，再赋值为 state1 频率）。MVE 按源码顺序处理变量赋值和骨骼赋值，确保每个骨骼使用正确的变量值。
+
+### 频率吸附
+
+对于正弦波驱动的骨骼（如触手摆动），检测其频率并吸附到最近的整数周期，实现无缝循环。4 个不可约分频率通过选择最优动画长度 + 强制首末帧一致实现近似无缝。
+
+### Catmullrom 插值
+
+所有旋转通道使用 catmullrom 插值（而非 linear），通过关键帧点绘制平滑 C1 连续曲线，匹配原始正弦波形状，消除机械感。
+
+### 振幅自适应 RDP
+
+关键帧简化阈值根据骨骼振幅自适应：
+- 振幅 > 30°: 阈值 = 振幅 × 0.2%（保留更多关键帧）
+- 振幅 ≤ 30°: 默认 0.15° 阈值
+- 零振幅骨骼: 仅保留首末两帧
+
+## 许可
+
+本转换器仅用于学习和研究目的。SRP 模组版权归 [Dhanantry](https://www.curseforge.com/minecraft/mc-mods/scape-and-run-parasites) 所有。
