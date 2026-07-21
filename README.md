@@ -42,6 +42,10 @@ SRP（Scape and Run: Parasites）是 Minecraft 1.12.2 的知名寄生虫主题�
 | **Idle-Walk 合并** | `engine/idle_walk_merger.py` | 合并 idle 动画到 walk（模拟 GeckoLib 分层） |
 | **Walk 增强** | `engine/walk_enhancer.py` | 生成合成行走运动 |
 | **180° 旋转烘焙** | `backend/bbmodel_exporter.py` | 纯单轴 180° 旋转烘焙到立方体位置 |
+| **FFT 频率验证** | `engine/fft_validator.py` | FFT 验证 MVE 捕获频率 vs Java 源码频率 |
+| **Molang 符号化注入** | `engine/molang_injector.py` | 运行时变量映射为 GeckoLib Molang 表达式 |
+| **分层循环** | `engine/layered_loop.py` | 按频率分组骨骼，每层独立最优循环长度 |
+| **自适应采样** | `engine/mve_capture.py` | 基于 Nyquist 定理的自适应采样率 |
 | **UV 面交换** | `backend/bbmodel_exporter.py` | 180° 旋转骨骼的 east/west UV 交换 |
 
 ## 关键技术
@@ -158,6 +162,7 @@ SubspaceParasite/
 
 | 版本 | 主要改进 |
 |------|----------|
+| v6.9.17 | FFT 频率验证、自适应采样率、Molang 符号化注入、分层循环 |
 | v6.9.16 | 共享代码提取修复（_extract_states 包含 if/else 后的共享动画） |
 | v6.9.15 | 修复 fly mainbody 位置（移除错误 Z 旋转，使用正确 position） |
 | v6.9.13 | 添加组合状态动画（idle_shaking, fly_vomit） |
