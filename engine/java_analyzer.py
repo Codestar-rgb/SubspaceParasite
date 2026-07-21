@@ -301,6 +301,21 @@ def _extract_states(set_rotation_body: str) -> List[StateInfo]:
     if not matches:
         return [StateInfo(state_value=0, body=set_rotation_body)]
 
+    # Find shared code (after the LAST state branch)
+    # This code runs regardless of state and should be in every state body
+    last_match = matches[-1]
+    last_body_start = last_match.end()
+    depth = 1
+    j = last_body_start
+    while j < len(set_rotation_body) and depth > 0:
+        c = set_rotation_body[j]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        j += 1
+    shared_code = set_rotation_body[j:]  # Everything after the last state block
+
     for i, m in enumerate(matches):
         state_val = int(m.group(1))
         body_start = m.end()
@@ -316,8 +331,8 @@ def _extract_states(set_rotation_body: str) -> List[StateInfo]:
             j += 1
         state_body = set_rotation_body[body_start : j - 1]
         # Prepend pre-state code (variable declarations + unconditional assignments)
-        # so the simulator can resolve variables and capture state-independent anims
-        full_body = pre_branch + "\n" + state_body
+        # AND append shared code (runs regardless of state)
+        full_body = pre_branch + "\n" + state_body + "\n" + shared_code
         states.append(StateInfo(state_value=state_val, body=full_body))
 
     return states
