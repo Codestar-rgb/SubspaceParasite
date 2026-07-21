@@ -1,36 +1,26 @@
-#!/usr/bin/env python3
 """
-AST Symbol Compiler — Engine Package
-=======================================
+SRP Model Converter — Engine Package
+=====================================
 
-The engine package implements the animation processing pipeline that transforms
-parsed AnimationIR data into clean, loop-aligned, rotation-normalized data
-ready for serialization to .bbmodel format.
+Animation processing engine that transforms parsed AnimationIR data
+into clean, loop-aligned, catmullrom-baked keyframes ready for .bbmodel export.
 
-NEW Pipeline (AST Symbol Compiler architecture):
-  1. Validate       — Clean and validate parsed data
-  2. SymbolCompile  — Build symbol table with per-segment AST expressions
-  3. PeriodLock     — LCM-based period detection for seamless loops
-  4. SymbolEvaluate — Evaluate AST at merged time points → KeyframeData
-  5. LoopAlign      — Ensure loop animations match at boundaries
-  6. RotationNormalize — Quaternion-based rotation normalization (minimal)
-
-KEY IMPROVEMENTS over the old pipeline:
-  - No separate carry-forward step (evaluation fills values on demand)
-  - Interpolation selected BEFORE evaluation (fixes chicken-and-egg problem)
-  - CatmullRom overshoot clamping built into AST expressions
-  - LCM-based period locking for consistent looping across all bones
-
-Usage:
-    from engine import AnimationPipeline, PipelineResult
-    pipeline = AnimationPipeline()
-    result = pipeline.process(animations, model_name="kirin")
-    processed = result.animations
+Modules:
+  mve_capture              — MVE code-level motion capture from Java source
+  java_analyzer            — Java source analysis (state machine, variables, assignments)
+  java_trig_simulator      — Java trigonometric expression simulation
+  safe_evaluator           — AST-restricted safe expression evaluation
+  mve_data_loader          — MVE data loading
+  carry_forward            — Interpolation-aware axis value filling
+  idle_walk_merger         — Idle-Walk animation merging
+  walk_enhancer            — Walk animation enhancement
+  frequency_snapper        — Frequency snapping + boundary blending
+  catmullrom_baker         — Catmullrom curve baking
+  keyframe_simplifier      — RDP keyframe simplification
+  head_tracking_injector   — Head tracking Molang injection
+  runtime_behavior_injector — Runtime behavior injection
+  fft_validator            — FFT frequency validation
+  reverse_validator        — Reverse sine-fit quality validation
+  molang_injector          — Runtime variable Molang symbolic injection
+  layered_loop             — Multi-frequency layered looping
 """
-
-from .pipeline import AnimationPipeline, PipelineResult
-
-__all__ = [
-    "AnimationPipeline",
-    "PipelineResult",
-]

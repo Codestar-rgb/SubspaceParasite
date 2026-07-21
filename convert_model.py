@@ -15,6 +15,9 @@ from engine.idle_walk_merger import merge_idle_into_walk
 from engine.walk_enhancer import enhance_walk_animations
 from engine.frequency_snapper import snap_animation_frequencies
 from engine.fft_validator import validate_animation_frequencies
+from engine.harmonic_decomposer import decompose_harmonics, harmonics_to_molang, fit_quality
+from engine.runtime_sampler import RuntimeSampler
+from engine.pixel_validator import print_pixel_report
 from engine.layered_loop import group_bones_by_frequency, compute_layer_length
 from engine.catmullrom_baker import bake_all_animations
 from engine.keyframe_simplifier import simplify_animations_v3 as simplify_animations
