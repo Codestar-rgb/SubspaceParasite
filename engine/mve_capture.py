@@ -106,6 +106,31 @@ TIME_SAMPLES_PER_CYCLE = 20   # 80 keyframes per cycle (increased from 40 for an
 ATTACK_TIMER_SAMPLES = 5      # 0.0, 0.1, 0.2, 0.3, 0.4
 
 
+def _adaptive_sample_count(assignments, variables, cycle_length, default=20):
+    """Compute adaptive sample count based on highest frequency (Nyquist theorem).
+
+    v6.9.17: Uses 16x oversampling for smooth catmullrom curves.
+    Clamped to [20, 240] to avoid excessive keyframes.
+    """
+    import math, re
+    from engine.java_trig_simulator import _detect_cycle_period
+
+    max_freq = 0
+    for a in assignments:
+        p = _detect_cycle_period(a.expression, variables)
+        if p > 0 and p < 3.9:
+            freq = 2 * math.pi / (p * 20)  # rad/tick
+            max_freq = max(max_freq, freq)
+
+    if max_freq <= 0:
+        return default
+
+    # Nyquist: at least 2x, use 16x for smooth curves
+    # samples = max_freq * cycle_length * 20 * 16 / (2 * pi)
+    min_samples = int(max_freq * cycle_length * 20 * 16 / (2 * math.pi))
+    return max(default, min(min_samples, 240))
+
+
 def _extract_gs_gd(state_body: str) -> Tuple[float, float]:
     """Extract GS (speed) and GD (degree) multipliers from state body."""
     gs_val = 1.5
@@ -426,6 +451,8 @@ def capture_model_animations(
     if sample_count <= 0:
         sample_count = TIME_SAMPLES_PER_CYCLE
 
+    # v6.9.17: Will be overridden per-state by adaptive sampling
+
     # Read Java source ONCE (was read 3x per model — perf bug)
     try:
         with open(meta.java_path, "r", encoding="utf-8") as f:
@@ -464,9 +491,12 @@ def capture_model_animations(
         idle_vars_decls = _resolve_variables_decls_only(idle_body)
         cycle_length = _detect_dominant_period(idle_assignments, idle_vars_decls) if idle_assignments else 4.0
 
+        # v6.9.17: Adaptive sample count based on highest frequency
+        adaptive_count = _adaptive_sample_count(idle_assignments, idle_variables, cycle_length, sample_count)
+
         idle_curves: Dict[str, List[dict]] = {}
         if idle_assignments:
-            for i in range(sample_count + 1):
+            for i in range(adaptive_count + 1):
                 t = i * cycle_length / sample_count
                 age_in_ticks = t * 20.0
                 frame = _capture_state_frame(

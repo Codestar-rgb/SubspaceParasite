@@ -24,7 +24,7 @@ WORK_ROOT = Path(os.environ.get("SRP_WORK_ROOT", _CONVERTER_DIR.parent))
 INPUT_DIR = str(Path(os.environ.get("SRP_INPUT_DIR", WORK_ROOT / "SubspaceParasite" / "MDO-SRP-SRC")))
 
 # Decompiled: CFR-decompiled SRP ModelX.java files (for Java trig analysis)
-DECOMPILED_DIR = str(Path(os.environ.get("SRP_DECOMPILED_DIR", WORK_ROOT / "decompiled" / "all")))
+DECOMPILED_DIR = str(Path(os.environ.get("SRP_DECOMPILED_DIR", "/tmp/qom-inseac/src/main/java")))
 
 # MVE: captured animation data (code-level mocap JSON)
 MVE_DATA_DIR = str(Path(os.environ.get("SRP_MVE_DIR", WORK_ROOT / "mve-capture" / "data")))

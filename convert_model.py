@@ -14,6 +14,8 @@ from engine.carry_forward import apply_carry_forward_all
 from engine.idle_walk_merger import merge_idle_into_walk
 from engine.walk_enhancer import enhance_walk_animations
 from engine.frequency_snapper import snap_animation_frequencies
+from engine.fft_validator import validate_animation_frequencies
+from engine.layered_loop import group_bones_by_frequency, compute_layer_length
 from engine.catmullrom_baker import bake_all_animations
 from engine.keyframe_simplifier import simplify_animations_v3 as simplify_animations
 from core.types import AnimationIR
@@ -251,6 +253,12 @@ def convert_model(category, name, out_dir=None):
     # Step 3c2: Frequency snapping (v6.9.8)
     if animations_ir:
         animations_ir = snap_animation_frequencies(animations_ir, name)
+
+    # Step 3e2: FFT validation (v6.9.17)
+    if animations_ir:
+        issues = validate_animation_frequencies(animations_ir, name)
+        if issues:
+            print(f"  FFT validation: {len(issues)} frequency deviations detected")
 
     # Step 3e: Filter out stub/empty animations (v6.9.11)
     # Remove: length <= 0, <5 kf, or <3 animators (stubs like visibility)

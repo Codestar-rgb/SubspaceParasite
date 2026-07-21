@@ -212,7 +212,7 @@ def translate_java_to_python(expr: str) -> str:
     py_expr = py_expr.replace("MathHelper.func_76130_b", "__clamp")
     py_expr = py_expr.replace("MathHelper.func_76131_a", "__floor")
     # Remove Java float suffix and casts
-    py_expr = re.sub(r"(\d+(?:\.\d+)?)f", r"\1", py_expr)
+    py_expr = re.sub(r"(\d+(?:\.\d+)?)[fF]", r"\1", py_expr)
     py_expr = py_expr.replace("(float)", "").replace("(int)", "")
     py_expr = py_expr.replace("(double)", "")
     # PI / E constants
