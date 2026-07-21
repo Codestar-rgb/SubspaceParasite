@@ -41,6 +41,9 @@ SubspaceParasite/
 │   ├── fft_validator.py             # FFT 频率验证
 │   ├── reverse_validator.py         # 逆向正弦拟合质量验证
 │   ├── molang_injector.py           # 运行时变量 Molang 符号化
+│   ├── harmonic_decomposer.py       # FFT 谐波分解 + LM 精拟合
+│   ├── runtime_sampler.py           # Mixin 运行时采样库加载
+│   ├── pixel_validator.py           # SSIM/PSNR 像素级验证
 │   └── layered_loop.py              # 多频率分层循环
 ├── backend/                         # 导出器
 │   └── bbmodel_exporter.py          # .bbmodel 格式导出
@@ -100,6 +103,7 @@ Java 源码 ──▶ MVE 捕获 ──▶ Carry-forward ──▶ Idle-Walk 合
 
 | 版本 | 主要改进 |
 |------|----------|
+| v6.9.19 | Mixin 运行时采样 + FFT 谐波分解 + Molang 保留 + 像素验证 |
 | v6.9.18 | 逆向验证器（.bbmodel → Java 正弦拟合质量指标） |
 | v6.9.17 | FFT 验证、自适应采样、Molang 注入、分层循环 |
 | v6.9.16 | 共享代码提取修复 |
